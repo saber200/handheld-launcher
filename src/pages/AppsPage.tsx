@@ -17,6 +17,12 @@ export function AppsPage() {
         setStatus("");
         return target.mode === "add" ? library.addFromFile(file) : library.setLaunchPath(target.id, file);
       }}
+      onHide={(id) => {
+        setStatus("");
+        return library.hide(id);
+      }}
+      scanning={library.scanning}
+      onScan={() => setStatus(library.rescan())}
       renderCard={(app, cardRef, options) => (
         <AppCard
           key={app.id}

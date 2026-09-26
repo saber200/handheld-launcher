@@ -3,8 +3,6 @@ mod media;
 mod scan;
 mod startup;
 
-use std::sync::atomic::Ordering;
-
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -56,7 +54,7 @@ pub fn run() {
                 let watched = window.clone();
                 window.on_window_event(move |event| {
                     if let WindowEvent::Focused(true) = event {
-                        if scan::RESUME_FULLSCREEN.swap(false, Ordering::Relaxed) {
+                        if scan::take_fullscreen_resume() {
                             let _ = watched.set_fullscreen(true);
                         }
                     }

@@ -1,6 +1,7 @@
 export type FileActions = {
   back?: () => boolean;
   openMenu?: () => boolean;
+  toggleSelect?: () => boolean;
   blocksTabs?: () => boolean;
   dismiss?: () => void;
 };

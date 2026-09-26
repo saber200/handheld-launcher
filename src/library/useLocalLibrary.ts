@@ -74,6 +74,25 @@ function formatError(err: unknown): string {
   return "扫描失败";
 }
 
+function scanCacheKey(command: string) {
+  return `handheld-launcher.scan.${command}`;
+}
+
+function readScanCache<TRaw>(command: string): TRaw[] | null {
+  try {
+    const raw = localStorage.getItem(scanCacheKey(command));
+    if (raw == null) return null;
+    const parsed = JSON.parse(raw) as TRaw[];
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeScanCache<TRaw>(command: string, rows: TRaw[]) {
+  localStorage.setItem(scanCacheKey(command), JSON.stringify(rows));
+}
+
 function useScanned<TRaw, T extends { name: string }>(
   command: string,
   preview: T[],
@@ -85,36 +104,70 @@ function useScanned<TRaw, T extends { name: string }>(
   },
   map: (row: TRaw) => T,
   afterLoad?: (items: T[], update: (next: T[]) => void) => void,
-): { items: T[]; note: string } {
+): { items: T[]; note: string; scanning: boolean; rescan: () => void } {
   const native = inTauri();
-  const [items, setItems] = useState<T[] | null>(null);
+  const [items, setItems] = useState<T[] | null>(() => {
+    if (!native) return null;
+    const cached = readScanCache<TRaw>(command);
+    if (!cached) return null;
+    return cached.map(map).sort((a, b) => a.name.localeCompare(b.name, "zh"));
+  });
   const [error, setError] = useState("");
+  const [scanning, setScanning] = useState(false);
+
+  const finish = useCallback(
+    (rows: TRaw[], cancel: { current: boolean }) => {
+      writeScanCache(command, rows);
+      const next = rows.map(map).sort((a, b) => a.name.localeCompare(b.name, "zh"));
+      if (cancel.current) return;
+      setItems(next);
+      setError("");
+      afterLoad?.(next, (updated) => {
+        if (!cancel.current) setItems(updated);
+      });
+    },
+    [afterLoad, command, map],
+  );
+
+  const run = useCallback(
+    (cancel: { current: boolean }) => {
+      setScanning(true);
+      setError("");
+      invoke<TRaw[]>(command)
+        .then((rows) => finish(rows, cancel))
+        .catch((err: unknown) => {
+          if (!cancel.current) setError(formatError(err));
+        })
+        .finally(() => {
+          if (!cancel.current) setScanning(false);
+        });
+    },
+    [command, finish],
+  );
 
   useEffect(() => {
     if (!native) return;
-    let cancel = false;
-    invoke<TRaw[]>(command)
-      .then((rows) => {
-        if (cancel) return;
-        const next = rows.map(map).sort((a, b) => a.name.localeCompare(b.name, "zh"));
-        setItems(next);
-        afterLoad?.(next, (updated) => {
-          if (!cancel) setItems(updated);
-        });
-      })
-      .catch((err: unknown) => {
-        if (!cancel) setError(formatError(err));
-      });
+    if (readScanCache<TRaw>(command)) return;
+    const cancel = { current: false };
+    run(cancel);
     return () => {
-      cancel = true;
+      cancel.current = true;
     };
-  }, [afterLoad, command, map, native]);
+  }, [command, native, run]);
 
-  if (!native) return { items: preview, note: notes.preview };
-  if (error) return { items: [], note: `扫描失败：${error}` };
-  if (!items) return { items: [], note: notes.scanning };
-  if (items.length === 0) return { items: [], note: notes.empty };
-  return { items, note: notes.ready(items.length) };
+  const rescan = useCallback(() => {
+    if (!native) return;
+    run({ current: false });
+  }, [native, run]);
+
+  if (!native) return { items: preview, note: notes.preview, scanning: false, rescan };
+  if (scanning && items && items.length > 0) {
+    return { items, note: "正在重新扫描…", scanning, rescan };
+  }
+  if (error) return { items: items ?? [], note: `扫描失败：${error}`, scanning, rescan };
+  if (!items || scanning) return { items: items ?? [], note: notes.scanning, scanning: true, rescan };
+  if (items.length === 0) return { items: [], note: notes.empty, scanning, rescan };
+  return { items, note: notes.ready(items.length), scanning, rescan };
 }
 
 function displayCover(row: RawGame): string {
@@ -141,6 +194,16 @@ function cacheMissingCovers(items: GameEntry[], update: (next: GameEntry[]) => v
     .then((saved) => {
       if (saved.length === 0) return;
       const paths = new Map(saved.map((item) => [item.id, item.coverPath]));
+      const cached = readScanCache<RawGame>("scan_games");
+      if (cached) {
+        writeScanCache(
+          "scan_games",
+          cached.map((row) => {
+            const path = paths.get(row.id);
+            return path ? { ...row, coverPath: path, cover: "" } : row;
+          }),
+        );
+      }
       update(
         items.map((game) => {
           const path = paths.get(game.id);
@@ -183,10 +246,11 @@ type ExtraItem = {
 type Extras = {
   added: ExtraItem[];
   paths: Record<string, { launchPath: string; installPath: string }>;
+  hidden: string[];
 };
 
 function emptyExtras(): Extras {
-  return { added: [], paths: {} };
+  return { added: [], paths: {}, hidden: [] };
 }
 
 function loadExtras(kind: "games" | "apps"): Extras {
@@ -197,6 +261,7 @@ function loadExtras(kind: "games" | "apps"): Extras {
     return {
       added: Array.isArray(parsed.added) ? parsed.added : [],
       paths: parsed.paths && typeof parsed.paths === "object" ? parsed.paths : {},
+      hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((id) => typeof id === "string") : [],
     };
   } catch {
     return emptyExtras();
@@ -226,6 +291,7 @@ function useLibraryExtras(kind: "games" | "apps") {
       const id = `local:${kind}:${Date.now()}`;
       setExtras((prev) => ({
         ...prev,
+        hidden: prev.hidden.filter((item) => item !== id),
         added: [...prev.added, { id, name, launchPath, installPath }],
       }));
       if (kind === "apps" && inTauri()) {
@@ -249,13 +315,23 @@ function useLibraryExtras(kind: "games" | "apps") {
     const installPath = parentPath(file.path) ?? "";
     const name = programName(file.name);
     setExtras((prev) => ({
+      ...prev,
       paths: { ...prev.paths, [id]: { launchPath, installPath } },
       added: prev.added.map((item) => (item.id === id ? { ...item, launchPath, installPath } : item)),
     }));
     return `已改为直接启动「${name}」。`;
   }, []);
 
-  return { extras, add, setLaunchPath };
+  const hide = useCallback((id: string) => {
+    setExtras((prev) => ({
+      ...prev,
+      added: prev.added.filter((item) => item.id !== id),
+      hidden: prev.hidden.includes(id) ? prev.hidden : [...prev.hidden, id],
+    }));
+    return "已从库里拿掉。磁盘上的文件还在。";
+  }, []);
+
+  return { extras, add, setLaunchPath, hide };
 }
 
 function withPaths<T extends { id: string; launchPath?: string; installPath?: string; customPath?: boolean }>(
@@ -269,7 +345,8 @@ function withPaths<T extends { id: string; launchPath?: string; installPath?: st
   });
 }
 
-function libraryNote(scannedCount: number, shownCount: number, scannedNote: string) {
+function libraryNote(scannedCount: number, shownCount: number, hiddenCount: number, scannedNote: string) {
+  if (shownCount === 0 && hiddenCount > 0) return "这些项目已从库里拿掉，磁盘上的文件还在。";
   if (scannedCount === 0 && shownCount > 0) return `没有新的扫描结果。手动添加的有 ${shownCount} 个。`;
   return scannedNote;
 }
@@ -295,7 +372,9 @@ export function useLocalGames() {
         installPath: item.installPath,
         customPath: true,
       }));
-    return [...base, ...added].sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    return [...base, ...added]
+      .filter((item) => !extra.extras.hidden.includes(item.id))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh"));
   }, [extra.extras, scanned.items]);
   const addFromFile = useCallback(
     (file: PickedProgram) => {
@@ -306,9 +385,18 @@ export function useLocalGames() {
   );
   return {
     items,
-    note: libraryNote(scanned.items.length, items.length, scanned.note),
+    note: scanned.scanning
+      ? scanned.note
+      : libraryNote(scanned.items.length, items.length, extra.extras.hidden.length, scanned.note),
+    scanning: scanned.scanning,
+    rescan: () => {
+      if (!inTauri()) return "浏览器预览不会扫描本机。";
+      scanned.rescan();
+      return "";
+    },
     addFromFile,
     setLaunchPath: extra.setLaunchPath,
+    hide: extra.hide,
   };
 }
 
@@ -334,7 +422,9 @@ export function useLocalApps() {
         installPath: item.installPath,
         customPath: true,
       }));
-    return [...base, ...added].sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    return [...base, ...added]
+      .filter((item) => !extra.extras.hidden.includes(item.id))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh"));
   }, [extra.extras, scanned.items]);
   const addFromFile = useCallback(
     (file: PickedProgram) => {
@@ -345,8 +435,17 @@ export function useLocalApps() {
   );
   return {
     items,
-    note: libraryNote(scanned.items.length, items.length, scanned.note),
+    note: scanned.scanning
+      ? scanned.note
+      : libraryNote(scanned.items.length, items.length, extra.extras.hidden.length, scanned.note),
+    scanning: scanned.scanning,
+    rescan: () => {
+      if (!inTauri()) return "浏览器预览不会扫描本机。";
+      scanned.rescan();
+      return "";
+    },
     addFromFile,
     setLaunchPath: extra.setLaunchPath,
+    hide: extra.hide,
   };
 }

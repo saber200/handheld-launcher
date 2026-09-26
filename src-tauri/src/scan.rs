@@ -5,8 +5,27 @@ use std::collections::{HashMap, HashSet};
 #[cfg(windows)]
 use std::path::{Path, PathBuf};
 
-/// Set after a launch minimizes the window. The next focus restores fullscreen once.
+/// Set after a launch leaves fullscreen. A later focus restores it once.
 pub static RESUME_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+static RESUME_NOT_BEFORE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|dur| u64::try_from(dur.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+pub fn take_fullscreen_resume() -> bool {
+    if !RESUME_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed) {
+        return false;
+    }
+    if unix_ms() < RESUME_NOT_BEFORE.load(std::sync::atomic::Ordering::Relaxed) {
+        return false;
+    }
+    RESUME_FULLSCREEN.store(false, std::sync::atomic::Ordering::Relaxed);
+    true
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,8 +91,12 @@ pub fn launch_item(
 ) -> Result<(), String> {
     #[cfg(windows)]
     {
-        windows::launch(&id, &launch_path, &install_path)?;
-        tuck_launcher(&app);
+        leave_fullscreen(&app);
+        if let Err(err) = windows::launch(&id, &launch_path, &install_path) {
+            restore_fullscreen(&app);
+            return Err(err);
+        }
+        arm_fullscreen_resume();
         return Ok(());
     }
     #[cfg(not(windows))]
@@ -84,13 +107,28 @@ pub fn launch_item(
 }
 
 #[cfg(windows)]
-fn tuck_launcher(app: &tauri::AppHandle) {
+fn launcher_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     use tauri::Manager;
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    let _ = window.set_fullscreen(false);
-    let _ = window.minimize();
+    app.get_webview_window("main")
+}
+
+#[cfg(windows)]
+fn leave_fullscreen(app: &tauri::AppHandle) {
+    if let Some(window) = launcher_window(app) {
+        let _ = window.set_fullscreen(false);
+    }
+}
+
+#[cfg(windows)]
+fn restore_fullscreen(app: &tauri::AppHandle) {
+    if let Some(window) = launcher_window(app) {
+        let _ = window.set_fullscreen(true);
+    }
+}
+
+#[cfg(windows)]
+fn arm_fullscreen_resume() {
+    RESUME_NOT_BEFORE.store(unix_ms().saturating_add(1200), std::sync::atomic::Ordering::Relaxed);
     RESUME_FULLSCREEN.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 

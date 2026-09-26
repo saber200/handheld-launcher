@@ -60,6 +60,12 @@ export default function App() {
           return;
         }
       }
+      if (e.key === "x" || e.key === "X") {
+        if (fileActions().toggleSelect?.()) {
+          e.preventDefault();
+          return;
+        }
+      }
       if (e.key === "b" || e.key === "B") {
         e.preventDefault();
         if (fileActions().back?.()) return;
@@ -109,6 +115,9 @@ export default function App() {
     },
     onFaceTop: () => {
       fileActions().openMenu?.();
+    },
+    onFaceLeft: () => {
+      fileActions().toggleSelect?.();
     },
     onBack: () => {
       if (fileActions().back?.()) return;
@@ -164,6 +173,7 @@ export default function App() {
         {tab === "files" ? (
           <>
             <span>方向键选择</span>
+            <span>X 多选</span>
             <span>A 打开或编辑</span>
             <span>B 返回</span>
             <span>Y 复制 / 移动</span>

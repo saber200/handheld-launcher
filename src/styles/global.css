@@ -237,6 +237,7 @@ button {
 }
 
 .group-switch-side {
+  flex-shrink: 0;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -247,6 +248,11 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  width: 100%;
+}
+
+.library-tools .scan-action {
+  margin-left: auto;
 }
 
 .library-tool {
@@ -257,8 +263,7 @@ button {
   background: rgba(61, 214, 198, 0.08);
 }
 
-.library-tool:focus,
-.library-tool-solid {
+.library-tool:focus {
   color: #06241f;
   background: var(--accent);
   border-color: transparent;
@@ -625,4 +630,164 @@ img.app-icon {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent);
   background: rgba(61, 214, 198, 0.08);
+}
+
+.files-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.files-title-row .group-switch {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-view-toggle {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.file-view {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.file-view.is-current {
+  color: #06241f;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.file-line .file-row {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.file-line,
+.file-tile-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-check {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  color: #06241f;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.file-check.on {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.file-tile-wrap .file-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+}
+
+.file-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  scroll-margin: 12px;
+}
+
+.file-tile-face {
+  width: 100%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.file-tile-face.is-dir {
+  color: #06241f;
+  background: var(--accent);
+}
+
+.file-tile:focus {
+  background: transparent;
+  box-shadow: none;
+}
+
+.file-tile:focus .file-tile-face,
+.file-tile.is-picked .file-tile-face {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.file-row.is-picked {
+  border-color: var(--accent);
+}
+
+.library-group-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.group-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.group-strip-scroll {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.group-chip {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.group-chip.is-current {
+  color: #06241f;
+  background: var(--accent);
+  border-color: transparent;
 }

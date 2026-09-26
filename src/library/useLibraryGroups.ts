@@ -39,6 +39,10 @@ export function useLibraryGroups(kind: "games" | "apps") {
 
   const filters = ["all", ...bucket.groups.map((group) => group.id)];
 
+  const setActive = useCallback((id: string) => {
+    setActiveId(id);
+  }, []);
+
   const cycle = useCallback(
     (dir: -1 | 1) => {
       setActiveId((current) => {
@@ -105,6 +109,7 @@ export function useLibraryGroups(kind: "games" | "apps") {
     names: bucket.names ?? {},
     activeId,
     cycle,
+    setActive,
     createGroup,
     deleteGroup,
     assignCard,

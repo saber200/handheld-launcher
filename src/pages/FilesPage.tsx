@@ -4,6 +4,11 @@ import { useFileBrowser, type FileEntry } from "../files/useFileBrowser";
 
 type Naming = "dir" | "file" | null;
 type EditorState = { path: string; name: string; text: string };
+type FileLayout = "list" | "grid";
+
+function loadLayout(): FileLayout {
+  return localStorage.getItem("handheld-launcher.files.layout") === "grid" ? "grid" : "list";
+}
 
 function formatBytes(bytes: number, kind: string) {
   if (kind === "dir") return "文件夹";
@@ -17,6 +22,8 @@ export function FilesPage() {
   const [naming, setNaming] = useState<Naming>(null);
   const [draft, setDraft] = useState("");
   const [menu, setMenu] = useState<FileEntry | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [layout, setLayout] = useState<FileLayout>(loadLayout);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const overlay = useRef({ menu: false, naming: false, editor: false });
   const listRef = useRef<HTMLDivElement>(null);
@@ -45,6 +52,18 @@ export function FilesPage() {
         const entry = files.entries.find((item) => item.name === name);
         if (!entry) return false;
         setMenu(entry);
+        return true;
+      },
+      toggleSelect: () => {
+        if (overlay.current.menu || overlay.current.naming || overlay.current.editor) return false;
+        const name = (document.activeElement as HTMLElement | null)
+          ?.closest("[data-file-name]")
+          ?.getAttribute("data-file-name");
+        const entry = files.entries.find((item) => item.name === name);
+        if (!entry) return false;
+        setPicked((current) =>
+          current.includes(entry.path) ? current.filter((path) => path !== entry.path) : [...current, entry.path],
+        );
         return true;
       },
       back: () => {
@@ -77,6 +96,19 @@ export function FilesPage() {
   }, [files.entries, files.up]);
 
   useEffect(() => {
+    setPicked([]);
+  }, [files.location]);
+
+  function chooseLayout(next: FileLayout) {
+    setLayout(next);
+    localStorage.setItem("handheld-launcher.files.layout", next);
+  }
+
+  function togglePath(path: string) {
+    setPicked((current) => (current.includes(path) ? current.filter((item) => item !== path) : [...current, path]));
+  }
+
+  useEffect(() => {
     if (menu || naming || editor) return;
     if (files.pendingFocus) {
       const el = listRef.current?.querySelector<HTMLElement>(
@@ -89,7 +121,7 @@ export function FilesPage() {
       }
     }
     const active = document.activeElement as HTMLElement | null;
-    if (active?.closest("[data-focus-zone='files-tools'], [data-focus-zone='files-list']")) return;
+    if (active?.closest("[data-focus-zone='files-tools'], [data-focus-zone='files-list'], [data-focus-zone='files-view']")) return;
     (firstRef.current ?? newFolderRef.current)?.focus();
   }, [editor, files, menu, naming]);
 
@@ -161,17 +193,57 @@ export function FilesPage() {
 
   const hint =
     files.note ||
-    (files.preview
-      ? "浏览器预览不会写入磁盘。A 打开，B 返回，Y 对当前项操作。"
-      : "A 打开，B 返回，Y 对当前项复制、移动或编辑。");
+    (picked.length > 0
+      ? `已选 ${picked.length} 项。Y 可复制或移动这些项，再打开目标文件夹按粘贴。`
+      : files.preview
+        ? "浏览器预览不会写入磁盘。X 多选，Y 复制或移动。"
+        : "X 多选，Y 复制或移动。没多选时只处理当前项。");
+
+  const menuTargets =
+    menu == null
+      ? []
+      : files.entries.filter((entry) => picked.includes(entry.path)).length > 0
+        ? files.entries.filter((entry) => picked.includes(entry.path))
+        : [menu];
 
   return (
     <main className="page library-page">
       <div className="library-head">
-        <div className="group-switch" aria-live="polite">
-          <span className="group-switch-side">B</span>
-          <strong className="group-switch-name">{files.title}</strong>
-          <span className="group-switch-side">{files.location == null ? "盘" : "返回"}</span>
+        <div className="files-title-row">
+          <div className="group-switch" aria-live="polite">
+            <span className="group-switch-side">B</span>
+            <strong className="group-switch-name">{files.title}</strong>
+            <span className="group-switch-side">{files.location == null ? "盘" : "返回"}</span>
+          </div>
+          <div className="file-view-toggle" data-focus-zone="files-view" role="group" aria-label="显示方式">
+            <button
+              type="button"
+              className={layout === "list" ? "file-view is-current" : "file-view"}
+              data-focusable
+              aria-label="列表"
+              aria-pressed={layout === "list"}
+              onClick={() => chooseLayout("list")}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+                <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={layout === "grid" ? "file-view is-current" : "file-view"}
+              data-focusable
+              aria-label="视图"
+              aria-pressed={layout === "grid"}
+              onClick={() => chooseLayout("grid")}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+                <rect x="2" y="2" width="5.5" height="5.5" rx="1" fill="currentColor" />
+                <rect x="10.5" y="2" width="5.5" height="5.5" rx="1" fill="currentColor" />
+                <rect x="2" y="10.5" width="5.5" height="5.5" rx="1" fill="currentColor" />
+                <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="library-tools" data-focus-zone="files-tools">
           <button
@@ -220,33 +292,62 @@ export function FilesPage() {
       {files.entries.length === 0 ? (
         <p className="group-empty">这个文件夹是空的。用上方按钮新建，或先复制一项再粘贴。</p>
       ) : (
-        <div className="file-list" data-focus-zone="files-list" ref={listRef}>
-          {files.entries.map((entry, index) => (
-            <button
-              key={entry.path}
-              ref={index === 0 ? firstRef : undefined}
-              type="button"
-              className="file-row"
-              data-focusable
-              data-file-name={entry.name}
-              onClick={() => activate(entry)}
-            >
-              <span className={entry.kind === "dir" ? "file-mark is-dir" : "file-mark"} aria-hidden>
-                {entry.kind === "dir" ? "夹" : "文"}
-              </span>
-              <span className="file-name">{entry.name}</span>
-              <span className="file-size">{formatBytes(entry.bytes, entry.kind)}</span>
-            </button>
-          ))}
+        <div
+          className={layout === "grid" ? "library-grid file-grid" : "file-list"}
+          data-focus-zone="files-list"
+          ref={listRef}
+        >
+          {files.entries.map((entry, index) => {
+            const on = picked.includes(entry.path);
+            return (
+              <div key={entry.path} className={layout === "grid" ? "file-tile-wrap" : "file-line"}>
+                <button
+                  type="button"
+                  className={on ? "file-check on" : "file-check"}
+                  tabIndex={-1}
+                  aria-label={on ? `取消选择 ${entry.name}` : `选择 ${entry.name}`}
+                  aria-pressed={on}
+                  onClick={() => togglePath(entry.path)}
+                >
+                  {on ? "✓" : ""}
+                </button>
+                <button
+                  ref={index === 0 ? firstRef : undefined}
+                  type="button"
+                  className={`${layout === "grid" ? "file-tile" : "file-row"}${on ? " is-picked" : ""}`}
+                  data-focusable
+                  data-file-name={entry.name}
+                  onClick={() => activate(entry)}
+                >
+                  <span
+                    className={
+                      layout === "grid"
+                        ? entry.kind === "dir"
+                          ? "file-tile-face is-dir"
+                          : "file-tile-face"
+                        : entry.kind === "dir"
+                          ? "file-mark is-dir"
+                          : "file-mark"
+                    }
+                    aria-hidden
+                  >
+                    {entry.kind === "dir" ? "夹" : "文"}
+                  </span>
+                  <span className={layout === "grid" ? "library-name" : "file-name"}>{entry.name}</span>
+                  {layout === "list" && <span className="file-size">{formatBytes(entry.bytes, entry.kind)}</span>}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
       {menu && (
         <div className="group-dialog focus-trap open">
           <button type="button" className="drawer-scrim" aria-label="关闭" tabIndex={-1} onClick={() => setMenu(null)} />
           <div className="group-dialog-panel group-create-panel file-menu" role="dialog" aria-label={menu.name}>
-            <h2>{menu.name}</h2>
+            <h2>{menuTargets.length > 1 ? `已选 ${menuTargets.length} 项` : menu.name}</h2>
             <div className="library-tools file-menu-actions">
-              {menu.kind === "file" && menu.editable ? (
+              {menuTargets.length === 1 && menu.kind === "file" && menu.editable ? (
                 <>
                   <button type="button" className="library-tool" data-focusable onClick={() => void edit(menu)}>
                     编辑
@@ -263,17 +364,18 @@ export function FilesPage() {
                     用系统打开
                   </button>
                 </>
-              ) : (
+              ) : menuTargets.length === 1 ? (
                 <button type="button" className="library-tool" data-focusable onClick={() => activate(menu)}>
                   打开
                 </button>
-              )}
+              ) : null}
               <button
                 type="button"
                 className="library-tool"
                 data-focusable
                 onClick={() => {
-                  files.stageCopy(menu);
+                  files.stageCopy(menuTargets);
+                  setPicked([]);
                   setMenu(null);
                 }}
               >
@@ -284,12 +386,26 @@ export function FilesPage() {
                 className="library-tool"
                 data-focusable
                 onClick={() => {
-                  files.stageMove(menu);
+                  files.stageMove(menuTargets);
+                  setPicked([]);
                   setMenu(null);
                 }}
               >
                 移动
               </button>
+              {picked.length > 0 && (
+                <button
+                  type="button"
+                  className="library-tool"
+                  data-focusable
+                  onClick={() => {
+                    setPicked([]);
+                    setMenu(null);
+                  }}
+                >
+                  取消选择
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -326,7 +442,7 @@ export function FilesPage() {
             />
             <p className="group-empty">A 创建。B 先回到创建，再按 B 取消。</p>
             <div className="library-tools">
-              <button ref={createRef} type="submit" className="library-tool library-tool-solid" data-focusable>
+              <button ref={createRef} type="submit" className="library-tool" data-focusable>
                 创建
               </button>
               <button
@@ -372,7 +488,7 @@ export function FilesPage() {
               <button
                 ref={saveRef}
                 type="button"
-                className="library-tool library-tool-solid"
+                className="library-tool"
                 data-focusable
                 onClick={() => {
                   void files.writeText(editor.path, editor.text).then(() => setEditor(null)).catch((err: unknown) => {

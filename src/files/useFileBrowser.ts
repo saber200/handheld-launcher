@@ -9,10 +9,14 @@ export type FileEntry = {
   editable: boolean;
 };
 
-type Clip = {
+type ClipItem = {
   path: string;
   name: string;
   kind: "dir" | "file";
+};
+
+type Clip = {
+  items: ClipItem[];
   mode: "copy" | "move";
 };
 
@@ -166,9 +170,9 @@ function uniqueName(siblings: PreviewNode[], name: string): string {
 
 function applyPreviewPaste(
   tree: PreviewNode,
-  clip: Clip,
+  clip: ClipItem & { mode: Clip["mode"] },
   location: string,
-): { tree: PreviewNode; focus: string; clear: boolean; message: string } | { error: string } {
+): { tree: PreviewNode; focus: string; message: string } | { error: string } {
   const source = findNode(tree, clip.path);
   if (!source) return { error: "找不到要粘贴的项目。" };
   const parent = parentPath(clip.path);
@@ -190,7 +194,6 @@ function applyPreviewPaste(
   return {
     tree: next,
     focus,
-    clear: clip.mode === "move",
     message: clip.mode === "copy" ? `已粘贴「${focus}」。` : `已移动「${focus}」。`,
   };
 }
@@ -278,41 +281,92 @@ export function useFileBrowser() {
     return true;
   }, [location]);
 
-  const stage = useCallback((entry: FileEntry, mode: Clip["mode"]) => {
-    setClip({ path: entry.path, name: entry.name, kind: entry.kind, mode });
-    setNote(mode === "copy" ? `已复制「${entry.name}」。打开目标文件夹后按粘贴。` : `已准备移动「${entry.name}」。打开目标文件夹后按粘贴。`);
+  const stage = useCallback((entries: FileEntry[], mode: Clip["mode"]) => {
+    if (entries.length === 0) return;
+    setClip({
+      items: entries.map((entry) => ({ path: entry.path, name: entry.name, kind: entry.kind })),
+      mode,
+    });
+    const label = entries.length === 1 ? `「${entries[0].name}」` : `${entries.length} 项`;
+    const gap = entries.length === 1 ? "" : " ";
+    setNote(
+      mode === "copy"
+        ? `已复制${gap}${label}。打开目标文件夹后按粘贴。`
+        : `已准备移动${gap}${label}。打开目标文件夹后按粘贴。`,
+    );
   }, []);
 
   const paste = useCallback(async () => {
-    if (!clip) return;
+    if (!clip || clip.items.length === 0) return;
     if (location == null) {
       setNote("先进入一个文件夹，再粘贴。");
       return;
     }
+    const countLabel = clip.items.length === 1 ? "" : `${clip.items.length} 项`;
     if (preview) {
-      const applied = applyPreviewPaste(tree, clip, location);
-      if ("error" in applied) {
-        setNote(applied.error);
-        return;
+      let next = tree;
+      let focus = clip.items[0].name;
+      const done: string[] = [];
+      for (const item of clip.items) {
+        const applied = applyPreviewPaste(next, { ...item, mode: clip.mode }, location);
+        if ("error" in applied) {
+          setTree(next);
+          if (clip.mode === "move") {
+            setClip({ ...clip, items: clip.items.filter((entry) => !done.includes(entry.path)) });
+          }
+          setNote(done.length > 0 ? `已处理 ${done.length} 项。${applied.error}` : applied.error);
+          return;
+        }
+        next = applied.tree;
+        focus = applied.focus;
+        done.push(item.path);
       }
-      setTree(applied.tree);
-      if (applied.clear) setClip(null);
-      setNote(applied.message);
-      setPendingFocus(applied.focus);
+      setTree(next);
+      if (clip.mode === "move") setClip(null);
+      setNote(
+        clip.items.length === 1
+          ? clip.mode === "copy"
+            ? `已粘贴「${focus}」。`
+            : `已移动「${focus}」。`
+          : clip.mode === "copy"
+            ? `已粘贴 ${countLabel}。`
+            : `已移动 ${countLabel}。`,
+      );
+      setPendingFocus(focus);
       return;
     }
-    try {
-      await invoke(clip.mode === "copy" ? "file_copy" : "file_move", {
-        from: clip.path,
-        destDir: location,
-      });
-      setNote(clip.mode === "copy" ? `已粘贴「${clip.name}」。` : `已移动「${clip.name}」。`);
-      if (clip.mode === "move") setClip(null);
-      setPendingFocus(clip.name);
-      await reloadNative(location);
-    } catch (err) {
-      setNote(formatError(err));
+    const done: string[] = [];
+    let failure = "";
+    for (const item of clip.items) {
+      try {
+        await invoke(clip.mode === "copy" ? "file_copy" : "file_move", {
+          from: item.path,
+          destDir: location,
+        });
+        done.push(item.path);
+      } catch (err) {
+        failure = formatError(err);
+        break;
+      }
     }
+    if (clip.mode === "move") {
+      setClip(failure ? { ...clip, items: clip.items.filter((entry) => !done.includes(entry.path)) } : null);
+    }
+    setPendingFocus(clip.items.find((item) => done.includes(item.path))?.name ?? "");
+    setNote(
+      failure
+        ? done.length > 0
+          ? `已处理 ${done.length} 项。${failure}`
+          : failure
+        : clip.mode === "copy"
+          ? clip.items.length === 1
+            ? `已粘贴「${clip.items[0].name}」。`
+            : `已粘贴 ${countLabel}。`
+          : clip.items.length === 1
+            ? `已移动「${clip.items[0].name}」。`
+            : `已移动 ${countLabel}。`,
+    );
+    await reloadNative(location);
   }, [clip, location, preview, reloadNative, tree]);
 
   const createDir = useCallback(
@@ -426,8 +480,8 @@ export function useFileBrowser() {
     clearPendingFocus: useCallback(() => setPendingFocus(""), []),
     enter,
     up,
-    stageCopy: (entry: FileEntry) => stage(entry, "copy"),
-    stageMove: (entry: FileEntry) => stage(entry, "move"),
+    stageCopy: (entries: FileEntry[]) => stage(entries, "copy"),
+    stageMove: (entries: FileEntry[]) => stage(entries, "move"),
     paste,
     createDir,
     createFile,

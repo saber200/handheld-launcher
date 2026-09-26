@@ -13,6 +13,8 @@ type Options = {
   onTriggerRight?: () => void;
   /** Xbox Y / PS Triangle。 */
   onFaceTop?: () => void;
+  /** Xbox X / PS Square。 */
+  onFaceLeft?: () => void;
   enabled?: boolean;
 };
 
@@ -167,6 +169,7 @@ export function useGamepadNav({
   onTriggerLeft,
   onTriggerRight,
   onFaceTop,
+  onFaceLeft,
   enabled = true,
 }: Options) {
   const lastAxis = useRef({ x: 0, y: 0 });
@@ -175,6 +178,7 @@ export function useGamepadNav({
   const triggers = useRef({ l: false, r: false });
   const viewHeld = useRef(false);
   const faceTopHeld = useRef(false);
+  const faceLeftHeld = useRef(false);
   const confirmHeld = useRef(false);
   const backHeld = useRef(false);
 
@@ -215,6 +219,10 @@ export function useGamepadNav({
       const faceTop = !!pad.buttons[3]?.pressed;
       if (faceTop && !faceTopHeld.current && !field) onFaceTop?.();
       faceTopHeld.current = faceTop;
+
+      const faceLeft = !!pad.buttons[2]?.pressed;
+      if (faceLeft && !faceLeftHeld.current && !field) onFaceLeft?.();
+      faceLeftHeld.current = faceLeft;
 
       const ax = pad.axes[0] ?? 0;
       const ay = pad.axes[1] ?? 0;
@@ -268,5 +276,5 @@ export function useGamepadNav({
     };
     frame = window.requestAnimationFrame(loop);
     return () => window.cancelAnimationFrame(frame);
-  }, [enabled, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onTriggerLeft, onTriggerRight, onFaceTop]);
+  }, [enabled, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft]);
 }

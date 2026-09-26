@@ -23,10 +23,24 @@ type Props<T extends Item> = {
   status?: string;
   label: string;
   onUseFile: (target: FileTarget, file: PickedProgram) => string;
+  onHide: (id: string) => string;
+  onScan: () => void;
+  scanning?: boolean;
   renderCard: (item: T, cardRef: Ref<HTMLButtonElement> | undefined, options?: CardOptions) => ReactNode;
 };
 
-export function LibraryShelf<T extends Item>({ kind, items, note, status = "", label, onUseFile, renderCard }: Props<T>) {
+export function LibraryShelf<T extends Item>({
+  kind,
+  items,
+  note,
+  status = "",
+  label,
+  onUseFile,
+  onHide,
+  onScan,
+  scanning = false,
+  renderCard,
+}: Props<T>) {
   const library = useLibraryGroups(kind);
   const firstRef = useRef<HTMLButtonElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
@@ -36,6 +50,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
   const focusAdd = useRef(false);
   const [naming, setNaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [hiding, setHiding] = useState<{ id: string; name: string } | null>(null);
   const [hint, setHint] = useState("");
   const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState("");
@@ -47,18 +62,20 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
   filePickRef.current = fileTarget !== null;
   const namingRef = useRef(naming);
   const deletingRef = useRef(deleting);
+  const hidingRef = useRef(hiding);
   const pickingRef = useRef(picking);
   const menuRef = useRef(menuCardId);
   const menuViewRef = useRef(menuView);
   namingRef.current = naming;
   deletingRef.current = deleting;
+  hidingRef.current = hiding;
   pickingRef.current = picking;
   menuRef.current = menuCardId;
   menuViewRef.current = menuView;
 
   const visible =
     library.activeId === "all"
-      ? items
+      ? items.filter((item) => !library.membership[item.id])
       : items.filter((item) => library.membership[item.id] === library.activeId);
   const visibleKey = visible.map((item) => item.id).join("\0");
   const activeName =
@@ -69,11 +86,11 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
     const blocked = () => document.querySelector(".drawer-root.open") !== null;
     setLibraryActions({
       cycleGroup: (dir) => {
-        if (namingRef.current || deletingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return;
         library.cycle(dir);
       },
       openCardMenu: () => {
-        if (namingRef.current || deletingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return false;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return false;
         const cardId = (document.activeElement as HTMLElement | null)
           ?.closest("[data-card-id]")
           ?.getAttribute("data-card-id");
@@ -84,7 +101,11 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
       },
       closeDialog: () => {
         if (filePickRef.current) return false;
-        if (menuViewRef.current === "group" || menuViewRef.current === "rename") {
+        if (hidingRef.current) {
+          setHiding(null);
+          return true;
+        }
+        if (menuRef.current && (menuViewRef.current === "group" || menuViewRef.current === "rename")) {
           setMenuView("actions");
           setDraft("");
           return true;
@@ -100,7 +121,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
           }, 0);
           return true;
         }
-        if (!namingRef.current && !deletingRef.current && !pickingRef.current) return false;
+        if (!namingRef.current && !deletingRef.current && !hidingRef.current && !pickingRef.current) return false;
         setNaming(false);
         setDeleting(false);
         setPicking(false);
@@ -112,28 +133,32 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
   }, [library]);
 
   useEffect(() => {
-    if (naming || deleting || picking || menuCardId || fileTarget) return;
+    if (naming || deleting || hiding || picking || menuCardId || fileTarget) return;
     if (focusAdd.current && addRef.current) {
       addRef.current.focus();
       focusAdd.current = false;
       return;
     }
     const current = document.activeElement as HTMLElement | null;
-    if (current?.closest("[data-focus-zone='library-tools']")) return;
+    if (current?.closest("[data-focus-zone='library-tools'], [data-focus-zone='library-groups']")) return;
     const id = current?.closest("[data-card-id]")?.getAttribute("data-card-id");
     if (id && visible.some((item) => item.id === id)) return;
     if (firstRef.current) firstRef.current.focus();
     else addRef.current?.focus();
-  }, [library.activeId, visibleKey, naming, deleting, picking, menuCardId, fileTarget, visible]);
+  }, [library.activeId, visibleKey, naming, deleting, hiding, picking, menuCardId, fileTarget, visible]);
 
   useEffect(() => {
     if (naming) nameRef.current?.focus();
   }, [naming]);
 
   useEffect(() => {
-    if (!deleting) return;
+    if (!deleting && !hiding) return;
     document.querySelector<HTMLElement>(".group-dialog [data-focusable]")?.focus();
-  }, [deleting]);
+  }, [deleting, hiding]);
+
+  useEffect(() => {
+    document.querySelector(".group-chip.is-current")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [library.activeId]);
 
   useEffect(() => {
     if (menuView === "rename") renameRef.current?.focus();
@@ -154,7 +179,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
     const rect = card.getBoundingClientRect();
     const width = Math.max(rect.width, 168);
     const left = Math.min(rect.left, window.innerWidth - width - 12);
-    const top = Math.min(rect.top, window.innerHeight - 210);
+    const top = Math.min(rect.top, window.innerHeight - 280);
     setMenuBox({ top: Math.max(12, top), left: Math.max(12, left), width });
   }, [menuCardId, menuView]);
 
@@ -179,10 +204,36 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
   return (
     <main className="page library-page">
       <div className="library-head">
-        <div className="group-switch" aria-live="polite">
+        <div className="library-group-row" data-focus-zone="library-groups" aria-live="polite">
+        <div className="group-strip">
           <span className="group-switch-side">LT</span>
-          <strong className="group-switch-name">{activeName}</strong>
+          <div className="group-strip-scroll" role="tablist" aria-label="分组">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={library.activeId === "all"}
+              className={library.activeId === "all" ? "group-chip is-current" : "group-chip"}
+              data-focusable
+              onClick={() => library.setActive("all")}
+            >
+              全部
+            </button>
+            {library.groups.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                role="tab"
+                aria-selected={library.activeId === group.id}
+                className={library.activeId === group.id ? "group-chip is-current" : "group-chip"}
+                data-focusable
+                onClick={() => library.setActive(group.id)}
+              >
+                {group.name}
+              </button>
+            ))}
+          </div>
           <span className="group-switch-side">RT</span>
+        </div>
         </div>
         <div className="library-tools" data-focus-zone="library-tools">
           <button
@@ -205,6 +256,11 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
           >
             {kind === "games" ? "添加游戏" : "添加软件"}
           </button>
+          {!customGroup && (
+            <button type="button" className="library-tool scan-action" data-focusable disabled={scanning} onClick={onScan}>
+              重新扫描
+            </button>
+          )}
           {customGroup && (
             <button
               ref={addRef}
@@ -230,7 +286,11 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
         <p className="preview-note">{status || hint || note}</p>
       </div>
       {visible.length === 0 && items.length > 0 ? (
-        <p className="group-empty">此分组还没有卡片。用方向键选中「添加卡片」，按 A 从当前库加入。</p>
+        <p className="group-empty">
+          {customGroup
+            ? "暂无卡片"
+            : "未分组的卡片会显示在这里。已经分组的只出现在对应分组。"}
+        </p>
       ) : visible.length === 0 ? null : (
         <section className="library-grid" data-focus-zone="library-grid" aria-label={label}>
           {visible.map((item, index) =>
@@ -239,6 +299,32 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
             }),
           )}
         </section>
+      )}
+      {hiding && (
+        <div className="group-dialog focus-trap open">
+          <button type="button" className="drawer-scrim" aria-label="关闭" tabIndex={-1} onClick={() => setHiding(null)} />
+          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label={kind === "games" ? "删除游戏" : "删除软件"}>
+            <h2>从{kind === "games" ? "游戏库" : "软件库"}拿掉「{hiding.name}」？</h2>
+            <p className="group-empty">只是不再显示在这个库里，不会删除磁盘上的文件。</p>
+            <div className="library-tools">
+              <button type="button" className="library-tool" data-focusable onClick={() => setHiding(null)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => {
+                  library.assignCard(hiding.id, null);
+                  setHint(onHide(hiding.id));
+                  setHiding(null);
+                }}
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {deleting && (
         <div className="group-dialog focus-trap open">
@@ -258,7 +344,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
               </button>
               <button
                 type="button"
-                className="library-tool library-tool-solid"
+                className="library-tool"
                 data-focusable
                 onClick={() => {
                   library.deleteGroup(library.activeId);
@@ -315,7 +401,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
               >
                 取消
               </button>
-              <button type="submit" className="library-tool library-tool-solid" data-focusable>
+              <button type="submit" className="library-tool" data-focusable>
                 创建
               </button>
             </div>
@@ -368,6 +454,20 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
                   }}
                 >
                   修改路径
+                </button>
+                <button
+                  type="button"
+                  className="library-tool"
+                  data-focusable
+                  onClick={() => {
+                    const item = items.find((entry) => entry.id === menuCardId);
+                    if (!menuCardId || !item) return;
+                    setHiding({ id: menuCardId, name: library.names[menuCardId] || item.name });
+                    setMenuCardId(null);
+                    setMenuView("actions");
+                  }}
+                >
+                  {kind === "games" ? "删除游戏" : "删除软件"}
                 </button>
               </>
             )}
@@ -423,7 +523,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, status = "", l
                   maxLength={24}
                   onChange={(event) => setDraft(event.target.value)}
                 />
-                <button type="submit" className="library-tool library-tool-solid" data-focusable>
+                <button type="submit" className="library-tool" data-focusable>
                   保存
                 </button>
               </form>

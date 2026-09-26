@@ -17,6 +17,12 @@ export function GamesPage() {
         setStatus("");
         return target.mode === "add" ? library.addFromFile(file) : library.setLaunchPath(target.id, file);
       }}
+      onHide={(id) => {
+        setStatus("");
+        return library.hide(id);
+      }}
+      scanning={library.scanning}
+      onScan={() => setStatus(library.rescan())}
       renderCard={(game, cardRef, options) => (
         <GameCard
           key={game.id}
