@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-scan-games"
+description = "Scan installed Steam and Epic games."
+commands.allow = ["scan_games"]
+
+[[permission]]
+identifier = "allow-scan-apps"
+description = "Scan installed Windows applications."
+commands.allow = ["scan_apps"]
+
+[[permission]]
+identifier = "allow-launch-item"
+description = "Launch a scanned game or application."
+commands.allow = ["launch_item"]

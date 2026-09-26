@@ -2,21 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-type Props = { onBack: () => void };
-
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export function SettingsPage({ onBack }: Props) {
-  const backRef = useRef<HTMLButtonElement>(null);
+type Props = { active: boolean };
+
+export function SettingsPage({ active }: Props) {
+  const firstRef = useRef<HTMLButtonElement>(null);
   const [autostart, setAutostart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [isTauri, setIsTauri] = useState(false);
 
   useEffect(() => {
-    backRef.current?.focus();
     const tauri = inTauri();
     setIsTauri(tauri);
     if (!tauri) return;
@@ -24,6 +23,10 @@ export function SettingsPage({ onBack }: Props) {
       .then(setAutostart)
       .catch(() => setMessage("无法读取开机自启状态（需在打包后的桌面端测试）"));
   }, []);
+
+  useEffect(() => {
+    if (active) firstRef.current?.focus();
+  }, [active]);
 
   const toggleAutostart = async () => {
     if (!isTauri) {
@@ -72,22 +75,10 @@ export function SettingsPage({ onBack }: Props) {
   };
 
   return (
-    <main className="page stack-page">
-      <header className="page-header">
-        <button
-          ref={backRef}
-          type="button"
-          className="ghost-btn"
-          data-focusable
-          onClick={onBack}
-        >
-          ← 返回
-        </button>
-        <h1>设置</h1>
-      </header>
-
+    <div className="settings-body">
       <section className="settings-list">
         <button
+          ref={firstRef}
           type="button"
           className="setting-row"
           data-focusable
@@ -133,6 +124,6 @@ export function SettingsPage({ onBack }: Props) {
       {message && <p className="status-msg">{message}</p>}
 
       <p className="about-line">Handheld Launcher v0.1.0 · 里程碑 1：全屏壳</p>
-    </main>
+    </div>
   );
 }

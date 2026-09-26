@@ -1,6 +1,6 @@
 # 掌机启动器（Handheld Launcher）
 
-Windows 掌机全屏前端启动器。当前完成 **里程碑 1：全屏壳**。
+Windows 掌机全屏前端启动器。当前完成全屏壳，以及 Windows 安装包里的 Steam / Epic 游戏扫描和已安装软件扫描。
 
 ## 技术栈
 
@@ -19,7 +19,7 @@ source "$HOME/.cargo/env"
 npm run tauri:dev
 ```
 
-方向键移动焦点，Enter 确认，Esc 返回。接上手柄后可用摇杆/十字键 + A/B。
+顶部三个标签水平居中：游戏库、软件库、文件管理。手柄 LB / RB 切换标签（键盘 Q / E）。Xbox 的 Back（View）或 PS 的 Share 从左侧拉出设置（键盘 Esc，再按一次关闭）。方向键或摇杆移动焦点，A / Enter 确认。
 
 ## 在 Windows 掌机上下载使用（推荐）
 
@@ -38,8 +38,8 @@ git push origin v0.1.0
 
 ## 里程碑路线
 
-1. ✅ 全屏壳 + 主页导航 + 手柄/键盘焦点 + 自启设置
-2. 游戏库扫描与启动（Steam 优先）
-3. 软件库扫描与启动
+1. ✅ 全屏壳 + 手柄/键盘焦点 + 自启设置
+2. ✅ 游戏库扫描（Steam、Epic），卡片上按 A 启动
+3. ✅ 软件库扫描（已安装程序），卡片上按 A 启动
 4. 手柄文件管理器
 5. Xbox 模式 / FSE（Custom Capability）接入

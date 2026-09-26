@@ -1,8 +1,7 @@
-export type PageId = "home" | "games" | "apps" | "files" | "settings";
+export type TabId = "games" | "apps" | "files";
 
-export type NavItem = {
-  id: PageId;
-  title: string;
-  subtitle: string;
-  accent: string;
-};
+export const TABS: { id: TabId; label: string }[] = [
+  { id: "games", label: "游戏库" },
+  { id: "apps", label: "软件库" },
+  { id: "files", label: "文件管理" },
+];

@@ -1,31 +1,81 @@
-import { useEffect, useRef } from "react";
+import { useState, type Ref } from "react";
+import { LibraryShelf } from "../components/LibraryShelf";
+import { type GameEntry } from "../data/previewGames";
+import { launchLibraryItem, useLocalGames } from "../library/useLocalLibrary";
 
-type Props = { onBack: () => void };
+export function GamesPage() {
+  const library = useLocalGames();
+  const [status, setStatus] = useState("");
+  return (
+    <LibraryShelf
+      kind="games"
+      items={library.items}
+      label="游戏库"
+      note={status || library.note}
+      renderCard={(game, cardRef, options) => (
+        <GameCard
+          key={game.id}
+          game={game}
+          cardRef={cardRef}
+          picked={options?.picked}
+          onPick={options?.onPick}
+          name={options?.name}
+          onStatus={setStatus}
+        />
+      )}
+    />
+  );
+}
 
-export function GamesPage({ onBack }: Props) {
-  const backRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    backRef.current?.focus();
-  }, []);
+function GameCard({
+  game,
+  cardRef,
+  picked,
+  onPick,
+  name,
+  onStatus,
+}: {
+  game: GameEntry;
+  cardRef?: Ref<HTMLButtonElement>;
+  picked?: boolean;
+  onPick?: () => void;
+  name?: string;
+  onStatus: (message: string) => void;
+}) {
+  const [coverFailed, setCoverFailed] = useState(false);
 
   return (
-    <main className="page stack-page">
-      <header className="page-header">
-        <button
-          ref={backRef}
-          type="button"
-          className="ghost-btn"
-          data-focusable
-          onClick={onBack}
-        >
-          ← 返回
-        </button>
-        <h1>游戏库</h1>
-      </header>
-      <div className="placeholder-panel">
-        <h2>下一里程碑</h2>
-        <p>将接入 Steam / Epic / GOG 本地库扫描、封面缓存与一键启动。</p>
-      </div>
-    </main>
+    <button
+      ref={cardRef}
+      type="button"
+      className={picked ? "library-card is-picked" : "library-card"}
+      data-focusable
+      data-card-id={game.id}
+      onClick={() => {
+        if (onPick) {
+          onPick();
+          return;
+        }
+        void launchLibraryItem({
+          id: game.id,
+          name: name || game.name,
+          launchPath: game.launchPath,
+          installPath: game.installPath,
+        }).then(onStatus);
+      }}
+    >
+      {picked && <span className="pick-mark">✓</span>}
+      {coverFailed || !game.cover ? (
+        <span className="game-cover game-cover-fallback" aria-hidden />
+      ) : (
+        <img
+          className="game-cover"
+          src={game.cover}
+          alt=""
+          onError={() => setCoverFailed(true)}
+        />
+      )}
+      <span className="library-name">{name || game.name}</span>
+    </button>
   );
 }

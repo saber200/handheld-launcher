@@ -1,31 +1,72 @@
-import { useEffect, useRef } from "react";
+import { useState, type Ref } from "react";
+import { LibraryShelf } from "../components/LibraryShelf";
+import { type AppEntry } from "../data/previewApps";
+import { launchLibraryItem, useLocalApps } from "../library/useLocalLibrary";
 
-type Props = { onBack: () => void };
-
-export function AppsPage({ onBack }: Props) {
-  const backRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    backRef.current?.focus();
-  }, []);
-
+export function AppsPage() {
+  const library = useLocalApps();
+  const [status, setStatus] = useState("");
   return (
-    <main className="page stack-page">
-      <header className="page-header">
-        <button
-          ref={backRef}
-          type="button"
-          className="ghost-btn"
-          data-focusable
-          onClick={onBack}
-        >
-          ← 返回
-        </button>
-        <h1>软件库</h1>
-      </header>
-      <div className="placeholder-panel">
-        <h2>下一里程碑</h2>
-        <p>将读取 Windows 卸载注册表与常见安装目录，列出可启动应用。</p>
-      </div>
-    </main>
+    <LibraryShelf
+      kind="apps"
+      items={library.items}
+      label="软件库"
+      note={status || library.note}
+      renderCard={(app, cardRef, options) => (
+        <AppCard
+          key={app.id}
+          app={app}
+          cardRef={cardRef}
+          picked={options?.picked}
+          onPick={options?.onPick}
+          name={options?.name}
+          onStatus={setStatus}
+        />
+      )}
+    />
+  );
+}
+
+function AppCard({
+  app,
+  cardRef,
+  picked,
+  onPick,
+  name,
+  onStatus,
+}: {
+  app: AppEntry;
+  cardRef?: Ref<HTMLButtonElement>;
+  picked?: boolean;
+  onPick?: () => void;
+  name?: string;
+  onStatus: (message: string) => void;
+}) {
+  return (
+    <button
+      ref={cardRef}
+      type="button"
+      className={picked ? "library-card is-picked" : "library-card"}
+      data-focusable
+      data-card-id={app.id}
+      onClick={() => {
+        if (onPick) {
+          onPick();
+          return;
+        }
+        void launchLibraryItem({
+          id: app.id,
+          name: name || app.name,
+          launchPath: app.launchPath,
+          installPath: app.installPath,
+        }).then(onStatus);
+      }}
+    >
+      {picked && <span className="pick-mark">✓</span>}
+      <span className="app-icon" style={{ background: app.color }} aria-hidden>
+        {app.mark}
+      </span>
+      <span className="library-name">{name || app.name}</span>
+    </button>
   );
 }

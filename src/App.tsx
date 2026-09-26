@@ -1,66 +1,159 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { HomePage } from "./pages/HomePage";
 import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
 import { FilesPage } from "./pages/FilesPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { useGamepadNav } from "./hooks/useGamepadNav";
-import type { PageId } from "./types";
+import { moveDirectionalFocus, useGamepadNav } from "./hooks/useGamepadNav";
+import { libraryActions } from "./library/actions";
+import { TABS, type TabId } from "./types";
 
 export default function App() {
-  const [page, setPage] = useState<PageId>("home");
+  const [tab, setTab] = useState<TabId>("games");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const shiftTab = useCallback((dir: -1 | 1) => {
+    setTab((current) => {
+      const index = TABS.findIndex((item) => item.id === current);
+      const next = (index + dir + TABS.length) % TABS.length;
+      return TABS[next].id;
+    });
+  }, []);
 
   useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
     const win = getCurrentWindow();
-    void win.setFullscreen(true).catch(() => {
-      // Browser preview / non-tauri fallback
+    void win.setFullscreen(true).catch(() => {});
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    const active = document.activeElement as HTMLElement | null;
+    if (active?.closest(".drawer-root")) active.blur();
+    setSettingsOpen(false);
+  }, []);
+
+  const toggleSettings = useCallback(() => {
+    setSettingsOpen((open) => {
+      if (!open) return true;
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest(".drawer-root")) active.blur();
+      return false;
     });
   }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && page !== "home") {
+      if (e.key === "Escape") {
         e.preventDefault();
-        setPage("home");
+        if (libraryActions().closeDialog?.()) return;
+        toggleSettings();
         return;
       }
+      const typing = (e.target as HTMLElement | null)?.tagName === "INPUT";
+      if (typing) return;
+      if (e.key === "b" || e.key === "B") {
+        e.preventDefault();
+        if (libraryActions().closeDialog?.()) return;
+        libraryActions().openCardMenu?.();
+        return;
+      }
+      if (e.key === "[") {
+        e.preventDefault();
+        libraryActions().cycleGroup?.(-1);
+        return;
+      }
+      if (e.key === "]") {
+        e.preventDefault();
+        libraryActions().cycleGroup?.(1);
+        return;
+      }
+      if (e.key === "q" || e.key === "Q") {
+        e.preventDefault();
+        shiftTab(-1);
+        return;
+      }
+      if (e.key === "e" || e.key === "E") {
+        e.preventDefault();
+        shiftTab(1);
+        return;
+      }
+      if (e.key === "ArrowLeft") moveDirectionalFocus(-1, 0);
+      if (e.key === "ArrowRight") moveDirectionalFocus(1, 0);
+      if (e.key === "ArrowUp") moveDirectionalFocus(0, -1);
+      if (e.key === "ArrowDown") moveDirectionalFocus(0, 1);
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
         e.preventDefault();
-        const nodes = Array.from(
-          document.querySelectorAll<HTMLElement>("[data-focusable]"),
-        ).filter((el) => el.offsetParent !== null);
-        if (nodes.length === 0) return;
-        const active = document.activeElement as HTMLElement | null;
-        let index = Math.max(0, nodes.findIndex((n) => n === active));
-        if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-          index = (index + 1) % nodes.length;
-        } else {
-          index = (index - 1 + nodes.length) % nodes.length;
-        }
-        nodes[index]?.focus();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [page]);
-
-  const goHome = useCallback(() => setPage("home"), []);
+  }, [shiftTab, toggleSettings]);
 
   useGamepadNav({
-    onBack: () => {
-      if (page !== "home") setPage("home");
+    onBumperLeft: () => shiftTab(-1),
+    onBumperRight: () => shiftTab(1),
+    onView: () => {
+      libraryActions().closeDialog?.();
+      toggleSettings();
     },
+    onBack: () => {
+      if (libraryActions().closeDialog?.()) return;
+      if (libraryActions().openCardMenu?.()) return;
+      closeSettings();
+    },
+    onTriggerLeft: () => libraryActions().cycleGroup?.(-1),
+    onTriggerRight: () => libraryActions().cycleGroup?.(1),
   });
 
   return (
     <div className="app-shell">
       <div className="ambient" aria-hidden />
-      {page === "home" && <HomePage onNavigate={setPage} />}
-      {page === "games" && <GamesPage onBack={goHome} />}
-      {page === "apps" && <AppsPage onBack={goHome} />}
-      {page === "files" && <FilesPage onBack={goHome} />}
-      {page === "settings" && <SettingsPage onBack={goHome} />}
+      <header className="tab-bar">
+        <nav className="tab-list" role="tablist" aria-label="主菜单">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              className="tab"
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </header>
+      <div className="tab-panel" role="tabpanel">
+        {tab === "games" && <GamesPage />}
+        {tab === "apps" && <AppsPage />}
+        {tab === "files" && <FilesPage />}
+      </div>
+      <div
+        className={`drawer-root focus-trap ${settingsOpen ? "open" : ""}`}
+        aria-hidden={!settingsOpen}
+      >
+        <button
+          type="button"
+          className="drawer-scrim"
+          aria-label="关闭设置"
+          tabIndex={-1}
+          onClick={closeSettings}
+        />
+        <aside className="drawer" role="dialog" aria-label="设置">
+          <h1>设置</h1>
+          <SettingsPage active={settingsOpen} />
+        </aside>
+      </div>
+      <footer className="shell-hint">
+        <span>LB / RB 切换</span>
+        <span>键盘 Q / E</span>
+        <span>Back / Share / Esc 设置</span>
+        <span>LT / RT 切换分组</span>
+        <span>方向键移到新建 / 添加</span>
+        <span>B 卡片操作</span>
+        <span>A / Enter 启动或确认</span>
+      </footer>
     </div>
   );
 }
