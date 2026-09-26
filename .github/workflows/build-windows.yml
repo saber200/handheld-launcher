@@ -6,6 +6,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -23,14 +26,23 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      - name: Build Tauri (Windows)
+      - name: Build Tauri (Windows) + Release
         uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
           tauriScript: npm run tauri
           args: -- --bundles nsis
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
+          releaseName: Handheld Launcher ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
+          releaseBody: |
+            Windows 安装包。掌机直接下载安装即可，无需开发环境。
+
+            - 安装包：`*.exe`（NSIS）
+            - 也可在 Artifacts 中下载未安装的 `handheld-launcher.exe`
+          releaseDraft: false
+          prerelease: ${{ github.ref_type != 'tag' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

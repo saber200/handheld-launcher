@@ -21,33 +21,20 @@ npm run tauri:dev
 
 方向键移动焦点，Enter 确认，Esc 返回。接上手柄后可用摇杆/十字键 + A/B。
 
-## 在 Windows 掌机上打包验证
+## 在 Windows 掌机上下载使用（推荐）
 
-你当前开发机是 Mac，**Windows 安装包需要在 Windows 上构建**（推荐直接在掌机上构建）。
+Mac 上开发即可。推送 `v*` 标签后，GitHub Actions 会自动打 Windows 安装包并发布到 **Releases**：
 
-### 掌机一次性环境
-
-1. 安装 [Node.js LTS](https://nodejs.org/)
-2. 安装 [Rust](https://rustup.rs/)（`rustup-init.exe`）
-3. 安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（勾选「使用 C++ 的桌面开发」）
-4. 安装 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Win11 一般自带）
-
-### 构建
-
-把整个 `handheld-launcher` 文件夹拷到掌机后：
-
-```bat
-cd handheld-launcher
-npm install
-npm run tauri:build
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
-产物通常在：
+掌机浏览器打开仓库 → **Releases** → 下载 NSIS 安装包（`.exe`）安装即可，**无需开发环境**。
 
-- `src-tauri\target\release\handheld-launcher.exe`
-- `src-tauri\target\release\bundle\nsis\*.exe`（安装包）
+也可在 **Actions → Build Windows → Artifacts** 下载构建产物。
 
-安装后在「设置」里可测开机自启与全屏切换。
+手动触发：Actions → Build Windows → Run workflow（会发 prerelease）。
 
 ## 里程碑路线
 
