@@ -27,3 +27,23 @@ commands.allow = ["autostart_enabled"]
 identifier = "allow-set-autostart"
 description = "Turn launch at login on or off."
 commands.allow = ["set_autostart"]
+
+[[permission]]
+identifier = "allow-fse-status"
+description = "Read whether the launcher is registered for fullscreen experience."
+commands.allow = ["fse_status"]
+
+[[permission]]
+identifier = "allow-register-fse"
+description = "Register the launcher as a fullscreen experience home app."
+commands.allow = ["register_fse"]
+
+[[permission]]
+identifier = "allow-open-desktop"
+description = "Show the Windows desktop without exiting the launcher."
+commands.allow = ["open_desktop"]
+
+[[permission]]
+identifier = "allow-quit-launcher"
+description = "Exit the launcher and return to the Windows desktop."
+commands.allow = ["quit_launcher"]

@@ -5,5 +5,8 @@ dist-ssr
 .DS_Store
 src-tauri/target
 src-tauri/gen
+src-tauri/fse/identity.msix
+src-tauri/fse/identity.cer
+src-tauri/fse/cert.pfx
 .vscode/*
 !.vscode/extensions.json

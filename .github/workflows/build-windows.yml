@@ -26,6 +26,10 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
+      - name: Pack fullscreen experience identity
+        shell: pwsh
+        run: ./src-tauri/fse/pack.ps1
+
       - name: Build Tauri (Windows) + Release
         uses: tauri-apps/tauri-action@v0
         env:

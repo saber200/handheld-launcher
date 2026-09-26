@@ -287,6 +287,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
   padding: 10px;
   border-radius: 16px;
   border: 1px solid var(--line);
@@ -297,6 +299,7 @@ button {
 .card-menu .library-tool,
 .card-rename .library-tool {
   width: 100%;
+  white-space: nowrap;
 }
 
 .card-rename {

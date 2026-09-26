@@ -21,6 +21,10 @@ export function GamesPage() {
         setStatus("");
         return library.hide(id);
       }}
+      onSteamCover={(id, appId) => {
+        setStatus("");
+        return library.setSteamCover(id, appId);
+      }}
       scanning={library.scanning}
       onScan={() => setStatus(library.rescan())}
       renderCard={(game, cardRef, options) => (

@@ -44,6 +44,11 @@ description = "Cache an executable's icon."
 commands.allow = ["file_icon"]
 
 [[permission]]
+identifier = "allow-file-delete"
+description = "Delete a file or folder."
+commands.allow = ["file_delete"]
+
+[[permission]]
 identifier = "allow-file-open"
 description = "Open a file with the system app."
 commands.allow = ["file_open"]

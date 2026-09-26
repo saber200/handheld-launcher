@@ -25,7 +25,8 @@ export function FilesPage() {
   const [picked, setPicked] = useState<string[]>([]);
   const [layout, setLayout] = useState<FileLayout>(loadLayout);
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const overlay = useRef({ menu: false, naming: false, editor: false });
+  const [trash, setTrash] = useState<FileEntry[] | null>(null);
+  const overlay = useRef({ menu: false, naming: false, editor: false, trash: false });
   const listRef = useRef<HTMLDivElement>(null);
   const firstRef = useRef<HTMLButtonElement>(null);
   const newFolderRef = useRef<HTMLButtonElement>(null);
@@ -33,19 +34,29 @@ export function FilesPage() {
   const createRef = useRef<HTMLButtonElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const saveRef = useRef<HTMLButtonElement>(null);
-  overlay.current = { menu: menu !== null, naming: naming !== null, editor: editor !== null };
+  const trashCancelRef = useRef<HTMLButtonElement>(null);
+  overlay.current = {
+    menu: menu !== null,
+    naming: naming !== null,
+    editor: editor !== null,
+    trash: trash !== null,
+  };
 
   useEffect(() => {
     setFileActions({
-      blocksTabs: () => overlay.current.menu || overlay.current.naming || overlay.current.editor,
+      blocksTabs: () =>
+        overlay.current.menu || overlay.current.naming || overlay.current.editor || overlay.current.trash,
       dismiss: () => {
         setMenu(null);
         setNaming(null);
         setEditor(null);
+        setTrash(null);
         setDraft("");
       },
       openMenu: () => {
-        if (overlay.current.menu || overlay.current.naming || overlay.current.editor) return false;
+        if (overlay.current.menu || overlay.current.naming || overlay.current.editor || overlay.current.trash) {
+          return false;
+        }
         const name = (document.activeElement as HTMLElement | null)
           ?.closest("[data-file-name]")
           ?.getAttribute("data-file-name");
@@ -55,7 +66,9 @@ export function FilesPage() {
         return true;
       },
       toggleSelect: () => {
-        if (overlay.current.menu || overlay.current.naming || overlay.current.editor) return false;
+        if (overlay.current.menu || overlay.current.naming || overlay.current.editor || overlay.current.trash) {
+          return false;
+        }
         const name = (document.activeElement as HTMLElement | null)
           ?.closest("[data-file-name]")
           ?.getAttribute("data-file-name");
@@ -68,6 +81,10 @@ export function FilesPage() {
       },
       back: () => {
         const active = document.activeElement;
+        if (overlay.current.trash) {
+          setTrash(null);
+          return true;
+        }
         if (overlay.current.editor) {
           if (active instanceof HTMLTextAreaElement) {
             saveRef.current?.focus();
@@ -149,6 +166,10 @@ export function FilesPage() {
     if (editor) editorRef.current?.focus();
   }, [editor?.path]);
 
+  useEffect(() => {
+    if (trash) trashCancelRef.current?.focus();
+  }, [trash]);
+
   async function submitName() {
     if (!naming) return;
     try {
@@ -182,22 +203,24 @@ export function FilesPage() {
       files.enter(entry);
       return;
     }
-    if (entry.editable) {
-      void edit(entry);
-      return;
-    }
     void files.openExternal(entry).catch((err: unknown) => {
       files.setNote(typeof err === "string" ? err : "无法打开");
     });
   }
 
+  function selectAll() {
+    const paths = files.entries.map((entry) => entry.path);
+    const every = paths.length > 0 && paths.every((path) => picked.includes(path));
+    setPicked(every ? [] : paths);
+  }
+
   const hint =
     files.note ||
     (picked.length > 0
-      ? `已选 ${picked.length} 项。Y 可复制或移动这些项，再打开目标文件夹按粘贴。`
+      ? `已选 ${picked.length} 项。Y 可复制、移动或删除，再打开目标文件夹按粘贴。`
       : files.preview
-        ? "浏览器预览不会写入磁盘。X 多选，Y 复制或移动。"
-        : "X 多选，Y 复制或移动。没多选时只处理当前项。");
+        ? "浏览器预览不会写入磁盘。A 用系统打开，文本请用 Y 里的编辑。"
+        : "A 用系统打开。X 多选，Y 复制、移动或删除。");
 
   const menuTargets =
     menu == null
@@ -280,6 +303,15 @@ export function FilesPage() {
           >
             粘贴
           </button>
+          <button
+            type="button"
+            className="library-tool"
+            data-focusable
+            disabled={files.entries.length === 0}
+            onClick={selectAll}
+          >
+            {files.entries.length > 0 && files.entries.every((entry) => picked.includes(entry.path)) ? "取消全选" : "全选"}
+          </button>
           {files.location != null && (
             <button type="button" className="library-tool" data-focusable onClick={() => files.up()}>
               返回上一级
@@ -348,23 +380,11 @@ export function FilesPage() {
             <h2>{menuTargets.length > 1 ? `已选 ${menuTargets.length} 项` : menu.name}</h2>
             <div className="library-tools file-menu-actions">
               {menuTargets.length === 1 && menu.kind === "file" && menu.editable ? (
-                <>
-                  <button type="button" className="library-tool" data-focusable onClick={() => void edit(menu)}>
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    className="library-tool"
-                    data-focusable
-                    onClick={() => {
-                      setMenu(null);
-                      void files.openExternal(menu);
-                    }}
-                  >
-                    用系统打开
-                  </button>
-                </>
-              ) : menuTargets.length === 1 ? (
+                <button type="button" className="library-tool" data-focusable onClick={() => void edit(menu)}>
+                  编辑
+                </button>
+              ) : null}
+              {menuTargets.length === 1 ? (
                 <button type="button" className="library-tool" data-focusable onClick={() => activate(menu)}>
                   打开
                 </button>
@@ -392,6 +412,17 @@ export function FilesPage() {
                 }}
               >
                 移动
+              </button>
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => {
+                  setTrash(menuTargets);
+                  setMenu(null);
+                }}
+              >
+                删除
               </button>
               {picked.length > 0 && (
                 <button
@@ -500,6 +531,33 @@ export function FilesPage() {
               </button>
               <button type="button" className="library-tool" data-focusable onClick={() => setEditor(null)}>
                 关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {trash && (
+        <div className="group-dialog focus-trap open">
+          <button type="button" className="drawer-scrim" aria-label="关闭" tabIndex={-1} onClick={() => setTrash(null)} />
+          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label="删除">
+            <h2>{trash.length === 1 ? `删除「${trash[0].name}」？` : `删除已选的 ${trash.length} 项？`}</h2>
+            <p className="group-empty">会从磁盘删除，文件夹会连同里面的内容一起删除。</p>
+            <div className="library-tools">
+              <button ref={trashCancelRef} type="button" className="library-tool" data-focusable onClick={() => setTrash(null)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => {
+                  const targets = trash;
+                  setTrash(null);
+                  setPicked((current) => current.filter((path) => !targets.some((entry) => entry.path === path)));
+                  void files.remove(targets);
+                }}
+              >
+                删除
               </button>
             </div>
           </div>

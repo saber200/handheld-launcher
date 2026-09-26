@@ -24,6 +24,7 @@ type Props<T extends Item> = {
   label: string;
   onUseFile: (target: FileTarget, file: PickedProgram) => string;
   onHide: (id: string) => string;
+  onSteamCover?: (id: string, appId: string) => string | Promise<string>;
   onScan: () => void;
   scanning?: boolean;
   renderCard: (item: T, cardRef: Ref<HTMLButtonElement> | undefined, options?: CardOptions) => ReactNode;
@@ -37,6 +38,7 @@ export function LibraryShelf<T extends Item>({
   label,
   onUseFile,
   onHide,
+  onSteamCover,
   onScan,
   scanning = false,
   renderCard,
@@ -58,6 +60,9 @@ export function LibraryShelf<T extends Item>({
   const [menuView, setMenuView] = useState<MenuView>("actions");
   const [menuBox, setMenuBox] = useState<{ top: number; left: number; width: number } | null>(null);
   const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
+  const [coverFor, setCoverFor] = useState<{ id: string; name: string } | null>(null);
+  const [coverDraft, setCoverDraft] = useState("");
+  const coverRef = useRef<HTMLInputElement>(null);
   const filePickRef = useRef(false);
   filePickRef.current = fileTarget !== null;
   const namingRef = useRef(naming);
@@ -66,12 +71,14 @@ export function LibraryShelf<T extends Item>({
   const pickingRef = useRef(picking);
   const menuRef = useRef(menuCardId);
   const menuViewRef = useRef(menuView);
+  const coverForRef = useRef(coverFor);
   namingRef.current = naming;
   deletingRef.current = deleting;
   hidingRef.current = hiding;
   pickingRef.current = picking;
   menuRef.current = menuCardId;
   menuViewRef.current = menuView;
+  coverForRef.current = coverFor;
 
   const visible =
     library.activeId === "all"
@@ -86,11 +93,11 @@ export function LibraryShelf<T extends Item>({
     const blocked = () => document.querySelector(".drawer-root.open") !== null;
     setLibraryActions({
       cycleGroup: (dir) => {
-        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return;
         library.cycle(dir);
       },
       openCardMenu: () => {
-        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return false;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return false;
         const cardId = (document.activeElement as HTMLElement | null)
           ?.closest("[data-card-id]")
           ?.getAttribute("data-card-id");
@@ -101,6 +108,11 @@ export function LibraryShelf<T extends Item>({
       },
       closeDialog: () => {
         if (filePickRef.current) return false;
+        if (coverForRef.current) {
+          setCoverFor(null);
+          setCoverDraft("");
+          return true;
+        }
         if (hidingRef.current) {
           setHiding(null);
           return true;
@@ -133,7 +145,7 @@ export function LibraryShelf<T extends Item>({
   }, [library]);
 
   useEffect(() => {
-    if (naming || deleting || hiding || picking || menuCardId || fileTarget) return;
+    if (naming || deleting || hiding || picking || menuCardId || fileTarget || coverFor) return;
     if (focusAdd.current && addRef.current) {
       addRef.current.focus();
       focusAdd.current = false;
@@ -145,11 +157,15 @@ export function LibraryShelf<T extends Item>({
     if (id && visible.some((item) => item.id === id)) return;
     if (firstRef.current) firstRef.current.focus();
     else addRef.current?.focus();
-  }, [library.activeId, visibleKey, naming, deleting, hiding, picking, menuCardId, fileTarget, visible]);
+  }, [library.activeId, visibleKey, naming, deleting, hiding, picking, menuCardId, fileTarget, coverFor, visible]);
 
   useEffect(() => {
     if (naming) nameRef.current?.focus();
   }, [naming]);
+
+  useEffect(() => {
+    if (coverFor) coverRef.current?.focus();
+  }, [coverFor]);
 
   useEffect(() => {
     if (!deleting && !hiding) return;
@@ -177,11 +193,16 @@ export function LibraryShelf<T extends Item>({
     const card = document.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(menuCardId)}"]`);
     if (!card) return;
     const rect = card.getBoundingClientRect();
-    const width = Math.max(rect.width, 168);
-    const left = Math.min(rect.left, window.innerWidth - width - 12);
-    const top = Math.min(rect.top, window.innerHeight - 280);
-    setMenuBox({ top: Math.max(12, top), left: Math.max(12, left), width });
-  }, [menuCardId, menuView]);
+    const menu = document.querySelector<HTMLElement>(".card-menu");
+    const width = Math.max(rect.width, menu?.offsetWidth ?? rect.width);
+    const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
+    const top = Math.min(rect.top, window.innerHeight - 12 - (menu?.offsetHeight ?? 280));
+    setMenuBox((current) => {
+      const next = { top: Math.max(12, top), left, width: rect.width };
+      if (current && current.top === next.top && current.left === next.left && current.width === next.width) return current;
+      return next;
+    });
+  }, [menuCardId, menuView, menuBox == null]);
 
   useEffect(() => {
     if (!menuCardId || menuView === "rename") return;
@@ -248,6 +269,27 @@ export function LibraryShelf<T extends Item>({
           >
             新建分组
           </button>
+          {customGroup && (
+            <button
+              ref={addRef}
+              type="button"
+              className="library-tool"
+              data-focusable
+              onClick={() => setPicking(true)}
+            >
+              添加应用到分组
+            </button>
+          )}
+          {customGroup && (
+            <button
+              type="button"
+              className="library-tool"
+              data-focusable
+              onClick={() => setDeleting(true)}
+            >
+              删除分组
+            </button>
+          )}
           <button
             type="button"
             className="library-tool"
@@ -259,27 +301,6 @@ export function LibraryShelf<T extends Item>({
           {!customGroup && (
             <button type="button" className="library-tool scan-action" data-focusable disabled={scanning} onClick={onScan}>
               重新扫描
-            </button>
-          )}
-          {customGroup && (
-            <button
-              ref={addRef}
-              type="button"
-              className="library-tool"
-              data-focusable
-              onClick={() => setPicking(true)}
-            >
-              添加卡片
-            </button>
-          )}
-          {customGroup && (
-            <button
-              type="button"
-              className="library-tool"
-              data-focusable
-              onClick={() => setDeleting(true)}
-            >
-              删除分组
             </button>
           )}
         </div>
@@ -357,6 +378,63 @@ export function LibraryShelf<T extends Item>({
           </div>
         </div>
       )}
+      {coverFor && onSteamCover && (
+        <div className="group-dialog focus-trap open">
+          <button
+            type="button"
+            className="drawer-scrim"
+            aria-label="关闭"
+            tabIndex={-1}
+            onClick={() => {
+              setCoverFor(null);
+              setCoverDraft("");
+            }}
+          />
+          <form
+            className="group-dialog-panel group-create-panel"
+            role="dialog"
+            aria-label="添加ID获取封面"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const target = coverFor;
+              const digits = coverDraft.trim();
+              setCoverFor(null);
+              setCoverDraft("");
+              void Promise.resolve(onSteamCover(target.id, digits)).then((message) => {
+                if (message) setHint(message);
+              });
+            }}
+          >
+            <h2>为「{coverFor.name}」填写 Steam 编号</h2>
+            <input
+              ref={coverRef}
+              className="group-name-input"
+              value={coverDraft}
+              placeholder="例如 1245620"
+              inputMode="numeric"
+              maxLength={10}
+              onChange={(event) => setCoverDraft(event.target.value.replace(/\D/g, ""))}
+            />
+            <p className="group-empty">用这个编号去取 Steam 的竖版封面，重启后还会在。</p>
+            <div className="library-tools">
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => {
+                  setCoverFor(null);
+                  setCoverDraft("");
+                }}
+              >
+                取消
+              </button>
+              <button type="submit" className="library-tool" data-focusable>
+                获取封面
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
       {naming && (
         <div className="group-dialog focus-trap open">
           <button
@@ -423,7 +501,7 @@ export function LibraryShelf<T extends Item>({
           <div
             className="card-menu"
             role="menu"
-            style={{ top: menuBox.top, left: menuBox.left, width: menuBox.width }}
+            style={{ top: menuBox.top, left: menuBox.left, minWidth: menuBox.width }}
           >
             {menuView === "actions" && (
               <>
@@ -455,6 +533,23 @@ export function LibraryShelf<T extends Item>({
                 >
                   修改路径
                 </button>
+                {kind === "games" && onSteamCover && (
+                  <button
+                    type="button"
+                    className="library-tool"
+                    data-focusable
+                    onClick={() => {
+                      const item = items.find((entry) => entry.id === menuCardId);
+                      if (!menuCardId || !item) return;
+                      setCoverDraft("");
+                      setCoverFor({ id: menuCardId, name: library.names[menuCardId] || item.name });
+                      setMenuCardId(null);
+                      setMenuView("actions");
+                    }}
+                  >
+                    添加ID获取封面
+                  </button>
+                )}
                 <button
                   type="button"
                   className="library-tool"

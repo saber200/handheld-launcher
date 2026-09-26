@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -13,6 +12,7 @@ export function SettingsPage({ active }: Props) {
   const [autostart, setAutostart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [fse, setFse] = useState("登记后，可在 Windows 的全屏体验里被选成主应用。");
   const [isTauri, setIsTauri] = useState(false);
 
   useEffect(() => {
@@ -22,6 +22,7 @@ export function SettingsPage({ active }: Props) {
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage("无法读取开机自启状态（需在打包后的桌面端测试）"));
+    void invoke<string>("fse_status").then(setFse).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -38,7 +39,11 @@ export function SettingsPage({ active }: Props) {
       await invoke("set_autostart", { enabled: !autostart });
       const on = await invoke<boolean>("autostart_enabled");
       setAutostart(on);
-      setMessage(on ? "已开启开机自启，下次登录 Windows 会打开启动器" : "已关闭开机自启");
+      setMessage(
+        on
+          ? "已开启。下次登录进入启动器；这次被关掉也会再打开。"
+          : "已关闭。下次登录回到 Windows 桌面。",
+      );
     } catch (e) {
       setMessage(`自启设置失败：${String(e)}`);
     } finally {
@@ -46,18 +51,35 @@ export function SettingsPage({ active }: Props) {
     }
   };
 
-  const toggleFullscreen = async () => {
+  const registerFse = async () => {
     if (!isTauri) {
-      setMessage("浏览器预览无法切换系统全屏");
+      setMessage("浏览器预览无法登记全屏体验");
+      return;
+    }
+    setBusy(true);
+    try {
+      const text = await invoke<string>("register_fse");
+      setFse(text);
+      setMessage(text);
+    } catch (e) {
+      const text = `全屏体验登记失败：${String(e)}`;
+      setFse(text);
+      setMessage(text);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openDesktop = async () => {
+    if (!isTauri) {
+      setMessage("浏览器预览无法打开 Windows 桌面");
       return;
     }
     try {
-      const win = getCurrentWindow();
-      const fs = await win.isFullscreen();
-      await win.setFullscreen(!fs);
-      setMessage(fs ? "已退出全屏" : "已进入全屏");
+      await invoke("open_desktop");
+      setMessage("已打开 Windows 桌面，启动器还在。");
     } catch (e) {
-      setMessage(`全屏切换失败：${String(e)}`);
+      setMessage(`无法打开桌面：${String(e)}`);
     }
   };
 
@@ -66,7 +88,7 @@ export function SettingsPage({ active }: Props) {
       window.close();
       return;
     }
-    await getCurrentWindow().close();
+    await invoke("quit_launcher");
   };
 
   return (
@@ -82,7 +104,7 @@ export function SettingsPage({ active }: Props) {
         >
           <span>
             <strong>开机自启</strong>
-            <small>登录 Windows 后自动打开启动器</small>
+            <small>登录后由启动器当桌面。被关掉会再打开</small>
           </span>
           <span className={`switch ${autostart ? "on" : ""}`}>
             {autostart ? "开" : "关"}
@@ -93,13 +115,22 @@ export function SettingsPage({ active }: Props) {
           type="button"
           className="setting-row"
           data-focusable
-          onClick={() => void toggleFullscreen()}
+          disabled={busy}
+          onClick={() => void registerFse()}
         >
           <span>
-            <strong>切换全屏</strong>
-            <small>掌机建议保持全屏沉浸</small>
+            <strong>全屏体验</strong>
+            <small>{fse}</small>
           </span>
-          <span className="chev">⛶</span>
+          <span className="chev">▣</span>
+        </button>
+
+        <button type="button" className="setting-row" data-focusable onClick={() => void openDesktop()}>
+          <span>
+            <strong>打开桌面</strong>
+            <small>启动器留着，同时打开 Windows 桌面</small>
+          </span>
+          <span className="chev">⌂</span>
         </button>
 
         <button
@@ -110,7 +141,7 @@ export function SettingsPage({ active }: Props) {
         >
           <span>
             <strong>退出启动器</strong>
-            <small>返回桌面</small>
+            <small>回到桌面，这次不再自动打开</small>
           </span>
           <span className="chev">⏻</span>
         </button>
@@ -118,7 +149,7 @@ export function SettingsPage({ active }: Props) {
 
       {message && <p className="status-msg">{message}</p>}
 
-      <p className="about-line">Handheld Launcher v0.1.5</p>
+      <p className="about-line">Handheld Launcher v0.1.6</p>
     </div>
   );
 }

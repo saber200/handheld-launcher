@@ -243,14 +243,34 @@ type ExtraItem = {
   iconPath?: string;
 };
 
+type CoverExtra = { appId: string; coverPath?: string };
+
 type Extras = {
   added: ExtraItem[];
   paths: Record<string, { launchPath: string; installPath: string }>;
   hidden: string[];
+  covers: Record<string, CoverExtra>;
 };
 
 function emptyExtras(): Extras {
-  return { added: [], paths: {}, hidden: [] };
+  return { added: [], paths: {}, hidden: [], covers: {} };
+}
+
+function steamLibraryCover(appId: string) {
+  return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`;
+}
+
+function loadCovers(value: unknown): Record<string, CoverExtra> {
+  if (!value || typeof value !== "object") return {};
+  const covers: Record<string, CoverExtra> = {};
+  for (const [id, row] of Object.entries(value as Record<string, unknown>)) {
+    if (!row || typeof row !== "object") continue;
+    const appId = (row as { appId?: unknown }).appId;
+    const coverPath = (row as { coverPath?: unknown }).coverPath;
+    if (typeof appId !== "string" || !/^\d{1,10}$/.test(appId)) continue;
+    covers[id] = typeof coverPath === "string" && coverPath ? { appId, coverPath } : { appId };
+  }
+  return covers;
 }
 
 function loadExtras(kind: "games" | "apps"): Extras {
@@ -262,6 +282,7 @@ function loadExtras(kind: "games" | "apps"): Extras {
       added: Array.isArray(parsed.added) ? parsed.added : [],
       paths: parsed.paths && typeof parsed.paths === "object" ? parsed.paths : {},
       hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((id) => typeof id === "string") : [],
+      covers: loadCovers(parsed.covers),
     };
   } catch {
     return emptyExtras();
@@ -331,7 +352,17 @@ function useLibraryExtras(kind: "games" | "apps") {
     return "已从库里拿掉。磁盘上的文件还在。";
   }, []);
 
-  return { extras, add, setLaunchPath, hide };
+  const setCover = useCallback((id: string, appId: string, coverPath?: string) => {
+    setExtras((prev) => ({
+      ...prev,
+      covers: {
+        ...prev.covers,
+        [id]: coverPath ? { appId, coverPath } : { appId },
+      },
+    }));
+  }, []);
+
+  return { extras, add, setLaunchPath, hide, setCover };
 }
 
 function withPaths<T extends { id: string; launchPath?: string; installPath?: string; customPath?: boolean }>(
@@ -373,6 +404,13 @@ export function useLocalGames() {
         customPath: true,
       }));
     return [...base, ...added]
+      .map((item) => {
+        const saved = extra.extras.covers[item.id];
+        if (!saved) return item;
+        const cover =
+          saved.coverPath && inTauri() ? convertFileSrc(saved.coverPath) : steamLibraryCover(saved.appId);
+        return { ...item, cover };
+      })
       .filter((item) => !extra.extras.hidden.includes(item.id))
       .sort((a, b) => a.name.localeCompare(b.name, "zh"));
   }, [extra.extras, scanned.items]);
@@ -382,6 +420,26 @@ export function useLocalGames() {
       return extra.add(file);
     },
     [extra, items],
+  );
+  const setSteamCover = useCallback(
+    async (id: string, appId: string) => {
+      const digits = appId.trim();
+      if (!/^\d{1,10}$/.test(digits)) return "请输入 Steam 的数字编号。";
+      extra.setCover(id, digits);
+      if (inTauri()) {
+        try {
+          const saved = await invoke<Array<{ id: string; coverPath: string }>>("cache_covers", {
+            covers: [{ id, url: steamLibraryCover(digits) }],
+          });
+          const coverPath = saved.find((row) => row.id === id)?.coverPath;
+          if (coverPath) extra.setCover(id, digits, coverPath);
+        } catch {
+          /* 网络封面仍可显示，下次再缓存 */
+        }
+      }
+      return `已用 Steam ${digits} 的封面。`;
+    },
+    [extra],
   );
   return {
     items,
@@ -397,6 +455,7 @@ export function useLocalGames() {
     addFromFile,
     setLaunchPath: extra.setLaunchPath,
     hide: extra.hide,
+    setSteamCover,
   };
 }
 

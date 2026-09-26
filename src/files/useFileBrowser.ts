@@ -456,6 +456,48 @@ export function useFileBrowser() {
     [preview],
   );
 
+  const remove = useCallback(
+    async (entries: FileEntry[]) => {
+      if (entries.length === 0) return;
+      if (preview) {
+        let next = tree;
+        for (const entry of entries) {
+          const parent = parentPath(entry.path);
+          if (parent == null) {
+            setNote("不能删除这个位置。");
+            return;
+          }
+          next = updateDir(next, parent, (children) => children.filter((child) => child.name !== entry.name));
+        }
+        setTree(next);
+        setNote(entries.length === 1 ? `已删除「${entries[0].name}」。` : `已删除 ${entries.length} 项。`);
+        return;
+      }
+      let done = 0;
+      let failure = "";
+      for (const entry of entries) {
+        try {
+          await invoke("file_delete", { path: entry.path });
+          done += 1;
+        } catch (err) {
+          failure = formatError(err);
+          break;
+        }
+      }
+      setNote(
+        failure
+          ? done > 0
+            ? `已删除 ${done} 项。${failure}`
+            : failure
+          : entries.length === 1
+            ? `已删除「${entries[0].name}」。`
+            : `已删除 ${entries.length} 项。`,
+      );
+      await reloadNative(location);
+    },
+    [location, preview, reloadNative, tree],
+  );
+
   const openExternal = useCallback(
     async (entry: FileEntry) => {
       if (preview) {
@@ -488,6 +530,7 @@ export function useFileBrowser() {
     readText,
     writeText,
     openExternal,
+    remove,
     setNote,
   };
 }

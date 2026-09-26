@@ -61,6 +61,29 @@ pub fn file_copy(from: String, dest_dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn file_delete(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path.trim());
+    if is_drive_root(&path) {
+        return Err("不能删除盘符".into());
+    }
+    if !path.exists() {
+        return Err("找不到要删除的项目".into());
+    }
+    let removed = if path.is_dir() {
+        std::fs::remove_dir_all(&path)
+    } else {
+        std::fs::remove_file(&path)
+    };
+    removed.map_err(|err| format!("无法删除：{err}"))
+}
+
+fn is_drive_root(path: &Path) -> bool {
+    let text = path.to_string_lossy().replace('/', "\\");
+    let trimmed = text.trim_end_matches('\\');
+    trimmed.len() == 2 && trimmed.as_bytes().get(1) == Some(&b':')
+}
+
+#[tauri::command]
 pub fn file_move(from: String, dest_dir: String) -> Result<(), String> {
     let from = PathBuf::from(from);
     let dest_dir = PathBuf::from(dest_dir);
@@ -380,7 +403,10 @@ fn open_with_system(path: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_name, copy_path, file_move, is_editable_name, read_text, sibling_name};
+    use super::{
+        check_name, copy_path, file_delete, file_move, is_drive_root, is_editable_name, read_text,
+        sibling_name,
+    };
 
     #[test]
     fn rejects_path_pieces_in_names() {
@@ -430,6 +456,22 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("已经在这个文件夹"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deletes_a_file_and_refuses_a_drive() {
+        assert!(is_drive_root(std::path::Path::new("C:\\")));
+        assert!(is_drive_root(std::path::Path::new("D:")));
+        assert!(!is_drive_root(std::path::Path::new("C:\\Games")));
+        let dir = std::env::temp_dir().join(format!("hl-del-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        file_delete(file.display().to_string()).unwrap();
+        assert!(!file.exists());
+        assert!(file_delete("C:\\".into()).unwrap_err().contains("盘符"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

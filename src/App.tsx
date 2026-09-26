@@ -174,7 +174,7 @@ export default function App() {
           <>
             <span>方向键选择</span>
             <span>X 多选</span>
-            <span>A 打开或编辑</span>
+            <span>A 用系统打开</span>
             <span>B 返回</span>
             <span>Y 复制 / 移动</span>
             <span>LB / RB 切换</span>
