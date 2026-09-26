@@ -3,8 +3,11 @@ export type AppEntry = {
   name: string;
   mark: string;
   color: string;
+  icon?: string;
   installPath?: string;
   launchPath?: string;
+  /** Set when launch should open this path instead of the scanned command. */
+  customPath?: boolean;
 };
 
 /** Browser preview only. Reading installed Windows apps needs the packaged app. */

@@ -15,6 +15,19 @@
     "autostart:allow-is-enabled",
     "allow-scan-games",
     "allow-scan-apps",
-    "allow-launch-item"
+    "allow-launch-item",
+    "allow-cache-covers",
+    "allow-autostart-enabled",
+    "allow-set-autostart",
+    "allow-file-places",
+    "allow-file-list",
+    "allow-file-make-dir",
+    "allow-file-make-file",
+    "allow-file-copy",
+    "allow-file-move",
+    "allow-file-read-text",
+    "allow-file-write-text",
+    "allow-file-icon",
+    "allow-file-open"
   ]
 }

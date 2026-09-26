@@ -1,0 +1,49 @@
+[[permission]]
+identifier = "allow-file-places"
+description = "List drives and the user folder."
+commands.allow = ["file_places"]
+
+[[permission]]
+identifier = "allow-file-list"
+description = "List a folder."
+commands.allow = ["file_list"]
+
+[[permission]]
+identifier = "allow-file-make-dir"
+description = "Create a folder."
+commands.allow = ["file_make_dir"]
+
+[[permission]]
+identifier = "allow-file-make-file"
+description = "Create an empty file."
+commands.allow = ["file_make_file"]
+
+[[permission]]
+identifier = "allow-file-copy"
+description = "Copy a file or folder."
+commands.allow = ["file_copy"]
+
+[[permission]]
+identifier = "allow-file-move"
+description = "Move a file or folder."
+commands.allow = ["file_move"]
+
+[[permission]]
+identifier = "allow-file-read-text"
+description = "Read a text file."
+commands.allow = ["file_read_text"]
+
+[[permission]]
+identifier = "allow-file-write-text"
+description = "Save a text file."
+commands.allow = ["file_write_text"]
+
+[[permission]]
+identifier = "allow-file-icon"
+description = "Cache an executable's icon."
+commands.allow = ["file_icon"]
+
+[[permission]]
+identifier = "allow-file-open"
+description = "Open a file with the system app."
+commands.allow = ["file_open"]

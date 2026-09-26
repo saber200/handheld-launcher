@@ -425,6 +425,11 @@ button {
   font-weight: 700;
 }
 
+img.app-icon {
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .library-name {
   font-size: 14px;
   line-height: 1.35;
@@ -513,4 +518,111 @@ button {
   margin-top: auto;
   color: var(--muted);
   font-size: 13px;
+}
+
+.library-tool:disabled {
+  opacity: 0.35;
+}
+
+.file-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: left;
+  scroll-margin: 12px;
+}
+
+.file-row:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+  background: rgba(61, 214, 198, 0.08);
+}
+
+.file-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.file-mark.is-dir {
+  color: #06241f;
+  background: var(--accent);
+}
+
+.file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 18px;
+}
+
+.file-size {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-menu-actions {
+  flex-direction: column;
+}
+
+.file-menu-actions .library-tool {
+  width: 100%;
+}
+
+.file-editor-panel {
+  width: min(860px, calc(100vw - 48px));
+}
+
+.file-picker-panel {
+  width: min(760px, calc(100vw - 48px));
+  height: min(680px, calc(100vh - 72px));
+  overflow: hidden;
+}
+
+.file-picker-list {
+  flex: 1;
+}
+
+.file-editor {
+  width: 100%;
+  min-height: 280px;
+  resize: none;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.file-editor:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+  background: rgba(61, 214, 198, 0.08);
 }

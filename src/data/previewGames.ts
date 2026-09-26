@@ -4,6 +4,8 @@ export type GameEntry = {
   cover: string;
   installPath?: string;
   launchPath?: string;
+  /** Set when launch should open this path instead of Steam or Epic. */
+  customPath?: boolean;
 };
 
 /** Browser preview only. Real library scanning needs the Windows app. */

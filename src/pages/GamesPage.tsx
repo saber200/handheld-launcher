@@ -1,4 +1,4 @@
-import { useState, type Ref } from "react";
+import { useEffect, useState, type Ref } from "react";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { type GameEntry } from "../data/previewGames";
 import { launchLibraryItem, useLocalGames } from "../library/useLocalLibrary";
@@ -11,7 +11,12 @@ export function GamesPage() {
       kind="games"
       items={library.items}
       label="游戏库"
-      note={status || library.note}
+      note={library.note}
+      status={status}
+      onUseFile={(target, file) => {
+        setStatus("");
+        return target.mode === "add" ? library.addFromFile(file) : library.setLaunchPath(target.id, file);
+      }}
       renderCard={(game, cardRef, options) => (
         <GameCard
           key={game.id}
@@ -43,6 +48,9 @@ function GameCard({
   onStatus: (message: string) => void;
 }) {
   const [coverFailed, setCoverFailed] = useState(false);
+  useEffect(() => {
+    setCoverFailed(false);
+  }, [game.cover]);
 
   return (
     <button
@@ -61,6 +69,7 @@ function GameCard({
           name: name || game.name,
           launchPath: game.launchPath,
           installPath: game.installPath,
+          customPath: game.customPath,
         }).then(onStatus);
       }}
     >

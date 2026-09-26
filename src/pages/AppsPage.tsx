@@ -11,7 +11,12 @@ export function AppsPage() {
       kind="apps"
       items={library.items}
       label="软件库"
-      note={status || library.note}
+      note={library.note}
+      status={status}
+      onUseFile={(target, file) => {
+        setStatus("");
+        return target.mode === "add" ? library.addFromFile(file) : library.setLaunchPath(target.id, file);
+      }}
       renderCard={(app, cardRef, options) => (
         <AppCard
           key={app.id}
@@ -59,13 +64,18 @@ function AppCard({
           name: name || app.name,
           launchPath: app.launchPath,
           installPath: app.installPath,
+          customPath: app.customPath,
         }).then(onStatus);
       }}
     >
       {picked && <span className="pick-mark">✓</span>}
-      <span className="app-icon" style={{ background: app.color }} aria-hidden>
-        {app.mark}
-      </span>
+      {app.icon ? (
+        <img className="app-icon app-icon-image" src={app.icon} alt="" />
+      ) : (
+        <span className="app-icon" style={{ background: app.color }} aria-hidden>
+          {app.mark}
+        </span>
+      )}
       <span className="library-name">{name || app.name}</span>
     </button>
   );

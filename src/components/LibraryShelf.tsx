@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { FilePicker } from "../files/FilePicker";
 import { setLibraryActions } from "../library/actions";
 import { useLibraryGroups } from "../library/useLibraryGroups";
+import type { PickedProgram } from "../library/useLocalLibrary";
 
 type Item = { id: string; name: string };
 
@@ -12,15 +14,19 @@ type CardOptions = {
 
 type MenuView = "actions" | "group" | "rename";
 
+type FileTarget = { mode: "add" } | { mode: "path"; id: string };
+
 type Props<T extends Item> = {
   kind: "games" | "apps";
   items: T[];
   note: string;
+  status?: string;
   label: string;
+  onUseFile: (target: FileTarget, file: PickedProgram) => string;
   renderCard: (item: T, cardRef: Ref<HTMLButtonElement> | undefined, options?: CardOptions) => ReactNode;
 };
 
-export function LibraryShelf<T extends Item>({ kind, items, note, label, renderCard }: Props<T>) {
+export function LibraryShelf<T extends Item>({ kind, items, note, status = "", label, onUseFile, renderCard }: Props<T>) {
   const library = useLibraryGroups(kind);
   const firstRef = useRef<HTMLButtonElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
@@ -29,16 +35,23 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
   const renameRef = useRef<HTMLInputElement>(null);
   const focusAdd = useRef(false);
   const [naming, setNaming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [hint, setHint] = useState("");
   const [picking, setPicking] = useState(false);
   const [draft, setDraft] = useState("");
   const [menuCardId, setMenuCardId] = useState<string | null>(null);
   const [menuView, setMenuView] = useState<MenuView>("actions");
   const [menuBox, setMenuBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
+  const filePickRef = useRef(false);
+  filePickRef.current = fileTarget !== null;
   const namingRef = useRef(naming);
+  const deletingRef = useRef(deleting);
   const pickingRef = useRef(picking);
   const menuRef = useRef(menuCardId);
   const menuViewRef = useRef(menuView);
   namingRef.current = naming;
+  deletingRef.current = deleting;
   pickingRef.current = picking;
   menuRef.current = menuCardId;
   menuViewRef.current = menuView;
@@ -56,11 +69,11 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
     const blocked = () => document.querySelector(".drawer-root.open") !== null;
     setLibraryActions({
       cycleGroup: (dir) => {
-        if (namingRef.current || pickingRef.current || menuRef.current || blocked()) return;
+        if (namingRef.current || deletingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return;
         library.cycle(dir);
       },
       openCardMenu: () => {
-        if (namingRef.current || pickingRef.current || menuRef.current || blocked()) return false;
+        if (namingRef.current || deletingRef.current || pickingRef.current || menuRef.current || filePickRef.current || blocked()) return false;
         const cardId = (document.activeElement as HTMLElement | null)
           ?.closest("[data-card-id]")
           ?.getAttribute("data-card-id");
@@ -70,6 +83,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
         return true;
       },
       closeDialog: () => {
+        if (filePickRef.current) return false;
         if (menuViewRef.current === "group" || menuViewRef.current === "rename") {
           setMenuView("actions");
           setDraft("");
@@ -86,8 +100,9 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
           }, 0);
           return true;
         }
-        if (!namingRef.current && !pickingRef.current) return false;
+        if (!namingRef.current && !deletingRef.current && !pickingRef.current) return false;
         setNaming(false);
+        setDeleting(false);
         setPicking(false);
         setDraft("");
         return true;
@@ -97,7 +112,7 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
   }, [library]);
 
   useEffect(() => {
-    if (naming || picking || menuCardId) return;
+    if (naming || deleting || picking || menuCardId || fileTarget) return;
     if (focusAdd.current && addRef.current) {
       addRef.current.focus();
       focusAdd.current = false;
@@ -109,11 +124,16 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
     if (id && visible.some((item) => item.id === id)) return;
     if (firstRef.current) firstRef.current.focus();
     else addRef.current?.focus();
-  }, [library.activeId, visibleKey, naming, picking, menuCardId, visible]);
+  }, [library.activeId, visibleKey, naming, deleting, picking, menuCardId, fileTarget, visible]);
 
   useEffect(() => {
     if (naming) nameRef.current?.focus();
   }, [naming]);
+
+  useEffect(() => {
+    if (!deleting) return;
+    document.querySelector<HTMLElement>(".group-dialog [data-focusable]")?.focus();
+  }, [deleting]);
 
   useEffect(() => {
     if (menuView === "rename") renameRef.current?.focus();
@@ -177,6 +197,14 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
           >
             新建分组
           </button>
+          <button
+            type="button"
+            className="library-tool"
+            data-focusable
+            onClick={() => setFileTarget({ mode: "add" })}
+          >
+            {kind === "games" ? "添加游戏" : "添加软件"}
+          </button>
           {customGroup && (
             <button
               ref={addRef}
@@ -188,8 +216,18 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
               添加卡片
             </button>
           )}
+          {customGroup && (
+            <button
+              type="button"
+              className="library-tool"
+              data-focusable
+              onClick={() => setDeleting(true)}
+            >
+              删除分组
+            </button>
+          )}
         </div>
-        <p className="preview-note">{note}</p>
+        <p className="preview-note">{status || hint || note}</p>
       </div>
       {visible.length === 0 && items.length > 0 ? (
         <p className="group-empty">此分组还没有卡片。用方向键选中「添加卡片」，按 A 从当前库加入。</p>
@@ -201,6 +239,37 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
             }),
           )}
         </section>
+      )}
+      {deleting && (
+        <div className="group-dialog focus-trap open">
+          <button
+            type="button"
+            className="drawer-scrim"
+            aria-label="关闭"
+            tabIndex={-1}
+            onClick={() => setDeleting(false)}
+          />
+          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label="删除分组">
+            <h2>删除分组「{activeName}」？</h2>
+            <p className="group-empty">分组里的卡片会回到「全部」，不会从库里删掉。</p>
+            <div className="library-tools">
+              <button type="button" className="library-tool" data-focusable onClick={() => setDeleting(false)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="library-tool library-tool-solid"
+                data-focusable
+                onClick={() => {
+                  library.deleteGroup(library.activeId);
+                  setDeleting(false);
+                }}
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {naming && (
         <div className="group-dialog focus-trap open">
@@ -287,7 +356,17 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
                 >
                   修改名称
                 </button>
-                <button type="button" className="library-tool" data-focusable>
+                <button
+                  type="button"
+                  className="library-tool"
+                  data-focusable
+                  onClick={() => {
+                    if (!menuCardId) return;
+                    setFileTarget({ mode: "path", id: menuCardId });
+                    setMenuCardId(null);
+                    setMenuView("actions");
+                  }}
+                >
                   修改路径
                 </button>
               </>
@@ -377,6 +456,16 @@ export function LibraryShelf<T extends Item>({ kind, items, note, label, renderC
             </section>
           </div>
         </div>
+      )}
+      {fileTarget && (
+        <FilePicker
+          title={fileTarget.mode === "add" ? (kind === "games" ? "添加游戏" : "添加软件") : "修改路径"}
+          onClose={() => setFileTarget(null)}
+          onPick={(file) => {
+            setHint(onUseFile(fileTarget, file));
+            setFileTarget(null);
+          }}
+        />
       )}
     </main>
   );

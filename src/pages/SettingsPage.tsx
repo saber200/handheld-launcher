@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 function inTauri(): boolean {
@@ -19,7 +19,7 @@ export function SettingsPage({ active }: Props) {
     const tauri = inTauri();
     setIsTauri(tauri);
     if (!tauri) return;
-    void isEnabled()
+    void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage("无法读取开机自启状态（需在打包后的桌面端测试）"));
   }, []);
@@ -35,15 +35,10 @@ export function SettingsPage({ active }: Props) {
     }
     setBusy(true);
     try {
-      if (autostart) {
-        await disable();
-        setAutostart(false);
-        setMessage("已关闭开机自启");
-      } else {
-        await enable();
-        setAutostart(true);
-        setMessage("已开启开机自启");
-      }
+      await invoke("set_autostart", { enabled: !autostart });
+      const on = await invoke<boolean>("autostart_enabled");
+      setAutostart(on);
+      setMessage(on ? "已开启开机自启，下次登录 Windows 会打开启动器" : "已关闭开机自启");
     } catch (e) {
       setMessage(`自启设置失败：${String(e)}`);
     } finally {
@@ -123,7 +118,7 @@ export function SettingsPage({ active }: Props) {
 
       {message && <p className="status-msg">{message}</p>}
 
-      <p className="about-line">Handheld Launcher v0.1.0 · 里程碑 1：全屏壳</p>
+      <p className="about-line">Handheld Launcher v0.1.3</p>
     </div>
   );
 }

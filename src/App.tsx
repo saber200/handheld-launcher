@@ -5,6 +5,7 @@ import { AppsPage } from "./pages/AppsPage";
 import { FilesPage } from "./pages/FilesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { moveDirectionalFocus, useGamepadNav } from "./hooks/useGamepadNav";
+import { fileActions } from "./files/actions";
 import { libraryActions } from "./library/actions";
 import { TABS, type TabId } from "./types";
 
@@ -13,6 +14,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const shiftTab = useCallback((dir: -1 | 1) => {
+    if (fileActions().blocksTabs?.()) return;
     setTab((current) => {
       const index = TABS.findIndex((item) => item.id === current);
       const next = (index + dir + TABS.length) % TABS.length;
@@ -45,14 +47,22 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        if (fileActions().back?.()) return;
         if (libraryActions().closeDialog?.()) return;
         toggleSettings();
         return;
       }
-      const typing = (e.target as HTMLElement | null)?.tagName === "INPUT";
-      if (typing) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "y" || e.key === "Y") {
+        if (fileActions().openMenu?.()) {
+          e.preventDefault();
+          return;
+        }
+      }
       if (e.key === "b" || e.key === "B") {
         e.preventDefault();
+        if (fileActions().back?.()) return;
         if (libraryActions().closeDialog?.()) return;
         libraryActions().openCardMenu?.();
         return;
@@ -93,10 +103,15 @@ export default function App() {
     onBumperLeft: () => shiftTab(-1),
     onBumperRight: () => shiftTab(1),
     onView: () => {
+      fileActions().dismiss?.();
       libraryActions().closeDialog?.();
       toggleSettings();
     },
+    onFaceTop: () => {
+      fileActions().openMenu?.();
+    },
     onBack: () => {
+      if (fileActions().back?.()) return;
       if (libraryActions().closeDialog?.()) return;
       if (libraryActions().openCardMenu?.()) return;
       closeSettings();
@@ -146,13 +161,25 @@ export default function App() {
         </aside>
       </div>
       <footer className="shell-hint">
-        <span>LB / RB 切换</span>
-        <span>键盘 Q / E</span>
-        <span>Back / Share / Esc 设置</span>
-        <span>LT / RT 切换分组</span>
-        <span>方向键移到新建 / 添加</span>
-        <span>B 卡片操作</span>
-        <span>A / Enter 启动或确认</span>
+        {tab === "files" ? (
+          <>
+            <span>方向键选择</span>
+            <span>A 打开或编辑</span>
+            <span>B 返回</span>
+            <span>Y 复制 / 移动</span>
+            <span>LB / RB 切换</span>
+          </>
+        ) : (
+          <>
+            <span>LB / RB 切换</span>
+            <span>键盘 Q / E</span>
+            <span>Back / Share / Esc 设置</span>
+            <span>LT / RT 切换分组</span>
+            <span>方向键移到新建 / 添加</span>
+            <span>B 卡片操作</span>
+            <span>A / Enter 启动或确认</span>
+          </>
+        )}
       </footer>
     </div>
   );

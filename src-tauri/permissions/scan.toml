@@ -12,3 +12,18 @@ commands.allow = ["scan_apps"]
 identifier = "allow-launch-item"
 description = "Launch a scanned game or application."
 commands.allow = ["launch_item"]
+
+[[permission]]
+identifier = "allow-cache-covers"
+description = "Save Steam cover images for offline use."
+commands.allow = ["cache_covers"]
+
+[[permission]]
+identifier = "allow-autostart-enabled"
+description = "Read whether launch at login is enabled."
+commands.allow = ["autostart_enabled"]
+
+[[permission]]
+identifier = "allow-set-autostart"
+description = "Turn launch at login on or off."
+commands.allow = ["set_autostart"]

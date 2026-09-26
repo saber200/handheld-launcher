@@ -75,6 +75,21 @@ export function useLibraryGroups(kind: "games" | "apps") {
     });
   }, []);
 
+  const deleteGroup = useCallback((groupId: string) => {
+    setBucket((prev) => {
+      const membership = { ...prev.membership };
+      for (const [cardId, assigned] of Object.entries(membership)) {
+        if (assigned === groupId) delete membership[cardId];
+      }
+      return {
+        ...prev,
+        groups: prev.groups.filter((group) => group.id !== groupId),
+        membership,
+      };
+    });
+    setActiveId((current) => (current === groupId ? "all" : current));
+  }, []);
+
   const setName = useCallback((cardId: string, name: string | null) => {
     setBucket((prev) => {
       const names = { ...prev.names };
@@ -91,6 +106,7 @@ export function useLibraryGroups(kind: "games" | "apps") {
     activeId,
     cycle,
     createGroup,
+    deleteGroup,
     assignCard,
     setName,
   };

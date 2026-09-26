@@ -16,6 +16,57 @@ type Options = {
   enabled?: boolean;
 };
 
+function typingTarget(): HTMLInputElement | HTMLTextAreaElement | null {
+  const el = document.activeElement;
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    if (el.disabled || el.readOnly) return null;
+    return el;
+  }
+  return null;
+}
+
+function moveTextCaret(el: HTMLInputElement | HTMLTextAreaElement, dx: number, dy: number) {
+  const value = el.value;
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? start;
+  const anchor = dx < 0 || dy < 0 ? Math.min(start, end) : Math.max(start, end);
+  let next = anchor;
+  if (dx !== 0) {
+    next = Math.max(0, Math.min(value.length, anchor + dx));
+  } else if (dy !== 0 && el instanceof HTMLTextAreaElement) {
+    const lineStart = value.lastIndexOf("\n", Math.max(0, anchor - 1)) + 1;
+    const col = anchor - lineStart;
+    if (dy < 0) {
+      if (lineStart === 0) next = 0;
+      else {
+        const prevStart = value.lastIndexOf("\n", lineStart - 2) + 1;
+        next = Math.min(lineStart - 1, prevStart + col);
+      }
+    } else {
+      const lineEnd = value.indexOf("\n", anchor);
+      if (lineEnd < 0) next = value.length;
+      else {
+        const nextStart = lineEnd + 1;
+        const nextBreak = value.indexOf("\n", nextStart);
+        const nextEnd = nextBreak < 0 ? value.length : nextBreak;
+        next = Math.min(nextEnd, nextStart + col);
+      }
+    }
+  }
+  el.setSelectionRange(next, next);
+}
+
+function insertNewline(el: HTMLTextAreaElement) {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  const next = `${el.value.slice(0, start)}\n${el.value.slice(end)}`;
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+  setter?.call(el, next);
+  const pos = start + 1;
+  el.setSelectionRange(pos, pos);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function focusZone(el: HTMLElement): string | null {
   return el.closest("[data-focus-zone]")?.getAttribute("data-focus-zone") ?? null;
 }
@@ -160,8 +211,9 @@ export function useGamepadNav({
       if (rt && !triggers.current.r) onTriggerRight?.();
       triggers.current = { l: lt, r: rt };
 
+      const field = typingTarget();
       const faceTop = !!pad.buttons[3]?.pressed;
-      if (faceTop && !faceTopHeld.current) onFaceTop?.();
+      if (faceTop && !faceTopHeld.current && !field) onFaceTop?.();
       faceTopHeld.current = faceTop;
 
       const ax = pad.axes[0] ?? 0;
@@ -179,20 +231,28 @@ export function useGamepadNav({
       const prev = lastAxis.current;
       const roseX = dx !== 0 && dx !== prev.x;
       const roseY = dy !== 0 && dy !== prev.y;
+      const steer = (sx: number, sy: number) => {
+        if (field) moveTextCaret(field, sx, sy);
+        else moveFocus(sx, sy);
+      };
       if (roseX || roseY) {
-        moveFocus(roseX ? dx : 0, roseX ? 0 : dy);
+        steer(roseX ? dx : 0, roseX ? 0 : dy);
         repeatAt.current = now + 320;
       } else if ((dx !== 0 || dy !== 0) && now >= repeatAt.current) {
-        moveFocus(dx !== 0 ? dx : 0, dx !== 0 ? 0 : dy);
+        steer(dx !== 0 ? dx : 0, dx !== 0 ? 0 : dy);
         repeatAt.current = now + 140;
       }
       lastAxis.current = { x: dx, y: dy };
 
       const confirm = !!pad.buttons[0]?.pressed;
       if (confirm && !confirmHeld.current) {
-        const el = document.activeElement as HTMLElement | null;
-        if (el && visibleFocusables().includes(el)) el.click();
-        onConfirm?.();
+        if (field instanceof HTMLTextAreaElement) insertNewline(field);
+        else if (field instanceof HTMLInputElement) field.closest("form")?.requestSubmit();
+        else {
+          const el = document.activeElement as HTMLElement | null;
+          if (el && visibleFocusables().includes(el)) el.click();
+          onConfirm?.();
+        }
       }
       confirmHeld.current = confirm;
 
