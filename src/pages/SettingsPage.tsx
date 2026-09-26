@@ -149,7 +149,7 @@ export function SettingsPage({ active }: Props) {
 
       {message && <p className="status-msg">{message}</p>}
 
-      <p className="about-line">Handheld Launcher v0.1.6</p>
+      <p className="about-line">Handheld Launcher v0.1.7</p>
     </div>
   );
 }

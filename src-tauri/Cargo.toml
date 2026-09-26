@@ -1,6 +1,6 @@
 [package]
 name = "handheld-launcher"
-version = "0.1.6"
+version = "0.1.7"
 description = "Windows handheld frontend launcher shell"
 authors = ["you"]
 edition = "2021"
