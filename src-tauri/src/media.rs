@@ -351,7 +351,7 @@ mod windows {
                 pixel[3] = 255;
             }
         }
-        let image = image::RgbaImage::from_raw(width, height)?;
+        let image = image::RgbaImage::from_raw(width, height, pixels)?;
         let dynamic = image::DynamicImage::ImageRgba8(image);
         let mut bytes = Cursor::new(Vec::new());
         dynamic.write_to(&mut bytes, image::ImageFormat::Png).ok()?;
