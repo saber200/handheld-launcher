@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { text, useI18n } from "../i18n";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -8,12 +8,22 @@ function inTauri(): boolean {
 
 type Props = { active: boolean };
 
+let dismissPower: (() => boolean) | null = null;
+
+export function closePowerMenu(): boolean {
+  return dismissPower?.() ?? false;
+}
+
 export function SettingsPage({ active }: Props) {
+  const { locale, setLocale } = useI18n();
+  const m = text().settings;
   const firstRef = useRef<HTMLButtonElement>(null);
   const [autostart, setAutostart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [isTauri, setIsTauri] = useState(false);
+  const [powerOpen, setPowerOpen] = useState(false);
+  const sleepRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const tauri = inTauri();
@@ -21,16 +31,35 @@ export function SettingsPage({ active }: Props) {
     if (!tauri) return;
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
-      .catch(() => setMessage("无法读取开机自启状态（需在打包后的桌面端测试）"));
+      .catch(() => setMessage(text().settings.autostartReadFailed));
   }, []);
 
   useEffect(() => {
-    if (active) firstRef.current?.focus();
+    if (!active) {
+      setPowerOpen(false);
+      return;
+    }
+    firstRef.current?.focus();
   }, [active]);
+
+  useEffect(() => {
+    dismissPower = () => {
+      if (!powerOpen) return false;
+      setPowerOpen(false);
+      return true;
+    };
+    return () => {
+      dismissPower = null;
+    };
+  }, [powerOpen]);
+
+  useEffect(() => {
+    if (powerOpen) sleepRef.current?.focus();
+  }, [powerOpen]);
 
   const toggleAutostart = async () => {
     if (!isTauri) {
-      setMessage("浏览器预览模式不支持自启，请用 tauri:dev 或安装包验证");
+      setMessage(text().settings.autostartPreview);
       return;
     }
     setBusy(true);
@@ -40,11 +69,11 @@ export function SettingsPage({ active }: Props) {
       setAutostart(on);
       setMessage(
         on
-          ? "已开启。下次登录进入启动器；这次被关掉也会再打开。"
-          : "已关闭。下次登录回到 Windows 桌面。",
+          ? text().settings.autostartOn
+          : text().settings.autostartOff,
       );
     } catch (e) {
-      setMessage(`自启设置失败：${String(e)}`);
+      setMessage(text().settings.autostartFailed(String(e)));
     } finally {
       setBusy(false);
     }
@@ -52,30 +81,27 @@ export function SettingsPage({ active }: Props) {
 
   const enterFullscreen = async () => {
     if (!isTauri) {
-      setMessage("浏览器预览无法回到全屏");
+      setMessage(text().settings.fullscreenPreview);
       return;
     }
     try {
-      const win = getCurrentWindow();
-      await win.show();
-      await win.setFocus();
-      await win.setFullscreen(true);
-      setMessage("已回到全屏。");
+      await invoke("enter_fullscreen");
+      setMessage(text().settings.fullscreenDone);
     } catch (e) {
-      setMessage(`无法回到全屏：${String(e)}`);
+      setMessage(text().settings.fullscreenFailed(String(e)));
     }
   };
 
   const openDesktop = async () => {
     if (!isTauri) {
-      setMessage("浏览器预览无法打开 Windows 桌面");
+      setMessage(text().settings.desktopPreview);
       return;
     }
     try {
       await invoke("open_desktop");
-      setMessage("已打开 Windows 桌面，启动器还在。");
+      setMessage(text().settings.desktopDone);
     } catch (e) {
-      setMessage(`无法打开桌面：${String(e)}`);
+      setMessage(text().settings.desktopFailed(String(e)));
     }
   };
 
@@ -87,9 +113,47 @@ export function SettingsPage({ active }: Props) {
     await invoke("quit_launcher");
   };
 
+  const runPower = async (action: "sleep" | "restart" | "shutdown") => {
+    setPowerOpen(false);
+    if (!isTauri) {
+      setMessage(text().settings.powerPreview);
+      return;
+    }
+    try {
+      await invoke("system_power", { action });
+      if (action === "sleep") setMessage(text().settings.slept);
+    } catch (e) {
+      setMessage(text().settings.powerFailed(String(e)));
+    }
+  };
+
   return (
     <div className="settings-body">
       <section className="settings-list">
+        <div className="setting-row">
+          <span>
+            <strong>{m.language}</strong>
+          </span>
+          <span className="lang-switch">
+            <button
+              type="button"
+              className={locale === "zh" ? "switch on" : "switch"}
+              data-focusable
+              onClick={() => setLocale("zh")}
+            >
+              中文
+            </button>
+            <button
+              type="button"
+              className={locale === "en" ? "switch on" : "switch"}
+              data-focusable
+              onClick={() => setLocale("en")}
+            >
+              English
+            </button>
+          </span>
+        </div>
+
         <button
           ref={firstRef}
           type="button"
@@ -99,11 +163,11 @@ export function SettingsPage({ active }: Props) {
           onClick={() => void toggleAutostart()}
         >
           <span>
-            <strong>开机自启</strong>
-            <small>登录后打开启动器，不替换 Windows 桌面和 Xbox 键</small>
+            <strong>{m.autostart}</strong>
+            <small>{m.autostartHint}</small>
           </span>
           <span className={`switch ${autostart ? "on" : ""}`}>
-            {autostart ? "开" : "关"}
+            {autostart ? m.on : m.off}
           </span>
         </button>
 
@@ -115,16 +179,16 @@ export function SettingsPage({ active }: Props) {
           onClick={() => void enterFullscreen()}
         >
           <span>
-            <strong>回到全屏</strong>
-            <small>把启动器重新铺满屏幕</small>
+            <strong>{m.fullscreen}</strong>
+            <small>{m.fullscreenHint}</small>
           </span>
           <span className="chev">▣</span>
         </button>
 
         <button type="button" className="setting-row" data-focusable onClick={() => void openDesktop()}>
           <span>
-            <strong>打开桌面</strong>
-            <small>启动器留着，同时打开 Windows 桌面</small>
+            <strong>{m.desktop}</strong>
+            <small>{m.desktopHint}</small>
           </span>
           <span className="chev">⌂</span>
         </button>
@@ -136,8 +200,8 @@ export function SettingsPage({ active }: Props) {
           onClick={() => void quitApp()}
         >
           <span>
-            <strong>退出启动器</strong>
-            <small>回到桌面，这次不再自动打开</small>
+            <strong>{m.quit}</strong>
+            <small>{m.quitHint}</small>
           </span>
           <span className="chev">⏻</span>
         </button>
@@ -145,7 +209,34 @@ export function SettingsPage({ active }: Props) {
 
       {message && <p className="status-msg">{message}</p>}
 
-      <p className="about-line">Handheld Launcher v0.1.11</p>
+      <div className="settings-foot">
+        <p className="about-line">{text().about}</p>
+        <div className="power-menu">
+          {powerOpen && (
+            <div className="power-options" role="menu" aria-label={text().power.menu}>
+              <button ref={sleepRef} type="button" className="power-option" data-focusable onClick={() => void runPower("sleep")}>
+                {text().power.sleep}
+              </button>
+              <button type="button" className="power-option" data-focusable onClick={() => void runPower("restart")}>
+                {text().power.restart}
+              </button>
+              <button type="button" className="power-option danger" data-focusable onClick={() => void runPower("shutdown")}>
+                {text().power.shutdown}
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className="power-toggle"
+            data-focusable
+            aria-label={text().power.menu}
+            aria-expanded={powerOpen}
+            onClick={() => setPowerOpen((open) => !open)}
+          >
+            ⏻
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

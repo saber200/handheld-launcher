@@ -1,4 +1,6 @@
 import { useEffect, useState, type Ref } from "react";
+import { displayGameName } from "../data/previewGames";
+import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { type GameEntry } from "../data/previewGames";
 import { launchLibraryItem, useLocalGames } from "../library/useLocalLibrary";
@@ -10,7 +12,7 @@ export function GamesPage() {
     <LibraryShelf
       kind="games"
       items={library.items}
-      label="游戏库"
+      label={text().tabs.games}
       note={library.note}
       status={status}
       onUseFile={(target, file) => {
@@ -94,7 +96,7 @@ function GameCard({
           onError={() => setCoverFailed(true)}
         />
       )}
-      <span className="library-name">{name || game.name}</span>
+      <span className="library-name">{name || displayGameName(game.id, game.name, currentLocale())}</span>
     </button>
   );
 }

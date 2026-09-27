@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use tauri::Manager;
 
+use crate::i18n::pick;
+
 static QUIT_ALLOWED: AtomicBool = AtomicBool::new(false);
 
 pub fn quit_allowed() -> bool {
@@ -32,7 +34,50 @@ pub fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
         return Ok(());
     }
     #[cfg(not(windows))]
-    Err("只能在 Windows 上打开桌面".into())
+    Err(pick("只能在 Windows 上打开桌面", "The desktop can only be opened on Windows.").into())
+}
+
+#[tauri::command]
+pub fn enter_fullscreen(window: tauri::WebviewWindow) -> Result<(), String> {
+    fill_screen(&window);
+    Ok(())
+}
+
+/// Leave maximized state, then size the window to the whole monitor.
+/// A maximized borderless window is clamped to the work area, which leaves a taskbar-sized gap.
+pub fn fill_screen(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.unmaximize();
+    let _ = window.set_decorations(false);
+    let _ = window.set_fullscreen(false);
+    cover_monitor(window);
+    let _ = window.set_fullscreen(true);
+    cover_monitor(window);
+    let _ = window.set_focus();
+}
+
+fn cover_monitor(window: &tauri::WebviewWindow) {
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
+    let position = monitor.position();
+    let size = monitor.size();
+    let _ = window.set_position(tauri::PhysicalPosition::new(position.x, position.y));
+    let _ = window.set_size(tauri::PhysicalSize::new(size.width, size.height));
+}
+
+#[tauri::command]
+pub fn system_power(action: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        return windows::system_power(&action);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = action;
+        Err(pick("只能在 Windows 上休眠、重启或关机", "Sleep, restart, and shut down only work on Windows.").into())
+    }
 }
 
 pub fn schedule_fse_registration(resource_dir: Option<std::path::PathBuf>) {
@@ -51,7 +96,7 @@ pub fn fse_status() -> String {
         return windows::fse_status();
     }
     #[cfg(not(windows))]
-    "只能在 Windows 上登记全屏体验。".into()
+    pick("只能在 Windows 上登记全屏体验。", "Fullscreen experience can only be registered on Windows.").into()
 }
 
 #[tauri::command]
@@ -64,7 +109,7 @@ pub fn register_fse(app: tauri::AppHandle) -> String {
     #[cfg(not(windows))]
     {
         let _ = app;
-        "只能在 Windows 上登记全屏体验。".into()
+        pick("只能在 Windows 上登记全屏体验。", "Fullscreen experience can only be registered on Windows.").into()
     }
 }
 
@@ -87,7 +132,7 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let _ = enabled;
-        Err("只能在 Windows 上设置开机自启".into())
+        Err(pick("只能在 Windows 上设置开机自启", "Startup can only be changed on Windows.").into())
     }
 }
 
@@ -105,13 +150,13 @@ mod windows {
     const RUN_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
     const APPROVED_KEY: &str =
         "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
-    const RUN_NAMES: [&str; 2] = ["handheld-launcher", "Handheld Launcher"];
+    const RUN_NAMES: [&str; 2] = ["handheld-launcher", "FantasyHub"];
 
     use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
     use winreg::RegKey;
 
-    const WATCH_TASK: &str = "Handheld Launcher Watch";
-    const OLD_TASK: &str = "Handheld Launcher";
+    const WATCH_TASK: &str = "FantasyHub Watch";
+    const OLD_TASK: &str = "FantasyHub";
     const SHELL_KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
 
     pub fn enabled() -> bool {
@@ -151,6 +196,41 @@ mod windows {
         let _ = Command::new("explorer.exe").spawn();
     }
 
+    pub fn system_power(action: &str) -> Result<(), String> {
+        match action {
+            "sleep" => {
+                use windows_sys::Win32::System::Power::SetSuspendState;
+                let ok = unsafe { SetSuspendState(false, true, false) };
+                if ok {
+                    Ok(())
+                } else {
+                    Err(pick("无法休眠", "Couldn't sleep.").into())
+                }
+            }
+            "restart" => {
+                super::request_quit();
+                run_shutdown(&["/r", "/t", "0"])
+            }
+            "shutdown" => {
+                super::request_quit();
+                run_shutdown(&["/s", "/t", "0"])
+            }
+            _ => Err(pick("未知的电源操作", "Unknown power action.").into()),
+        }
+    }
+
+    fn run_shutdown(args: &[&str]) -> Result<(), String> {
+        let status = hidden(&mut Command::new("shutdown.exe"))
+            .args(args)
+            .status()
+            .map_err(|err| pick(&format!("无法执行：{err}"), &format!("Couldn't run that: {err}")))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(pick("Windows 没有接受这个电源操作。", "Windows did not accept this power action.").into())
+        }
+    }
+
     const REGISTER_PS1: &str = include_str!("../fse/register.ps1");
 
     pub fn schedule_fse_registration(resource_dir: Option<std::path::PathBuf>) {
@@ -163,7 +243,7 @@ mod windows {
         state_dir()
             .and_then(|dir| std::fs::read_to_string(dir.join("fse-status.txt")).ok())
             .and_then(|text| clean_fse_status(&text))
-            .unwrap_or_else(|| "还没有登记到全屏体验。".into())
+            .unwrap_or_else(|| pick("还没有登记到全屏体验。", "Not registered for fullscreen experience yet.").into())
     }
 
     pub fn register_fse(resource_dir: Option<&std::path::Path>) -> String {
@@ -179,15 +259,15 @@ mod windows {
 
     fn register_fse_inner(resource_dir: Option<&std::path::Path>) -> Result<String, String> {
         let (msix, cer) = fse_payload(resource_dir)?;
-        let exe = std::env::current_exe().map_err(|err| format!("无法登记：{err}"))?;
-        let exe_dir = exe.parent().ok_or("无法登记：找不到安装目录")?;
+        let exe = std::env::current_exe().map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
+        let exe_dir = exe.parent().ok_or_else(|| pick("无法登记：找不到安装目录", "Couldn't register: install folder not found"))?;
         let exe_name = exe
             .file_name()
             .and_then(|name| name.to_str())
-            .ok_or("无法登记：程序名不能用")?;
-        let dir = state_dir().ok_or("无法登记：找不到数据目录")?;
+            .ok_or_else(|| pick("无法登记：程序名不能用", "Couldn't register: the program name can't be used"))?;
+        let dir = state_dir().ok_or_else(|| pick("无法登记：找不到数据目录", "Couldn't register: data folder not found"))?;
         let script = dir.join("register-fse.ps1");
-        std::fs::write(&script, REGISTER_PS1).map_err(|err| format!("无法登记：{err}"))?;
+        std::fs::write(&script, REGISTER_PS1).map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
         let output = hidden(&mut Command::new("powershell.exe"))
             .args([
                 "-NoProfile",
@@ -206,7 +286,7 @@ mod windows {
             .arg("-ExeName")
             .arg(exe_name)
             .output()
-            .map_err(|err| format!("无法登记：{err}"))?;
+            .map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
         let token = ps_token(&output.stdout);
         if output.status.success() {
             return Ok(fse_user_text("OK"));
@@ -233,10 +313,19 @@ mod windows {
 
     fn fse_user_text(token: &str) -> String {
         match token {
-            "OK" => "已登记。打开 Windows 设置，进入 游戏 → 全屏体验，把主应用选成「掌机启动器」。".into(),
-            "NEED_DEVMODE" => "需要先打开开发人员模式。到 设置 → 系统 → 开发者选项，打开之后再点一次登记。".into(),
-            "NO_EXE" => "安装目录里没有启动器，无法登记全屏体验。".into(),
-            _ => "无法登记到全屏体验。".into(),
+            "OK" => pick(
+                "已登记。打开 Windows 设置，进入 游戏 → 全屏体验，把主应用选成「幻想枢纽」。",
+                "Registered. Open Windows Settings, go to Gaming → Full screen experience, and choose FantasyHub as the home app.",
+            ),
+            "NEED_DEVMODE" => pick(
+                "需要先打开开发人员模式。到 设置 → 系统 → 开发者选项，打开之后再点一次登记。",
+                "Turn on Developer Mode first. Open Settings → System → For developers, then register again.",
+            ),
+            "NO_EXE" => pick(
+                "安装目录里没有启动器，无法登记全屏体验。",
+                "The launcher isn't in the install folder, so fullscreen experience can't be registered.",
+            ),
+            _ => pick("无法登记到全屏体验。", "Couldn't register for fullscreen experience."),
         }
     }
 
@@ -279,7 +368,10 @@ mod windows {
                 return Ok((msix, cer));
             }
         }
-        Err("安装包里没有全屏体验身份文件。请安装带这个功能的版本。".into())
+        Err(pick(
+            "安装包里没有全屏体验身份文件。请安装带这个功能的版本。",
+            "This build has no fullscreen experience identity. Install a version that includes it.",
+        ).into())
     }
 
     fn enable_login() -> Result<(), String> {
@@ -317,14 +409,14 @@ mod windows {
     }
 
     fn write_run_value() -> Result<(), String> {
-        let exe = std::env::current_exe().map_err(|err| format!("无法开启开机自启：{err}"))?;
+        let exe = std::env::current_exe().map_err(|err| pick(&format!("无法开启开机自启：{err}"), &format!("Couldn't turn on startup: {err}")))?;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let (key, _) = hkcu
             .create_subkey(RUN_KEY)
-            .map_err(|err| format!("无法开启开机自启：{err}"))?;
+            .map_err(|err| pick(&format!("无法开启开机自启：{err}"), &format!("Couldn't turn on startup: {err}")))?;
         let quoted = format!("\"{}\"", exe.display());
-        key.set_value("Handheld Launcher", &quoted)
-            .map_err(|err| format!("无法开启开机自启：{err}"))?;
+        key.set_value("FantasyHub", &quoted)
+            .map_err(|err| pick(&format!("无法开启开机自启：{err}"), &format!("Couldn't turn on startup: {err}")))?;
         let _ = key.delete_value("handheld-launcher");
         Ok(())
     }
@@ -338,7 +430,7 @@ mod windows {
                 .join("Start Menu")
                 .join("Programs")
                 .join("Startup")
-                .join("Handheld Launcher.lnk"),
+                .join("FantasyHub.lnk"),
         )
     }
 
@@ -384,16 +476,16 @@ mod windows {
                 return true;
             }
         }
-        shell.contains("handheld launcher.exe")
+        shell.contains("FantasyHub.exe")
     }
 
     fn set_shell(value: &str) -> Result<(), String> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let (key, _) = hkcu
             .create_subkey(SHELL_KEY)
-            .map_err(|err| format!("无法开启开机自启：{err}"))?;
+            .map_err(|err| pick(&format!("无法开启开机自启：{err}"), &format!("Couldn't turn on startup: {err}")))?;
         key.set_value("Shell", &value.to_string())
-            .map_err(|err| format!("无法开启开机自启：{err}"))
+            .map_err(|err| pick(&format!("无法开启开机自启：{err}"), &format!("Couldn't turn on startup: {err}")))
     }
 
     fn restore_shell() {

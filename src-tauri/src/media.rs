@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::i18n::pick;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -84,7 +86,7 @@ pub fn fetch_steam_library_cover(appid: &str) -> Result<String, String> {
     #[cfg(not(windows))]
     {
         let _ = appid;
-        Err("只能在 Windows 上获取 Steam 封面。".into())
+        Err(pick("只能在 Windows 上获取 Steam 封面。", "Steam covers can only be fetched on Windows.").into())
     }
 }
 
@@ -425,7 +427,7 @@ mod windows {
 
     pub fn fetch_steam_library_cover(appid: &str) -> Result<String, String> {
         if appid.is_empty() || appid.len() > 10 || !appid.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err("请输入 Steam 的数字编号。".into());
+            return Err(pick("请输入 Steam 的数字编号。", "Enter a numeric Steam app ID.").into());
         }
         let input = format!(
             r#"{{"ids":[{{"appid":{appid}}}],"context":{{"language":"english","country_code":"US","steam_realm":1}},"data_request":{{"include_assets":true}}}}"#
@@ -440,18 +442,18 @@ mod windows {
             .build();
         let response = agent
             .get(&url)
-            .set("User-Agent", "HandheldLauncher")
+            .set("User-Agent", "FantasyHub")
             .call()
-            .map_err(|_| "没有连上 Steam，封面没取到。".to_string())?;
+            .map_err(|_| pick("没有连上 Steam，封面没取到。", "Couldn't reach Steam, so the cover wasn't loaded.").to_string())?;
         let body = response
             .into_string()
-            .map_err(|_| "没有找到这个 Steam 编号的封面。".to_string())?;
+            .map_err(|_| pick("没有找到这个 Steam 编号的封面。", "No cover found for that Steam ID.").to_string())?;
         let data: serde_json::Value =
-            serde_json::from_str(&body).map_err(|_| "没有找到这个 Steam 编号的封面。".to_string())?;
+            serde_json::from_str(&body).map_err(|_| pick("没有找到这个 Steam 编号的封面。", "No cover found for that Steam ID.").to_string())?;
         let assets = data
             .pointer("/response/store_items/0/assets")
-            .ok_or("没有找到这个 Steam 编号的封面。")?;
-        super::library_cover_from_assets(assets).ok_or_else(|| "没有找到这个 Steam 编号的封面。".into())
+            .ok_or(pick("没有找到这个 Steam 编号的封面。", "No cover found for that Steam ID."))?;
+        super::library_cover_from_assets(assets).ok_or_else(|| pick("没有找到这个 Steam 编号的封面。", "No cover found for that Steam ID.").into())
     }
 
     fn encode_query(text: &str) -> String {

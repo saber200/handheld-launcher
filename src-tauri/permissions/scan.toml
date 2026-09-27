@@ -49,6 +49,21 @@ description = "Show the Windows desktop without exiting the launcher."
 commands.allow = ["open_desktop"]
 
 [[permission]]
+identifier = "allow-enter-fullscreen"
+description = "Fill the screen again after leaving fullscreen for the desktop."
+commands.allow = ["enter_fullscreen"]
+
+[[permission]]
+identifier = "allow-system-power"
+description = "Sleep, restart, or shut down Windows."
+commands.allow = ["system_power"]
+
+[[permission]]
+identifier = "allow-set-locale"
+description = "Choose Chinese or English for system messages."
+commands.allow = ["set_locale"]
+
+[[permission]]
 identifier = "allow-quit-launcher"
 description = "Exit the launcher and return to the Windows desktop."
 commands.allow = ["quit_launcher"]

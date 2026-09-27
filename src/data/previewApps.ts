@@ -10,7 +10,21 @@ export type AppEntry = {
   customPath?: boolean;
 };
 
-/** Browser preview only. Reading installed Windows apps needs the packaged app. */
+export function displayAppMark(id: string, mark: string, locale: string): string {
+  if (locale !== "en") return mark;
+  if (id === "explorer") return "F";
+  if (id === "wechat") return "W";
+  if (id === "qqmusic") return "Q";
+  return mark;
+}
+
+export function displayAppName(id: string, name: string, locale: string): string {
+  if (locale !== "en") return name;
+  if (id === "explorer" && name === "文件资源管理器") return "File Explorer";
+  if (id === "wechat" && name === "微信") return "WeChat";
+  if (id === "qqmusic" && name === "QQ 音乐") return "QQ Music";
+  return name;
+}
 export const PREVIEW_APPS: AppEntry[] = [
   { id: "steam", name: "Steam", mark: "S", color: "#1b2838" },
   { id: "edge", name: "Microsoft Edge", mark: "E", color: "#0f766e" },

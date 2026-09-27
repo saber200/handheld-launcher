@@ -27,3 +27,25 @@ export const PREVIEW_GAMES: GameEntry[] = [
 function cover(appId: number): string {
   return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`;
 }
+
+const EN_TITLES: Record<string, string> = {
+  "2358720": "Black Myth: Wukong",
+  "1245620": "ELDEN RING",
+  "1091500": "Cyberpunk 2077",
+  "1086940": "Baldur's Gate 3",
+  "292030": "The Witcher 3: Wild Hunt",
+  "1145360": "Hades",
+  "814380": "Sekiro",
+  "1426210": "It Takes Two",
+  "413150": "Stardew Valley",
+  "367520": "Hollow Knight",
+  "1551360": "Forza Horizon 5",
+  "289070": "Civilization VI",
+};
+
+export function displayGameName(id: string, name: string, locale: string): string {
+  if (locale === "en" && EN_TITLES[id] && PREVIEW_GAMES.some((game) => game.id === id && game.name === name)) {
+    return EN_TITLES[id];
+  }
+  return name;
+}

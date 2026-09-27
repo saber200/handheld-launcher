@@ -7,10 +7,10 @@
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap uap3 uap4 uap10 rescap">
-  <Identity Name="com.handheld.launcher" Publisher="CN=Handheld Launcher" Version="0.1.11.0" />
+  <Identity Name="com.handheld.launcher" Publisher="CN=FantasyHub" Version="0.1.12.0" />
   <Properties>
-    <DisplayName>掌机启动器</DisplayName>
-    <PublisherDisplayName>Handheld Launcher</PublisherDisplayName>
+    <DisplayName>幻想枢纽</DisplayName>
+    <PublisherDisplayName>FantasyHub</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
   </Properties>
@@ -21,16 +21,16 @@
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.26100.0" MaxVersionTested="10.0.26200.0" />
   </Dependencies>
   <Applications>
-    <Application Id="App" Executable="Handheld Launcher.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+    <Application Id="App" Executable="FantasyHub.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
       <uap:VisualElements
-        DisplayName="掌机启动器"
-        Description="掌机启动器"
+        DisplayName="幻想枢纽"
+        Description="幻想枢纽"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png" />
       <Extensions>
         <uap3:Extension Category="windows.appExtension">
-          <uap3:AppExtension Name="windows.gamingApp" Id="Home" DisplayName="掌机启动器" Description="掌机启动器" PublicFolder="Public" />
+          <uap3:AppExtension Name="windows.gamingApp" Id="Home" DisplayName="幻想枢纽" Description="幻想枢纽" PublicFolder="Public" />
         </uap3:Extension>
       </Extensions>
     </Application>

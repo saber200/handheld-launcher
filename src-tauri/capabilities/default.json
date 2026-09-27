@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for Handheld Launcher",
+  "description": "Default capabilities for FantasyHub",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -10,6 +10,7 @@
     "core:window:allow-close",
     "core:window:allow-show",
     "core:window:allow-set-focus",
+    "core:window:allow-set-title",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
@@ -23,7 +24,10 @@
     "allow-fse-status",
     "allow-register-fse",
     "allow-open-desktop",
+    "allow-enter-fullscreen",
+    "allow-system-power",
     "allow-quit-launcher",
+    "allow-set-locale",
     "allow-file-places",
     "allow-file-list",
     "allow-file-make-dir",

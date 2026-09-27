@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { setFileActions } from "../files/actions";
 import { useFileBrowser, type FileEntry } from "../files/useFileBrowser";
+import { text } from "../i18n";
 
 type Naming = "dir" | "file" | null;
 type EditorState = { path: string; name: string; text: string };
@@ -11,7 +12,7 @@ function loadLayout(): FileLayout {
 }
 
 function formatBytes(bytes: number, kind: string) {
-  if (kind === "dir") return "文件夹";
+  if (kind === "dir") return text().files.folder;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -182,7 +183,7 @@ export function FilesPage() {
       setNaming(null);
       setDraft("");
     } catch (err) {
-      files.setNote(typeof err === "string" ? err : "无法新建");
+      files.setNote(typeof err === "string" ? err : text().files.cannotCreate);
     }
   }
 
@@ -193,7 +194,7 @@ export function FilesPage() {
       setEditor({ path: entry.path, name: entry.name, text });
     } catch (err) {
       setMenu(null);
-      files.setNote(typeof err === "string" ? err : "无法编辑");
+      files.setNote(typeof err === "string" ? err : text().files.cannotEdit);
     }
   }
 
@@ -204,7 +205,7 @@ export function FilesPage() {
       return;
     }
     void files.openExternal(entry).catch((err: unknown) => {
-      files.setNote(typeof err === "string" ? err : "无法打开");
+      files.setNote(typeof err === "string" ? err : text().files.cannotOpen);
     });
   }
 
@@ -217,10 +218,10 @@ export function FilesPage() {
   const hint =
     files.note ||
     (picked.length > 0
-      ? `已选 ${picked.length} 项。Y 可复制、移动或删除，再打开目标文件夹按粘贴。`
+      ? text().files.pickedHint(picked.length)
       : files.preview
-        ? "浏览器预览不会写入磁盘。A 用系统打开，文本请用 Y 里的编辑。"
-        : "A 用系统打开。X 多选，Y 复制、移动或删除。");
+        ? text().files.previewHint
+        : text().files.browseHint);
 
   const menuTargets =
     menu == null
@@ -236,14 +237,14 @@ export function FilesPage() {
           <div className="group-switch" aria-live="polite">
             <span className="group-switch-side">B</span>
             <strong className="group-switch-name">{files.title}</strong>
-            <span className="group-switch-side">{files.location == null ? "盘" : "返回"}</span>
+            <span className="group-switch-side">{files.location == null ? text().files.drives : text().files.back}</span>
           </div>
-          <div className="file-view-toggle" data-focus-zone="files-view" role="group" aria-label="显示方式">
+          <div className="file-view-toggle" data-focus-zone="files-view" role="group" aria-label={text().files.viewMode}>
             <button
               type="button"
               className={layout === "list" ? "file-view is-current" : "file-view"}
               data-focusable
-              aria-label="列表"
+              aria-label={text().files.list}
               aria-pressed={layout === "list"}
               onClick={() => chooseLayout("list")}
             >
@@ -255,7 +256,7 @@ export function FilesPage() {
               type="button"
               className={layout === "grid" ? "file-view is-current" : "file-view"}
               data-focusable
-              aria-label="视图"
+              aria-label={text().files.grid}
               aria-pressed={layout === "grid"}
               onClick={() => chooseLayout("grid")}
             >
@@ -280,7 +281,7 @@ export function FilesPage() {
               setNaming("dir");
             }}
           >
-            新建文件夹
+            {text().files.newFolder}
           </button>
           <button
             type="button"
@@ -292,7 +293,7 @@ export function FilesPage() {
               setNaming("file");
             }}
           >
-            新建文件
+            {text().files.newFile}
           </button>
           <button
             type="button"
@@ -301,7 +302,7 @@ export function FilesPage() {
             disabled={files.clip == null || files.location == null}
             onClick={() => void files.paste()}
           >
-            粘贴
+            {text().files.paste}
           </button>
           <button
             type="button"
@@ -310,11 +311,11 @@ export function FilesPage() {
             disabled={files.entries.length === 0}
             onClick={selectAll}
           >
-            {files.entries.length > 0 && files.entries.every((entry) => picked.includes(entry.path)) ? "取消全选" : "全选"}
+            {files.entries.length > 0 && files.entries.every((entry) => picked.includes(entry.path)) ? text().files.clearSelection : text().files.selectAll}
           </button>
           {files.location != null && (
             <button type="button" className="library-tool" data-focusable onClick={() => files.up()}>
-              返回上一级
+              {text().files.up}
             </button>
           )}
         </div>
@@ -322,7 +323,7 @@ export function FilesPage() {
         <p className="preview-note">{hint}</p>
       </div>
       {files.entries.length === 0 ? (
-        <p className="group-empty">这个文件夹是空的。用上方按钮新建，或先复制一项再粘贴。</p>
+        <p className="group-empty">{text().files.emptyHint}</p>
       ) : (
         <div
           className={layout === "grid" ? "library-grid file-grid" : "file-list"}
@@ -337,7 +338,7 @@ export function FilesPage() {
                   type="button"
                   className={on ? "file-check on" : "file-check"}
                   tabIndex={-1}
-                  aria-label={on ? `取消选择 ${entry.name}` : `选择 ${entry.name}`}
+                  aria-label={on ? text().files.unselect(entry.name) : text().files.select(entry.name)}
                   aria-pressed={on}
                   onClick={() => togglePath(entry.path)}
                 >
@@ -363,7 +364,7 @@ export function FilesPage() {
                     }
                     aria-hidden
                   >
-                    {entry.kind === "dir" ? "夹" : "文"}
+                    {entry.kind === "dir" ? text().files.dirMark : text().files.fileMark}
                   </span>
                   <span className={layout === "grid" ? "library-name" : "file-name"}>{entry.name}</span>
                   {layout === "list" && <span className="file-size">{formatBytes(entry.bytes, entry.kind)}</span>}
@@ -375,18 +376,18 @@ export function FilesPage() {
       )}
       {menu && (
         <div className="group-dialog focus-trap open">
-          <button type="button" className="drawer-scrim" aria-label="关闭" tabIndex={-1} onClick={() => setMenu(null)} />
+          <button type="button" className="drawer-scrim" aria-label={text().close} tabIndex={-1} onClick={() => setMenu(null)} />
           <div className="group-dialog-panel group-create-panel file-menu" role="dialog" aria-label={menu.name}>
-            <h2>{menuTargets.length > 1 ? `已选 ${menuTargets.length} 项` : menu.name}</h2>
+            <h2>{menuTargets.length > 1 ? text().files.selectedCount(menuTargets.length) : menu.name}</h2>
             <div className="library-tools file-menu-actions">
               {menuTargets.length === 1 && menu.kind === "file" && menu.editable ? (
                 <button type="button" className="library-tool" data-focusable onClick={() => void edit(menu)}>
-                  编辑
+                  {text().edit}
                 </button>
               ) : null}
               {menuTargets.length === 1 ? (
                 <button type="button" className="library-tool" data-focusable onClick={() => activate(menu)}>
-                  打开
+                  {text().open}
                 </button>
               ) : null}
               <button
@@ -399,7 +400,7 @@ export function FilesPage() {
                   setMenu(null);
                 }}
               >
-                复制
+                {text().files.copy}
               </button>
               <button
                 type="button"
@@ -411,7 +412,7 @@ export function FilesPage() {
                   setMenu(null);
                 }}
               >
-                移动
+                {text().files.move}
               </button>
               <button
                 type="button"
@@ -422,7 +423,7 @@ export function FilesPage() {
                   setMenu(null);
                 }}
               >
-                删除
+                {text().delete}
               </button>
               {picked.length > 0 && (
                 <button
@@ -434,7 +435,7 @@ export function FilesPage() {
                     setMenu(null);
                   }}
                 >
-                  取消选择
+                  {text().files.clearSelection}
                 </button>
               )}
             </div>
@@ -446,7 +447,7 @@ export function FilesPage() {
           <button
             type="button"
             className="drawer-scrim"
-            aria-label="关闭"
+            aria-label={text().close}
             tabIndex={-1}
             onClick={() => {
               setNaming(null);
@@ -456,26 +457,26 @@ export function FilesPage() {
           <form
             className="group-dialog-panel group-create-panel"
             role="dialog"
-            aria-label={naming === "dir" ? "新建文件夹" : "新建文件"}
+            aria-label={naming === "dir" ? text().files.newFolder : text().files.newFile}
             onSubmit={(event) => {
               event.preventDefault();
               void submitName();
             }}
           >
-            <h2>{naming === "dir" ? "新建文件夹" : "新建文件"}</h2>
+            <h2>{naming === "dir" ? text().files.newFolder : text().files.newFile}</h2>
             <input
               ref={nameRef}
               className="group-name-input"
               data-focusable
               value={draft}
-              placeholder="名称"
+              placeholder={text().files.namePlaceholder}
               maxLength={120}
               onChange={(event) => setDraft(event.target.value)}
             />
-            <p className="group-empty">A 创建。B 先回到创建，再按 B 取消。</p>
+            <p className="group-empty">{text().files.createHint}</p>
             <div className="library-tools">
               <button ref={createRef} type="submit" className="library-tool" data-focusable>
-                创建
+                {text().create}
               </button>
               <button
                 type="button"
@@ -486,7 +487,7 @@ export function FilesPage() {
                   setDraft("");
                 }}
               >
-                取消
+                {text().cancel}
               </button>
             </div>
           </form>
@@ -497,11 +498,11 @@ export function FilesPage() {
           <button
             type="button"
             className="drawer-scrim"
-            aria-label="关闭"
+            aria-label={text().close}
             tabIndex={-1}
             onClick={() => setEditor(null)}
           />
-          <div className="group-dialog-panel file-editor-panel" role="dialog" aria-label={`编辑 ${editor.name}`}>
+          <div className="group-dialog-panel file-editor-panel" role="dialog" aria-label={text().files.editTitle(editor.name)}>
             <h2>{editor.name}</h2>
             <textarea
               ref={editorRef}
@@ -515,7 +516,7 @@ export function FilesPage() {
                 requestAnimationFrame(() => editorRef.current?.setSelectionRange(pos, pos));
               }}
             />
-            <p className="group-empty">方向键移动光标，A 换行。B 回到保存，再按 B 放弃修改。</p>
+            <p className="group-empty">{text().files.editorHint}</p>
             <div className="library-tools">
               <button
                 ref={saveRef}
@@ -524,14 +525,14 @@ export function FilesPage() {
                 data-focusable
                 onClick={() => {
                   void files.writeText(editor.path, editor.text).then(() => setEditor(null)).catch((err: unknown) => {
-                    files.setNote(typeof err === "string" ? err : "无法保存");
+                    files.setNote(typeof err === "string" ? err : text().files.saveFailed);
                   });
                 }}
               >
-                保存
+                {text().save}
               </button>
               <button type="button" className="library-tool" data-focusable onClick={() => setEditor(null)}>
-                关闭
+                {text().close}
               </button>
             </div>
           </div>
@@ -539,13 +540,13 @@ export function FilesPage() {
       )}
       {trash && (
         <div className="group-dialog focus-trap open">
-          <button type="button" className="drawer-scrim" aria-label="关闭" tabIndex={-1} onClick={() => setTrash(null)} />
-          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label="删除">
-            <h2>{trash.length === 1 ? `删除「${trash[0].name}」？` : `删除已选的 ${trash.length} 项？`}</h2>
-            <p className="group-empty">会从磁盘删除，文件夹会连同里面的内容一起删除。</p>
+          <button type="button" className="drawer-scrim" aria-label={text().close} tabIndex={-1} onClick={() => setTrash(null)} />
+          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label={text().files.deleteTitle}>
+            <h2>{trash.length === 1 ? text().files.deleteOne(trash[0].name) : text().files.deleteMany(trash.length)}</h2>
+            <p className="group-empty">{text().files.deleteBody}</p>
             <div className="library-tools">
               <button ref={trashCancelRef} type="button" className="library-tool" data-focusable onClick={() => setTrash(null)}>
-                取消
+                {text().cancel}
               </button>
               <button
                 type="button"
@@ -558,7 +559,7 @@ export function FilesPage() {
                   void files.remove(targets);
                 }}
               >
-                删除
+                {text().delete}
               </button>
             </div>
           </div>

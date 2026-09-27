@@ -3,6 +3,7 @@ import { FilePicker } from "../files/FilePicker";
 import { setLibraryActions } from "../library/actions";
 import { useLibraryGroups } from "../library/useLibraryGroups";
 import type { PickedProgram } from "../library/useLocalLibrary";
+import { text } from "../i18n";
 
 type Item = { id: string; name: string };
 
@@ -86,7 +87,7 @@ export function LibraryShelf<T extends Item>({
       : items.filter((item) => library.membership[item.id] === library.activeId);
   const visibleKey = visible.map((item) => item.id).join("\0");
   const activeName =
-    library.groups.find((group) => group.id === library.activeId)?.name ?? "全部";
+    library.groups.find((group) => group.id === library.activeId)?.name ?? text().library.all;
   const customGroup = library.activeId !== "all";
 
   useEffect(() => {
@@ -236,7 +237,7 @@ export function LibraryShelf<T extends Item>({
         <div className="library-group-row" data-focus-zone="library-groups" aria-live="polite">
         <div className="group-strip">
           <span className="group-switch-side">LT</span>
-          <div className="group-strip-scroll" role="tablist" aria-label="分组">
+          <div className="group-strip-scroll" role="tablist" aria-label={text().library.groups}>
             <button
               type="button"
               role="tab"
@@ -245,7 +246,7 @@ export function LibraryShelf<T extends Item>({
               data-focusable
               onClick={() => library.setActive("all")}
             >
-              全部
+              {text().library.all}
             </button>
             {library.groups.map((group) => (
               <button
@@ -275,7 +276,7 @@ export function LibraryShelf<T extends Item>({
               setNaming(true);
             }}
           >
-            新建分组
+            {text().library.newGroup}
           </button>
           {customGroup && (
             <button
@@ -285,7 +286,7 @@ export function LibraryShelf<T extends Item>({
               data-focusable
               onClick={() => setPicking(true)}
             >
-              添加应用到分组
+              {text().library.addApps}
             </button>
           )}
           {customGroup && (
@@ -295,7 +296,7 @@ export function LibraryShelf<T extends Item>({
               data-focusable
               onClick={() => setDeleting(true)}
             >
-              删除分组
+              {text().library.deleteGroup}
             </button>
           )}
           <button
@@ -304,11 +305,11 @@ export function LibraryShelf<T extends Item>({
             data-focusable
             onClick={() => setFileTarget({ mode: "add" })}
           >
-            {kind === "games" ? "添加游戏" : "添加软件"}
+            {kind === "games" ? text().library.addGame : text().library.addApp}
           </button>
           {!customGroup && (
             <button type="button" className="library-tool scan-action" data-focusable disabled={scanning} onClick={onScan}>
-              重新扫描
+              {text().library.rescan}
             </button>
           )}
         </div>
@@ -317,8 +318,8 @@ export function LibraryShelf<T extends Item>({
       {visible.length === 0 && items.length > 0 ? (
         <p className="group-empty">
           {customGroup
-            ? "暂无卡片"
-            : "未分组的卡片会显示在这里。已经分组的只出现在对应分组。"}
+            ? text().library.noCards
+            : text().library.ungrouped}
         </p>
       ) : visible.length === 0 ? null : (
         <section className="library-grid" data-focus-zone="library-grid" aria-label={label}>
@@ -331,13 +332,13 @@ export function LibraryShelf<T extends Item>({
       )}
       {hiding && (
         <div className="group-dialog focus-trap open">
-          <button type="button" className="drawer-scrim" aria-label="关闭" tabIndex={-1} onClick={() => setHiding(null)} />
-          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label={kind === "games" ? "删除游戏" : "删除软件"}>
-            <h2>从{kind === "games" ? "游戏库" : "软件库"}拿掉「{hiding.name}」？</h2>
-            <p className="group-empty">只是不再显示在这个库里，不会删除磁盘上的文件。</p>
+          <button type="button" className="drawer-scrim" aria-label={text().close} tabIndex={-1} onClick={() => setHiding(null)} />
+          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label={kind === "games" ? text().library.hideGameTitle : text().library.hideAppTitle}>
+            <h2>{text().library.hideHeading(kind === "games" ? text().tabs.games : text().tabs.apps, hiding.name)}</h2>
+            <p className="group-empty">{text().library.hideBody}</p>
             <div className="library-tools">
               <button type="button" className="library-tool" data-focusable onClick={() => setHiding(null)}>
-                取消
+                {text().cancel}
               </button>
               <button
                 type="button"
@@ -349,7 +350,7 @@ export function LibraryShelf<T extends Item>({
                   setHiding(null);
                 }}
               >
-                删除
+                {text().delete}
               </button>
             </div>
           </div>
@@ -360,16 +361,16 @@ export function LibraryShelf<T extends Item>({
           <button
             type="button"
             className="drawer-scrim"
-            aria-label="关闭"
+            aria-label={text().close}
             tabIndex={-1}
             onClick={() => setDeleting(false)}
           />
-          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label="删除分组">
-            <h2>删除分组「{activeName}」？</h2>
-            <p className="group-empty">分组里的卡片会回到「全部」，不会从库里删掉。</p>
+          <div className="group-dialog-panel group-create-panel" role="dialog" aria-label={text().library.deleteGroupTitle}>
+            <h2>{text().library.deleteGroupHeading(activeName)}</h2>
+            <p className="group-empty">{text().library.deleteGroupBody}</p>
             <div className="library-tools">
               <button type="button" className="library-tool" data-focusable onClick={() => setDeleting(false)}>
-                取消
+                {text().cancel}
               </button>
               <button
                 type="button"
@@ -380,7 +381,7 @@ export function LibraryShelf<T extends Item>({
                   setDeleting(false);
                 }}
               >
-                删除
+                {text().delete}
               </button>
             </div>
           </div>
@@ -391,7 +392,7 @@ export function LibraryShelf<T extends Item>({
           <button
             type="button"
             className="drawer-scrim"
-            aria-label="关闭"
+            aria-label={text().close}
             tabIndex={-1}
             onClick={() => {
               setCoverFor(null);
@@ -401,7 +402,7 @@ export function LibraryShelf<T extends Item>({
           <form
             className="group-dialog-panel group-create-panel"
             role="dialog"
-            aria-label="添加ID获取封面"
+            aria-label={text().library.steamTitle}
             onSubmit={(event) => {
               event.preventDefault();
               const target = coverFor;
@@ -413,18 +414,18 @@ export function LibraryShelf<T extends Item>({
               });
             }}
           >
-            <h2>为「{coverFor.name}」填写 Steam 编号</h2>
+            <h2>{text().library.steamHeading(coverFor.name)}</h2>
             <input
               ref={coverRef}
               className="group-name-input"
               data-focusable
               value={coverDraft}
-              placeholder="例如 1245620"
+              placeholder={text().library.steamPlaceholder}
               inputMode="numeric"
               maxLength={10}
               onChange={(event) => setCoverDraft(event.target.value.replace(/\D/g, ""))}
             />
-            <p className="group-empty">用这个编号去取 Steam 的竖版封面，重启后还会在。</p>
+            <p className="group-empty">{text().library.steamBody}</p>
             <div className="library-tools">
               <button
                 type="button"
@@ -435,10 +436,10 @@ export function LibraryShelf<T extends Item>({
                   setCoverDraft("");
                 }}
               >
-                取消
+                {text().cancel}
               </button>
               <button type="submit" className="library-tool" data-focusable>
-                获取封面
+                {text().library.fetchCover}
               </button>
             </div>
           </form>
@@ -449,7 +450,7 @@ export function LibraryShelf<T extends Item>({
           <button
             type="button"
             className="drawer-scrim"
-            aria-label="关闭"
+            aria-label={text().close}
             tabIndex={-1}
             onClick={() => {
               setNaming(false);
@@ -460,19 +461,19 @@ export function LibraryShelf<T extends Item>({
           <form
             className="group-dialog-panel group-create-panel"
             role="dialog"
-            aria-label="新建分组"
+            aria-label={text().library.newGroupTitle}
             onSubmit={(event) => {
               event.preventDefault();
               createGroup();
             }}
           >
-            <h2>新建分组</h2>
+            <h2>{text().library.newGroupTitle}</h2>
             <input
               ref={nameRef}
               className="group-name-input"
               data-focusable
               value={draft}
-              placeholder="分组名称"
+              placeholder={text().library.groupPlaceholder}
               maxLength={16}
               onChange={(event) => setDraft(event.target.value)}
             />
@@ -487,10 +488,10 @@ export function LibraryShelf<T extends Item>({
                   createRef.current?.focus();
                 }}
               >
-                取消
+                {text().cancel}
               </button>
               <button type="submit" className="library-tool" data-focusable>
-                创建
+                {text().create}
               </button>
             </div>
           </form>
@@ -501,7 +502,7 @@ export function LibraryShelf<T extends Item>({
           <button
             type="button"
             className="drawer-scrim"
-            aria-label="关闭"
+            aria-label={text().close}
             tabIndex={-1}
             onClick={() => {
               setMenuCardId(null);
@@ -516,7 +517,7 @@ export function LibraryShelf<T extends Item>({
             {menuView === "actions" && (
               <>
                 <button type="button" className="library-tool" data-focusable onClick={() => setMenuView("group")}>
-                  设置分组
+                  {text().library.setGroup}
                 </button>
                 <button
                   type="button"
@@ -528,7 +529,7 @@ export function LibraryShelf<T extends Item>({
                     setMenuView("rename");
                   }}
                 >
-                  修改名称
+                  {text().library.rename}
                 </button>
                 <button
                   type="button"
@@ -541,7 +542,7 @@ export function LibraryShelf<T extends Item>({
                     setMenuView("actions");
                   }}
                 >
-                  修改路径
+                  {text().library.changePath}
                 </button>
                 {kind === "games" && onSteamCover && (
                   <button
@@ -557,7 +558,7 @@ export function LibraryShelf<T extends Item>({
                       setMenuView("actions");
                     }}
                   >
-                    添加ID获取封面
+                    {text().library.steamMenu}
                   </button>
                 )}
                 <button
@@ -572,7 +573,7 @@ export function LibraryShelf<T extends Item>({
                     setMenuView("actions");
                   }}
                 >
-                  从库中移除
+                  {text().library.remove}
                 </button>
               </>
             )}
@@ -588,7 +589,7 @@ export function LibraryShelf<T extends Item>({
                       setMenuCardId(null);
                     }}
                   >
-                    移出分组
+                    {text().library.leaveGroup}
                   </button>
                 )}
                 {library.groups.map((group) => (
@@ -603,10 +604,10 @@ export function LibraryShelf<T extends Item>({
                     }}
                   >
                     {group.name}
-                    {library.membership[menuCardId] === group.id ? " · 当前" : ""}
+                    {library.membership[menuCardId] === group.id ? text().library.currentGroup : ""}
                   </button>
                 ))}
-                {library.groups.length === 0 && <p className="group-empty">还没有分组，请先新建。</p>}
+                {library.groups.length === 0 && <p className="group-empty">{text().library.noGroups}</p>}
               </>
             )}
             {menuView === "rename" && (
@@ -630,7 +631,7 @@ export function LibraryShelf<T extends Item>({
                   onChange={(event) => setDraft(event.target.value)}
                 />
                 <button type="submit" className="library-tool" data-focusable>
-                  保存
+                  {text().save}
                 </button>
               </form>
             )}
@@ -642,16 +643,16 @@ export function LibraryShelf<T extends Item>({
           <button
             type="button"
             className="drawer-scrim"
-            aria-label="关闭"
+            aria-label={text().close}
             tabIndex={-1}
             onClick={() => setPicking(false)}
           />
-          <div className="group-dialog-panel picker-panel" role="dialog" aria-label="添加卡片">
+          <div className="group-dialog-panel picker-panel" role="dialog" aria-label={text().library.addCards}>
             <div className="picker-title">
-              <h2>添加到「{activeName}」</h2>
-              <p>方向键选择，A 添加或移除，B 返回</p>
+              <h2>{text().library.addTo(activeName)}</h2>
+              <p>{text().library.pickerHint}</p>
             </div>
-            <section className="library-grid picker-grid" aria-label="当前库">
+            <section className="library-grid picker-grid" aria-label={text().library.currentLibrary}>
               {items.map((item) =>
                 renderCard(item, undefined, {
                   name: library.names[item.id] || item.name,
@@ -665,7 +666,7 @@ export function LibraryShelf<T extends Item>({
       )}
       {fileTarget && (
         <FilePicker
-          title={fileTarget.mode === "add" ? (kind === "games" ? "添加游戏" : "添加软件") : "修改路径"}
+          title={fileTarget.mode === "add" ? (kind === "games" ? text().library.addGame : text().library.addApp) : text().library.changePath}
           onClose={() => setFileTarget(null)}
           onPick={(file) => {
             setHint(onUseFile(fileTarget, file));

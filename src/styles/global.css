@@ -517,15 +517,112 @@ img.app-icon {
   font-weight: 700;
 }
 
+.lang-switch {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .status-msg {
   margin-top: 16px;
   color: var(--accent);
 }
 
+@font-face {
+  font-family: "站酷高端黑";
+  src: url("../assets/fonts/zcool-gaoduanhei.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 .about-line {
+  margin: 0;
+  width: fit-content;
+  font-family: "站酷高端黑", sans-serif;
+  font-size: 32px;
+  letter-spacing: 0.12em;
+  background-image: linear-gradient(
+    90deg,
+    #8ea0b8 0%,
+    #8ea0b8 40%,
+    #3dd6c6 42.2%,
+    #f4fbff 45.5%,
+    #7aa2ff 48.8%,
+    #8ea0b8 51%,
+    #8ea0b8 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: about-shimmer 5.9s linear infinite;
+}
+
+@keyframes about-shimmer {
+  0% {
+    background-position: 108% 50%;
+  }
+  83% {
+    background-position: -28% 50%;
+  }
+  100% {
+    background-position: -28% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .about-line {
+    animation: none;
+    background-position: -28% 50%;
+  }
+}
+
+.settings-foot {
   margin-top: auto;
-  color: var(--muted);
-  font-size: 13px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+.power-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.power-options {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 112px;
+}
+
+.power-option,
+.power-toggle {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(18, 26, 42, 0.98);
+}
+
+.power-option {
+  padding: 10px 16px;
+  text-align: center;
+}
+
+.power-option.danger {
+  color: var(--danger);
+}
+
+.power-toggle {
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
 }
 
 .library-tool:disabled {
@@ -825,4 +922,196 @@ img.app-icon {
   border-radius: 10px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.06);
+}
+
+.boot-splash {
+  --boot-x: -220px;
+  --boot-y: 0px;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: var(--bg0);
+  overflow: hidden;
+}
+
+.boot-splash.is-playing {
+  animation: boot-splash-out 7s linear forwards;
+}
+
+.boot-wash,
+.boot-orb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-wash {
+  width: 52vmax;
+  height: 52vmax;
+  margin: -26vmax 0 0 -26vmax;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(186, 255, 246, 0.2) 0%,
+    rgba(61, 214, 198, 0.1) 28%,
+    rgba(91, 140, 255, 0.05) 52%,
+    transparent 72%
+  );
+  filter: blur(18px);
+  mix-blend-mode: screen;
+  transform: scale(0.2);
+}
+
+.boot-orb {
+  width: 280px;
+  height: 280px;
+  margin: -140px 0 0 -140px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(226, 255, 250, 0.55) 5%,
+    rgba(120, 230, 214, 0.28) 14%,
+    rgba(61, 214, 198, 0.12) 28%,
+    rgba(61, 214, 198, 0.04) 46%,
+    transparent 70%
+  );
+  filter: blur(0.6px);
+  mix-blend-mode: screen;
+  transform: translate3d(0, 0, 0) scale(0.16);
+  will-change: transform;
+}
+
+.boot-lockup {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 36px;
+}
+
+.boot-slot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 25px;
+}
+
+.boot-copy {
+  text-align: left;
+}
+
+.boot-char {
+  display: inline-block;
+  opacity: 0;
+}
+
+.boot-name,
+.boot-tag {
+  margin: 0;
+  font-family: "站酷高端黑", sans-serif;
+  white-space: nowrap;
+}
+
+.boot-name {
+  font-size: 64px;
+  line-height: 1;
+  letter-spacing: 0.18em;
+  color: #f4fbff;
+  text-shadow: 0 0 28px rgba(61, 214, 198, 0.35);
+}
+
+.boot-tag {
+  margin-top: 14px;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  color: #9eb0c6;
+}
+
+.boot-splash.is-playing .boot-wash {
+  animation: boot-wash 7s linear forwards;
+}
+
+.boot-splash.is-playing .boot-orb {
+  animation: boot-orb 7s linear forwards;
+}
+
+.boot-splash.is-playing .boot-char {
+  animation: boot-char-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes boot-splash-out {
+  0%,
+  92% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes boot-wash {
+  0% {
+    opacity: 0;
+    transform: scale(0.25);
+    animation-timing-function: cubic-bezier(0.16, 0.7, 0.28, 1);
+  }
+  20% {
+    opacity: 0.9;
+    transform: scale(1);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.55, 1);
+  }
+  42% {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes boot-orb {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.14);
+    animation-timing-function: cubic-bezier(0.16, 0.8, 0.24, 1);
+  }
+  6% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(0.32);
+    animation-timing-function: cubic-bezier(0.16, 0.7, 0.28, 1);
+  }
+  20% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    animation-timing-function: cubic-bezier(0.45, 0.02, 0.2, 1);
+  }
+  46%,
+  50% {
+    opacity: 1;
+    transform: translate3d(-34vw, var(--boot-y), 0) scale(0.32);
+    animation-timing-function: cubic-bezier(0.16, 0.84, 0.22, 1);
+  }
+  68%,
+  100% {
+    opacity: 1;
+    transform: translate3d(var(--boot-x), var(--boot-y), 0) scale(0.32);
+  }
+}
+
+@keyframes boot-char-in {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
 }

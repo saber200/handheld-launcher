@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
+import { currentLocale, text, useI18n } from "../i18n";
 
 export type FileEntry = {
   name: string;
@@ -30,31 +31,36 @@ type PreviewNode = {
 
 const PREVIEW_ROOT = "preview:";
 
-const INITIAL_PREVIEW: PreviewNode = {
-  name: "本机预览",
-  kind: "dir",
-  children: [
-    {
-      name: "文档",
-      kind: "dir",
-      children: [
-        {
-          name: "笔记.txt",
-          kind: "file",
-          editable: true,
-          text: "这是预览笔记。\n改完后把焦点移到保存，按 A。",
-        },
-      ],
-    },
-    {
-      name: "说明.txt",
-      kind: "file",
-      editable: true,
-      text: "浏览器里的文件不会写到磁盘。",
-    },
-    { name: "封面.png", kind: "file", editable: false },
-  ],
-};
+function previewTree(): PreviewNode {
+  const en = currentLocale() === "en";
+  return {
+    name: text().files.previewRoot,
+    kind: "dir",
+    children: [
+      {
+        name: en ? "Documents" : "文档",
+        kind: "dir",
+        children: [
+          {
+            name: en ? "Note.txt" : "笔记.txt",
+            kind: "file",
+            editable: true,
+            text: en
+              ? "This is a preview note.\nMove focus to Save, then press A."
+              : "这是预览笔记。\n改完后把焦点移到保存，按 A。",
+          },
+        ],
+      },
+      {
+        name: en ? "Readme.txt" : "说明.txt",
+        kind: "file",
+        editable: true,
+        text: en ? "Files in the browser are not written to disk." : "浏览器里的文件不会写到磁盘。",
+      },
+      { name: en ? "Cover.png" : "封面.png", kind: "file", editable: false },
+    ],
+  };
+}
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -63,19 +69,20 @@ function inTauri(): boolean {
 function formatError(err: unknown): string {
   if (typeof err === "string") return err;
   if (err instanceof Error && err.message) return err.message;
-  return "操作失败";
+  return text().files.actionFailed;
 }
 
 export function checkFileName(name: string): string | null {
+  const t = text().files;
   const trimmed = name.trim();
-  if (!trimmed) return "请输入名称";
-  if (trimmed === "." || trimmed === ".." || trimmed.length > 120) return "这个名称不能用";
+  if (!trimmed) return t.needName;
+  if (trimmed === "." || trimmed === ".." || trimmed.length > 120) return t.badName;
   if (/[\\/:*?"<>|]/.test(trimmed) || [...trimmed].some((c) => c.charCodeAt(0) < 32)) {
-    return "名称里不能有 \\ / : * ? \" < > |";
+    return t.badChars;
   }
   const stem = (trimmed.split(".")[0] ?? trimmed).toUpperCase();
   if (["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "LPT1", "LPT2"].includes(stem)) {
-    return "这个名称不能用";
+    return t.badName;
   }
   return null;
 }
@@ -97,9 +104,9 @@ export function parentPath(path: string): string | null {
 }
 
 export function baseName(path: string | null): string {
-  if (path == null) return "盘符";
-  if (path === PREVIEW_ROOT) return "本机预览";
-  if (path === "/") return "根目录";
+  if (path == null) return text().files.drivesTitle;
+  if (path === PREVIEW_ROOT) return text().files.previewRoot;
+  if (path === "/") return text().files.root;
   const trimmed = path.replace(/[\\/]+$/, "");
   const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
   return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
@@ -150,7 +157,7 @@ function listPreview(root: PreviewNode, location: string | null): FileEntry[] {
     .map((child) => toEntry(child, childPath(location, child.name)))
     .sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-      return a.name.localeCompare(b.name, "zh");
+      return a.name.localeCompare(b.name, currentLocale());
     });
 }
 
@@ -160,9 +167,7 @@ function uniqueName(siblings: PreviewNode[], name: string): string {
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : "";
   for (let n = 1; n < 100; n += 1) {
-    const candidate = ext
-      ? `${stem} 副本${n === 1 ? "" : ` ${n}`}${ext}`
-      : `${stem} 副本${n === 1 ? "" : ` ${n}`}`;
+    const candidate = text().files.copyName(stem, n, ext);
     if (!siblings.some((child) => child.name === candidate)) return candidate;
   }
   return `${name}.copy`;
@@ -173,18 +178,19 @@ function applyPreviewPaste(
   clip: ClipItem & { mode: Clip["mode"] },
   location: string,
 ): { tree: PreviewNode; focus: string; message: string } | { error: string } {
+  const t = text().files;
   const source = findNode(tree, clip.path);
-  if (!source) return { error: "找不到要粘贴的项目。" };
+  if (!source) return { error: t.missingPaste };
   const parent = parentPath(clip.path);
-  if (clip.mode === "move" && parent === location) return { error: "已经在这个文件夹里。" };
+  if (clip.mode === "move" && parent === location) return { error: t.alreadyHere };
   if (clip.kind === "dir" && (location === clip.path || location.startsWith(`${clip.path}/`))) {
-    return { error: "不能粘贴到它自己里面。" };
+    return { error: t.intoItself };
   }
   const dest = findNode(tree, location);
-  if (!dest || dest.kind !== "dir") return { error: "只能粘贴到文件夹里。" };
+  if (!dest || dest.kind !== "dir") return { error: t.pasteIntoFolder };
   const siblings = dest.children ?? [];
   if (clip.mode === "move" && siblings.some((child) => child.name === source.name)) {
-    return { error: "目标里已经有同名项目。" };
+    return { error: t.nameTaken };
   }
   const focus = clip.mode === "copy" ? uniqueName(siblings, source.name) : source.name;
   let next = updateDir(tree, location, (children) => [...children, { ...cloneNode(source), name: focus }]);
@@ -194,7 +200,7 @@ function applyPreviewPaste(
   return {
     tree: next,
     focus,
-    message: clip.mode === "copy" ? `已粘贴「${focus}」。` : `已移动「${focus}」。`,
+    message: clip.mode === "copy" ? text().files.pasted(focus) : text().files.moved(focus),
   };
 }
 
@@ -219,13 +225,18 @@ function updateDir(
 }
 
 export function useFileBrowser() {
+  const { locale } = useI18n();
   const preview = !inTauri();
   const [location, setLocation] = useState<string | null>(null);
-  const [tree, setTree] = useState<PreviewNode>(INITIAL_PREVIEW);
+  const [tree, setTree] = useState<PreviewNode>(() => previewTree());
   const [nativeEntries, setNativeEntries] = useState<FileEntry[]>([]);
   const [note, setNote] = useState("");
   const [clip, setClip] = useState<Clip | null>(null);
   const [pendingFocus, setPendingFocus] = useState("");
+
+  useEffect(() => {
+    if (preview) setTree(previewTree());
+  }, [locale, preview]);
 
   const reloadNative = useCallback(async (path: string | null) => {
     try {
@@ -287,22 +298,23 @@ export function useFileBrowser() {
       items: entries.map((entry) => ({ path: entry.path, name: entry.name, kind: entry.kind })),
       mode,
     });
-    const label = entries.length === 1 ? `「${entries[0].name}」` : `${entries.length} 项`;
-    const gap = entries.length === 1 ? "" : " ";
-    setNote(
-      mode === "copy"
-        ? `已复制${gap}${label}。打开目标文件夹后按粘贴。`
-        : `已准备移动${gap}${label}。打开目标文件夹后按粘贴。`,
-    );
+    const t = text().files;
+    const label =
+      entries.length === 1
+        ? t.quoted(entries[0].name)
+        : currentLocale() === "zh"
+          ? ` ${t.itemCount(entries.length)}`
+          : t.itemCount(entries.length);
+    setNote(mode === "copy" ? t.copiedClip(label) : t.moveClip(label));
   }, []);
 
   const paste = useCallback(async () => {
     if (!clip || clip.items.length === 0) return;
     if (location == null) {
-      setNote("先进入一个文件夹，再粘贴。");
+      setNote(text().files.enterFolderFirst);
       return;
     }
-    const countLabel = clip.items.length === 1 ? "" : `${clip.items.length} 项`;
+    const countLabel = clip.items.length === 1 ? "" : text().files.itemCount(clip.items.length);
     if (preview) {
       let next = tree;
       let focus = clip.items[0].name;
@@ -314,7 +326,7 @@ export function useFileBrowser() {
           if (clip.mode === "move") {
             setClip({ ...clip, items: clip.items.filter((entry) => !done.includes(entry.path)) });
           }
-          setNote(done.length > 0 ? `已处理 ${done.length} 项。${applied.error}` : applied.error);
+          setNote(done.length > 0 ? text().files.partial(done.length, applied.error) : applied.error);
           return;
         }
         next = applied.tree;
@@ -326,11 +338,11 @@ export function useFileBrowser() {
       setNote(
         clip.items.length === 1
           ? clip.mode === "copy"
-            ? `已粘贴「${focus}」。`
-            : `已移动「${focus}」。`
+            ? text().files.pasted(focus)
+            : text().files.moved(focus)
           : clip.mode === "copy"
-            ? `已粘贴 ${countLabel}。`
-            : `已移动 ${countLabel}。`,
+            ? text().files.pastedMany(countLabel)
+            : text().files.movedMany(countLabel),
       );
       setPendingFocus(focus);
       return;
@@ -353,18 +365,19 @@ export function useFileBrowser() {
       setClip(failure ? { ...clip, items: clip.items.filter((entry) => !done.includes(entry.path)) } : null);
     }
     setPendingFocus(clip.items.find((item) => done.includes(item.path))?.name ?? "");
+    const t = text().files;
     setNote(
       failure
         ? done.length > 0
-          ? `已处理 ${done.length} 项。${failure}`
+          ? t.partial(done.length, failure)
           : failure
         : clip.mode === "copy"
           ? clip.items.length === 1
-            ? `已粘贴「${clip.items[0].name}」。`
-            : `已粘贴 ${countLabel}。`
+            ? t.pasted(clip.items[0].name)
+            : t.pastedMany(countLabel)
           : clip.items.length === 1
-            ? `已移动「${clip.items[0].name}」。`
-            : `已移动 ${countLabel}。`,
+            ? t.moved(clip.items[0].name)
+            : t.movedMany(countLabel),
     );
     await reloadNative(location);
   }, [clip, location, preview, reloadNative, tree]);
@@ -373,11 +386,11 @@ export function useFileBrowser() {
     async (name: string) => {
       const problem = checkFileName(name);
       if (problem) throw problem;
-      if (location == null) throw "先进入一个文件夹。";
+      if (location == null) throw text().files.enterFolderFirst;
       const trimmed = name.trim();
       if (preview) {
         const dest = findNode(tree, location);
-        if (dest?.children?.some((child) => child.name === trimmed)) throw "已经有同名项目";
+        if (dest?.children?.some((child) => child.name === trimmed)) throw text().files.nameTaken;
         setTree((current) =>
           updateDir(current, location, (children) => [
             ...children,
@@ -385,12 +398,12 @@ export function useFileBrowser() {
           ]),
         );
         setPendingFocus(trimmed);
-        setNote(`已新建文件夹「${trimmed}」。`);
+        setNote(text().files.folderCreated(trimmed));
         return;
       }
       await invoke("file_make_dir", { parent: location, name: trimmed });
       setPendingFocus(trimmed);
-      setNote(`已新建文件夹「${trimmed}」。`);
+      setNote(text().files.folderCreated(trimmed));
       await reloadNative(location);
     },
     [location, preview, reloadNative, tree],
@@ -400,11 +413,11 @@ export function useFileBrowser() {
     async (name: string) => {
       const problem = checkFileName(name);
       if (problem) throw problem;
-      if (location == null) throw "先进入一个文件夹。";
+      if (location == null) throw text().files.enterFolderFirst;
       const trimmed = name.trim();
       if (preview) {
         const dest = findNode(tree, location);
-        if (dest?.children?.some((child) => child.name === trimmed)) throw "已经有同名项目";
+        if (dest?.children?.some((child) => child.name === trimmed)) throw text().files.nameTaken;
         setTree((current) =>
           updateDir(current, location, (children) => [
             ...children,
@@ -412,12 +425,12 @@ export function useFileBrowser() {
           ]),
         );
         setPendingFocus(trimmed);
-        setNote(`已新建「${trimmed}」。`);
+        setNote(text().files.fileCreated(trimmed));
         return childPath(location, trimmed);
       }
       await invoke("file_make_file", { parent: location, name: trimmed });
       setPendingFocus(trimmed);
-      setNote(`已新建「${trimmed}」。`);
+      setNote(text().files.fileCreated(trimmed));
       await reloadNative(location);
       return childPath(location, trimmed);
     },
@@ -428,7 +441,7 @@ export function useFileBrowser() {
     async (entry: FileEntry) => {
       if (preview) {
         const node = findNode(tree, entry.path);
-        if (!node || node.kind !== "file" || node.editable === false) throw "这个文件不是文本";
+        if (!node || node.kind !== "file" || node.editable === false) throw text().files.notText;
         return node.text ?? "";
       }
       return invoke<string>("file_read_text", { path: entry.path });
@@ -437,21 +450,21 @@ export function useFileBrowser() {
   );
 
   const writeText = useCallback(
-    async (path: string, text: string) => {
+    async (path: string, body: string) => {
       if (preview) {
         const parent = parentPath(path);
         const name = baseName(path);
-        if (parent == null) throw "无法保存";
+        if (parent == null) throw text().files.cannotSave;
         setTree((current) =>
           updateDir(current, parent, (children) =>
-            children.map((child) => (child.name === name ? { ...child, text } : child)),
+            children.map((child) => (child.name === name ? { ...child, text: body } : child)),
           ),
         );
-        setNote(`已保存「${name}」。`);
+        setNote(text().files.saved(name));
         return;
       }
-      await invoke("file_write_text", { path, text });
-      setNote(`已保存「${baseName(path)}」。`);
+      await invoke("file_write_text", { path, text: body });
+      setNote(text().files.saved(baseName(path)));
     },
     [preview],
   );
@@ -464,13 +477,13 @@ export function useFileBrowser() {
         for (const entry of entries) {
           const parent = parentPath(entry.path);
           if (parent == null) {
-            setNote("不能删除这个位置。");
+            setNote(text().files.cannotDeleteHere);
             return;
           }
           next = updateDir(next, parent, (children) => children.filter((child) => child.name !== entry.name));
         }
         setTree(next);
-        setNote(entries.length === 1 ? `已删除「${entries[0].name}」。` : `已删除 ${entries.length} 项。`);
+        setNote(entries.length === 1 ? text().files.deletedOne(entries[0].name) : text().files.deletedMany(entries.length));
         return;
       }
       let done = 0;
@@ -484,14 +497,15 @@ export function useFileBrowser() {
           break;
         }
       }
+      const t = text().files;
       setNote(
         failure
           ? done > 0
-            ? `已删除 ${done} 项。${failure}`
+            ? `${t.deletedMany(done)} ${failure}`
             : failure
           : entries.length === 1
-            ? `已删除「${entries[0].name}」。`
-            : `已删除 ${entries.length} 项。`,
+            ? t.deletedOne(entries[0].name)
+            : t.deletedMany(entries.length),
       );
       await reloadNative(location);
     },
@@ -501,11 +515,11 @@ export function useFileBrowser() {
   const openExternal = useCallback(
     async (entry: FileEntry) => {
       if (preview) {
-        setNote("浏览器预览不能调用系统打开。文本文件请用编辑。");
+        setNote(text().files.previewOpen);
         return;
       }
       await invoke("file_open", { path: entry.path });
-      setNote(`已打开「${entry.name}」。`);
+      setNote(text().files.opened(entry.name));
     },
     [preview],
   );
@@ -514,7 +528,7 @@ export function useFileBrowser() {
     preview,
     location,
     title: baseName(location),
-    pathLabel: location ?? "选择盘符或用户文件夹",
+    pathLabel: location ?? text().files.choosePlace,
     entries,
     note,
     clip,

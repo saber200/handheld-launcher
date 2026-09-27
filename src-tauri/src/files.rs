@@ -1,6 +1,8 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+use crate::i18n::pick;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileEntry {
@@ -26,9 +28,9 @@ pub fn file_make_dir(parent: String, name: String) -> Result<(), String> {
     let name = check_name(&name)?;
     let dest = PathBuf::from(parent).join(name);
     if dest.exists() {
-        return Err("已经有同名项目".into());
+        return Err(pick("已经有同名项目", "That name is already here."));
     }
-    std::fs::create_dir(&dest).map_err(|err| format!("无法新建文件夹：{err}"))
+    std::fs::create_dir(&dest).map_err(|err| pick(&format!("无法新建文件夹：{err}"), &format!("Couldn't create the folder: {err}")))
 }
 
 #[tauri::command]
@@ -36,9 +38,9 @@ pub fn file_make_file(parent: String, name: String) -> Result<(), String> {
     let name = check_name(&name)?;
     let dest = PathBuf::from(parent).join(name);
     if dest.exists() {
-        return Err("已经有同名项目".into());
+        return Err(pick("已经有同名项目", "That name is already here."));
     }
-    std::fs::write(&dest, b"").map_err(|err| format!("无法新建文件：{err}"))
+    std::fs::write(&dest, b"").map_err(|err| pick(&format!("无法新建文件：{err}"), &format!("Couldn't create the file: {err}")))
 }
 
 #[tauri::command]
@@ -46,35 +48,35 @@ pub fn file_copy(from: String, dest_dir: String) -> Result<(), String> {
     let from = PathBuf::from(from);
     let dest_dir = PathBuf::from(dest_dir);
     if !from.exists() {
-        return Err("找不到要复制的项目".into());
+        return Err(pick("找不到要复制的项目", "Couldn't find the item to copy."));
     }
     if !dest_dir.is_dir() {
-        return Err("只能粘贴到文件夹里".into());
+        return Err(pick("只能粘贴到文件夹里", "Paste into a folder."));
     }
     reject_inside(&from, &dest_dir)?;
     let name = from
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or("这个名称不能用")?;
+        .ok_or_else(|| pick("这个名称不能用", "That name can't be used"))?;
     let dest = dest_dir.join(sibling_name(&dest_dir, name));
-    copy_path(&from, &dest).map_err(|err| format!("无法复制：{err}"))
+    copy_path(&from, &dest).map_err(|err| pick(&format!("无法复制：{err}"), &format!("Couldn't copy: {err}")))
 }
 
 #[tauri::command]
 pub fn file_delete(path: String) -> Result<(), String> {
     let path = PathBuf::from(path.trim());
     if is_drive_root(&path) {
-        return Err("不能删除盘符".into());
+        return Err(pick("不能删除盘符", "A drive can't be deleted."));
     }
     if !path.exists() {
-        return Err("找不到要删除的项目".into());
+        return Err(pick("找不到要删除的项目", "Couldn't find the item to delete."));
     }
     let removed = if path.is_dir() {
         std::fs::remove_dir_all(&path)
     } else {
         std::fs::remove_file(&path)
     };
-    removed.map_err(|err| format!("无法删除：{err}"))
+    removed.map_err(|err| pick(&format!("无法删除：{err}"), &format!("Couldn't delete: {err}")))
 }
 
 fn is_drive_root(path: &Path) -> bool {
@@ -88,33 +90,33 @@ pub fn file_move(from: String, dest_dir: String) -> Result<(), String> {
     let from = PathBuf::from(from);
     let dest_dir = PathBuf::from(dest_dir);
     if !from.exists() {
-        return Err("找不到要移动的项目".into());
+        return Err(pick("找不到要移动的项目", "Couldn't find the item to move."));
     }
     if !dest_dir.is_dir() {
-        return Err("只能移动到文件夹里".into());
+        return Err(pick("只能移动到文件夹里", "Move into a folder."));
     }
     if from.parent().is_some_and(|parent| same_path(parent, &dest_dir)) {
-        return Err("已经在这个文件夹里".into());
+        return Err(pick("已经在这个文件夹里", "It's already in this folder."));
     }
     reject_inside(&from, &dest_dir)?;
     let name = from
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or("这个名称不能用")?;
+        .ok_or_else(|| pick("这个名称不能用", "That name can't be used"))?;
     let dest = dest_dir.join(name);
     if dest.exists() {
-        return Err("目标里已经有同名项目".into());
+        return Err(pick("目标里已经有同名项目", "That name is already here."));
     }
     if std::fs::rename(&from, &dest).is_ok() {
         return Ok(());
     }
-    copy_path(&from, &dest).map_err(|err| format!("无法移动：{err}"))?;
+    copy_path(&from, &dest).map_err(|err| pick(&format!("无法移动：{err}"), &format!("Couldn't move: {err}")))?;
     let removed = if from.is_dir() {
         std::fs::remove_dir_all(&from)
     } else {
         std::fs::remove_file(&from)
     };
-    removed.map_err(|err| format!("已经复制到目标，但原位置没删掉：{err}"))
+    removed.map_err(|err| pick(&format!("已经复制到目标，但原位置没删掉：{err}"), &format!("Copied, but the original is still there: {err}")))
 }
 
 #[tauri::command]
@@ -126,9 +128,9 @@ pub fn file_read_text(path: String) -> Result<String, String> {
 pub fn file_write_text(path: String, text: String) -> Result<(), String> {
     let path = Path::new(&path);
     if path.is_dir() {
-        return Err("不能把文件夹当成文本保存".into());
+        return Err(pick("不能把文件夹当成文本保存", "A folder can't be saved as text."));
     }
-    std::fs::write(path, text.as_bytes()).map_err(|err| format!("无法保存：{err}"))
+    std::fs::write(path, text.as_bytes()).map_err(|err| pick(&format!("无法保存：{err}"), &format!("Couldn't save: {err}")))
 }
 
 #[tauri::command]
@@ -143,7 +145,7 @@ pub fn file_icon(app: tauri::AppHandle, path: String) -> String {
 #[tauri::command]
 pub fn file_open(path: String) -> Result<(), String> {
     if !Path::new(&path).exists() {
-        return Err("找不到这个文件".into());
+        return Err(pick("找不到这个文件", "Couldn't find that file."));
     }
     open_with_system(&path)
 }
@@ -161,17 +163,17 @@ fn places() -> Vec<FileEntry> {
         if let Some(home) = std::env::var_os("USERPROFILE") {
             let path = PathBuf::from(&home);
             if path.is_dir() {
-                found.push(dir_entry("用户文件夹".to_string(), path.display().to_string()));
+                found.push(dir_entry(pick("用户文件夹", "Home"), path.display().to_string()));
             }
         }
     }
     #[cfg(not(windows))]
     {
-        found.push(dir_entry("根目录".to_string(), "/".to_string()));
+        found.push(dir_entry(pick("根目录", "Root"), "/".to_string()));
         if let Some(home) = std::env::var_os("HOME") {
             let path = PathBuf::from(&home);
             if path.is_dir() {
-                found.push(dir_entry("用户文件夹".to_string(), path.display().to_string()));
+                found.push(dir_entry(pick("用户文件夹", "Home"), path.display().to_string()));
             }
         }
     }
@@ -190,10 +192,10 @@ fn dir_entry(name: String, path: String) -> FileEntry {
 
 fn list_dir(path: &Path) -> Result<Vec<FileEntry>, String> {
     if !path.is_dir() {
-        return Err("打不开这个文件夹".into());
+        return Err(pick("打不开这个文件夹", "Couldn't open this folder."));
     }
     let mut entries = Vec::new();
-    let read = std::fs::read_dir(path).map_err(|err| format!("无法读取文件夹：{err}"))?;
+    let read = std::fs::read_dir(path).map_err(|err| pick(&format!("无法读取文件夹：{err}"), &format!("Couldn't read the folder: {err}")))?;
     for item in read.flatten() {
         let path = item.path();
         let Some(name) = item.file_name().to_str().map(str::to_string) else {
@@ -219,33 +221,36 @@ fn list_dir(path: &Path) -> Result<Vec<FileEntry>, String> {
 
 fn read_text(path: &Path) -> Result<String, String> {
     if path.is_dir() {
-        return Err("文件夹不能当文本编辑".into());
+        return Err(pick("文件夹不能当文本编辑", "A folder can't be edited as text."));
     }
-    let meta = std::fs::metadata(path).map_err(|err| format!("无法读取：{err}"))?;
+    let meta = std::fs::metadata(path).map_err(|err| pick(&format!("无法读取：{err}"), &format!("Couldn't read: {err}")))?;
     if meta.len() > 1_000_000 {
-        return Err("文件太大，不能在这里编辑".into());
+        return Err(pick("文件太大，不能在这里编辑", "This file is too large to edit here."));
     }
-    let bytes = std::fs::read(path).map_err(|err| format!("无法读取：{err}"))?;
-    String::from_utf8(bytes).map_err(|_| "这个文件不是文本".into())
+    let bytes = std::fs::read(path).map_err(|err| pick(&format!("无法读取：{err}"), &format!("Couldn't read: {err}")))?;
+    String::from_utf8(bytes).map_err(|_| pick("这个文件不是文本", "This file isn't text"))
 }
 
 fn check_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("请输入名称".into());
+        return Err(pick("请输入名称", "Enter a name."));
     }
     if name == "." || name == ".." || name.len() > 120 {
-        return Err("这个名称不能用".into());
+        return Err(pick("这个名称不能用", "That name can't be used."));
     }
     if name.chars().any(|c| r#"\/:*?"<>|"#.contains(c) || c.is_control()) {
-        return Err("名称里不能有 \\ / : * ? \" < > |".into());
+        return Err(pick(
+            "名称里不能有 \\ / : * ? \" < > |",
+            "A name can't contain \\ / : * ? \" < > |",
+        ));
     }
     let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
     if matches!(
         stem.as_str(),
         "CON" | "PRN" | "AUX" | "NUL" | "COM1" | "COM2" | "LPT1" | "LPT2"
     ) {
-        return Err("这个名称不能用".into());
+        return Err(pick("这个名称不能用", "That name can't be used."));
     }
     Ok(name)
 }
@@ -297,17 +302,18 @@ fn sibling_name(dir: &Path, name: &str) -> String {
         return name.to_string();
     }
     let (stem, ext) = split_name(name);
+    let word = pick("副本", "copy");
     for n in 1..100 {
         let candidate = if ext.is_empty() {
             if n == 1 {
-                format!("{stem} 副本")
+                format!("{stem} {word}")
             } else {
-                format!("{stem} 副本 {n}")
+                format!("{stem} {word} {n}")
             }
         } else if n == 1 {
-            format!("{stem} 副本.{ext}")
+            format!("{stem} {word}.{ext}")
         } else {
-            format!("{stem} 副本 {n}.{ext}")
+            format!("{stem} {word} {n}.{ext}")
         };
         if !dir.join(&candidate).exists() {
             return candidate;
@@ -331,7 +337,7 @@ fn reject_inside(from: &Path, dest_dir: &Path) -> Result<(), String> {
         return Ok(());
     };
     if dest_dir.starts_with(&from) {
-        return Err("不能粘贴到它自己里面".into());
+        return Err(pick("不能粘贴到它自己里面", "Can't paste a folder into itself."));
     }
     Ok(())
 }
@@ -379,7 +385,7 @@ fn open_with_system(path: &str) -> Result<(), String> {
             )
         };
         if (code as isize) <= 32 {
-            return Err("无法打开".into());
+            return Err(pick("无法打开", "Couldn't open."));
         }
         return Ok(());
     }
@@ -388,7 +394,7 @@ fn open_with_system(path: &str) -> Result<(), String> {
         std::process::Command::new("open")
             .arg(path)
             .spawn()
-            .map_err(|err| format!("无法打开：{err}"))?;
+            .map_err(|err| pick(&format!("无法打开：{err}"), &format!("Couldn't open: {err}")))?;
         return Ok(());
     }
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -396,7 +402,7 @@ fn open_with_system(path: &str) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(path)
             .spawn()
-            .map_err(|err| format!("无法打开：{err}"))?;
+            .map_err(|err| pick(&format!("无法打开：{err}"), &format!("Couldn't open: {err}")))?;
         Ok(())
     }
 }

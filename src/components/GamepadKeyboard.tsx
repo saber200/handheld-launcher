@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { text } from "../i18n";
 import {
   backspaceGamepadField,
   closeGamepadKeyboard,
@@ -21,7 +22,7 @@ export function GamepadKeyboard() {
   if (!open) return null;
 
   return (
-    <div ref={rootRef} className="gamepad-keyboard" data-gamepad-keyboard role="group" aria-label="数字键盘">
+    <div ref={rootRef} className="gamepad-keyboard" data-gamepad-keyboard role="group" aria-label={text().keyboard.label}>
       {ROWS.map((row) => (
         <div key={row} className="gamepad-keyboard-row">
           {row.split("").map((key) => (
@@ -39,13 +40,13 @@ export function GamepadKeyboard() {
       ))}
       <div className="gamepad-keyboard-row">
         <button type="button" className="gamepad-key" data-focusable onClick={() => backspaceGamepadField()}>
-          删除
+          {text().keyboard.backspace}
         </button>
         <button type="button" className="gamepad-key" data-focusable onClick={() => typeIntoGamepadField("0")}>
           0
         </button>
         <button type="button" className="gamepad-key" data-focusable onClick={() => closeGamepadKeyboard()}>
-          完成
+          {text().keyboard.done}
         </button>
       </div>
     </div>

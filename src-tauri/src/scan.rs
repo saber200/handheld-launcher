@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 #[cfg(windows)]
 use std::path::{Path, PathBuf};
 
+use crate::i18n::pick;
+
 /// Set after a launch leaves fullscreen. A later focus restores it once.
 pub static RESUME_FULLSCREEN: AtomicBool = AtomicBool::new(false);
 static RESUME_NOT_BEFORE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -107,7 +109,7 @@ pub fn launch_item(
     #[cfg(not(windows))]
     {
         let _ = (app, id, launch_path, install_path);
-        Err("只能在 Windows 上启动".into())
+        Err(pick("只能在 Windows 上启动", "Launching only works on Windows.").into())
     }
 }
 
@@ -127,7 +129,7 @@ fn leave_fullscreen(app: &tauri::AppHandle) {
 #[cfg(windows)]
 fn restore_fullscreen(app: &tauri::AppHandle) {
     if let Some(window) = launcher_window(app) {
-        let _ = window.set_fullscreen(true);
+        crate::startup::fill_screen(&window);
     }
 }
 
@@ -476,7 +478,7 @@ mod windows {
 
     pub fn launch(id: &str, launch_path: &str, install_path: &str) -> Result<(), String> {
         if id.starts_with("steam:") {
-            let url = protocol_url(id).ok_or("无效的 Steam 游戏")?;
+            let url = protocol_url(id).ok_or_else(|| pick("无效的 Steam 游戏", "That Steam game isn't valid."))?;
             return shell_open(&url);
         }
         if let Some(url) = protocol_url(id) {
@@ -490,13 +492,13 @@ mod windows {
             .chars()
             .any(|c| c.is_control() || matches!(c, '"' | '&' | '|'))
         {
-            return Err("无效的启动地址".into());
+            return Err(pick("无效的启动地址", "That launch address isn't valid."));
         }
         std::process::Command::new("cmd")
             .args(["/C", "start", "", target])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
-            .map_err(|err| format!("无法启动：{err}"))?;
+            .map_err(|err| pick(&format!("无法启动：{err}"), &format!("Couldn't launch: {err}")))?;
         Ok(())
     }
 
@@ -507,7 +509,7 @@ mod windows {
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"));
         if !path.is_file() || !is_exe {
-            return Err("没有可启动的程序".into());
+            return Err(pick("没有可启动的程序", "There's nothing to launch."));
         }
         let cwd = path
             .parent()
@@ -521,7 +523,7 @@ mod windows {
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
         }
-        cmd.spawn().map_err(|err| format!("无法启动：{err}"))?;
+        cmd.spawn().map_err(|err| pick(&format!("无法启动：{err}"), &format!("Couldn't launch: {err}")))?;
         Ok(())
     }
 

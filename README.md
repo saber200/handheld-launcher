@@ -1,4 +1,4 @@
-# 掌机启动器（Handheld Launcher）
+# 幻想枢纽（FantasyHub）
 
 Windows 掌机全屏前端启动器。当前完成全屏壳，以及 Windows 安装包里的 Steam / Epic 游戏扫描和已安装软件扫描。
 

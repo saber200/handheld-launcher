@@ -1,6 +1,6 @@
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <msix xmlns="urn:schemas-microsoft-com:msix.v1"
-        publisher="CN=Handheld Launcher"
+        publisher="CN=FantasyHub"
         packageName="com.handheld.launcher"
         applicationId="App" />
   <dependency>

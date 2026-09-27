@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PREVIEW_APPS, type AppEntry } from "../data/previewApps";
 import { PREVIEW_GAMES, type GameEntry } from "../data/previewGames";
 import { parentPath } from "../files/useFileBrowser";
+import { currentLocale, text } from "../i18n";
 
 const APP_COLORS = [
   "#1b2838",
@@ -50,9 +51,9 @@ export async function launchLibraryItem(item: {
   customPath?: boolean;
 }): Promise<string> {
   if (!inTauri()) {
-    return "浏览器预览不能启动。Windows 安装包里，在卡片上按 A 会打开程序。";
+    return text().library.previewLaunch;
   }
-  if (launching) return "正在启动…";
+  if (launching) return text().library.launching;
   launching = true;
   try {
     await invoke("launch_item", {
@@ -60,9 +61,9 @@ export async function launchLibraryItem(item: {
       launchPath: item.launchPath ?? "",
       installPath: item.installPath ?? "",
     });
-    return `已启动 ${item.name}`;
+    return text().library.launched(item.name);
   } catch (err) {
-    return `无法启动 ${item.name}：${formatError(err)}`;
+    return text().library.launchFailed(item.name, formatError(err));
   } finally {
     launching = false;
   }
@@ -71,7 +72,7 @@ export async function launchLibraryItem(item: {
 function formatError(err: unknown): string {
   if (typeof err === "string") return err;
   if (err instanceof Error && err.message) return err.message;
-  return "扫描失败";
+  return text().library.failed;
 }
 
 function scanCacheKey(command: string) {
@@ -110,7 +111,7 @@ function useScanned<TRaw, T extends { name: string }>(
     if (!native) return null;
     const cached = readScanCache<TRaw>(command);
     if (!cached) return null;
-    return cached.map(map).sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    return cached.map(map).sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   });
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -118,7 +119,7 @@ function useScanned<TRaw, T extends { name: string }>(
   const finish = useCallback(
     (rows: TRaw[], cancel: { current: boolean }) => {
       writeScanCache(command, rows);
-      const next = rows.map(map).sort((a, b) => a.name.localeCompare(b.name, "zh"));
+      const next = rows.map(map).sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
       if (cancel.current) return;
       setItems(next);
       setError("");
@@ -162,9 +163,9 @@ function useScanned<TRaw, T extends { name: string }>(
 
   if (!native) return { items: preview, note: notes.preview, scanning: false, rescan };
   if (scanning && items && items.length > 0) {
-    return { items, note: "正在重新扫描…", scanning, rescan };
+    return { items, note: text().library.rescanning, scanning, rescan };
   }
-  if (error) return { items: items ?? [], note: `扫描失败：${error}`, scanning, rescan };
+  if (error) return { items: items ?? [], note: text().library.scanFailed(error), scanning, rescan };
   if (!items || scanning) return { items: items ?? [], note: notes.scanning, scanning: true, rescan };
   if (items.length === 0) return { items: [], note: notes.empty, scanning, rescan };
   return { items, note: notes.ready(items.length), scanning, rescan };
@@ -375,7 +376,7 @@ function useLibraryExtras(kind: "games" | "apps") {
           })
           .catch(() => {});
       }
-      return `已添加「${name}」。按 A 会直接启动这个程序。`;
+      return text().library.added(name);
     },
     [kind],
   );
@@ -389,7 +390,7 @@ function useLibraryExtras(kind: "games" | "apps") {
       paths: { ...prev.paths, [id]: { launchPath, installPath } },
       added: prev.added.map((item) => (item.id === id ? { ...item, launchPath, installPath } : item)),
     }));
-    return `已改为直接启动「${name}」。`;
+    return text().library.pathUpdated(name);
   }, []);
 
   const hide = useCallback((id: string) => {
@@ -398,7 +399,7 @@ function useLibraryExtras(kind: "games" | "apps") {
       added: prev.added.filter((item) => item.id !== id),
       hidden: prev.hidden.includes(id) ? prev.hidden : [...prev.hidden, id],
     }));
-    return "已从库里拿掉。磁盘上的文件还在。";
+    return text().library.hidden;
   }, []);
 
   const setCover = useCallback((id: string, appId: string, coverPath?: string, coverUrl?: string) => {
@@ -430,17 +431,17 @@ function withPaths<T extends { id: string; launchPath?: string; installPath?: st
 }
 
 function libraryNote(scannedCount: number, shownCount: number, hiddenCount: number, scannedNote: string) {
-  if (shownCount === 0 && hiddenCount > 0) return "这些项目已从库里拿掉，磁盘上的文件还在。";
-  if (scannedCount === 0 && shownCount > 0) return `没有新的扫描结果。手动添加的有 ${shownCount} 个。`;
+  if (shownCount === 0 && hiddenCount > 0) return text().library.allHidden;
+  if (scannedCount === 0 && shownCount > 0) return text().library.onlyAdded(shownCount);
   return scannedNote;
 }
 
 export function useLocalGames() {
   const scanned = useScanned("scan_games", PREVIEW_GAMES, {
-    preview: "浏览器预览为示例封面。扫描本机游戏库需要 Windows 安装包。",
-    scanning: "正在扫描本机 Steam / Epic 游戏…",
-    empty: "没有扫到已安装的 Steam 或 Epic 游戏。",
-    ready: (count) => `已扫描本机游戏 ${count} 个。封面会保存在本机，之后离线也能看。`,
+    preview: text().library.gamesPreview,
+    scanning: text().library.gamesScanning,
+    empty: text().library.gamesEmpty,
+    ready: (count) => text().library.gamesReady(count),
   }, mapGame, cacheMissingCovers);
   const extra = useLibraryExtras("games");
   const items = useMemo(() => {
@@ -467,11 +468,11 @@ export function useLocalGames() {
         return { ...item, cover };
       })
       .filter((item) => !extra.extras.hidden.includes(item.id))
-      .sort((a, b) => a.name.localeCompare(b.name, "zh"));
+      .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   }, [extra.extras, scanned.items]);
   const addFromFile = useCallback(
     (file: PickedProgram) => {
-      if (items.some((item) => item.launchPath === file.path)) return "这个程序已经在库里。";
+      if (items.some((item) => item.launchPath === file.path)) return text().library.alreadyInLibrary;
       return extra.add(file);
     },
     [extra, items],
@@ -479,12 +480,12 @@ export function useLocalGames() {
   const setSteamCover = useCallback(
     async (id: string, appId: string) => {
       const digits = appId.trim();
-      if (!/^\d{1,10}$/.test(digits)) return "请输入 Steam 的数字编号。";
+      if (!/^\d{1,10}$/.test(digits)) return text().library.steamDigits;
       let url = "";
       try {
         url = await resolveSteamLibraryCover(digits);
       } catch {
-        return "没有找到这个 Steam 编号的封面。";
+        return text().library.steamMissing;
       }
       extra.setCover(id, digits, undefined, url);
       if (inTauri()) {
@@ -498,7 +499,7 @@ export function useLocalGames() {
           /* 网络封面仍可显示，下次再缓存 */
         }
       }
-      return `已用 Steam ${digits} 的封面。`;
+      return text().library.steamApplied(digits);
     },
     [extra],
   );
@@ -509,7 +510,7 @@ export function useLocalGames() {
       : libraryNote(scanned.items.length, items.length, extra.extras.hidden.length, scanned.note),
     scanning: scanned.scanning,
     rescan: () => {
-      if (!inTauri()) return "浏览器预览不会扫描本机。";
+      if (!inTauri()) return text().library.previewNoScan;
       scanned.rescan();
       return "";
     },
@@ -522,10 +523,10 @@ export function useLocalGames() {
 
 export function useLocalApps() {
   const scanned = useScanned("scan_apps", PREVIEW_APPS, {
-    preview: "浏览器预览为示例应用。扫描本机已安装软件需要 Windows 安装包。",
-    scanning: "正在扫描本机已安装软件…",
-    empty: "没有扫到可显示的已安装软件。",
-    ready: (count) => `已扫描本机已安装软件 ${count} 个。`,
+    preview: text().library.appsPreview,
+    scanning: text().library.appsScanning,
+    empty: text().library.appsEmpty,
+    ready: (count) => text().library.appsReady(count),
   }, mapApp);
   const extra = useLibraryExtras("apps");
   const items = useMemo(() => {
@@ -544,11 +545,11 @@ export function useLocalApps() {
       }));
     return [...base, ...added]
       .filter((item) => !extra.extras.hidden.includes(item.id))
-      .sort((a, b) => a.name.localeCompare(b.name, "zh"));
+      .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   }, [extra.extras, scanned.items]);
   const addFromFile = useCallback(
     (file: PickedProgram) => {
-      if (items.some((item) => item.launchPath === file.path)) return "这个程序已经在库里。";
+      if (items.some((item) => item.launchPath === file.path)) return text().library.alreadyInLibrary;
       return extra.add(file);
     },
     [extra, items],
@@ -560,7 +561,7 @@ export function useLocalApps() {
       : libraryNote(scanned.items.length, items.length, extra.extras.hidden.length, scanned.note),
     scanning: scanned.scanning,
     rescan: () => {
-      if (!inTauri()) return "浏览器预览不会扫描本机。";
+      if (!inTauri()) return text().library.previewNoScan;
       scanned.rescan();
       return "";
     },

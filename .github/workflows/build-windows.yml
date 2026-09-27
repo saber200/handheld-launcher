@@ -39,7 +39,7 @@ jobs:
           tauriScript: npm run tauri
           args: --bundles nsis
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
-          releaseName: Handheld Launcher ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
+          releaseName: FantasyHub ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
           releaseBody: |
             Windows 安装包。掌机直接下载安装即可，无需开发环境。
 

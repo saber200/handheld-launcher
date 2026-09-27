@@ -1,4 +1,6 @@
 import { useState, type Ref } from "react";
+import { displayAppMark, displayAppName } from "../data/previewApps";
+import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { type AppEntry } from "../data/previewApps";
 import { launchLibraryItem, useLocalApps } from "../library/useLocalLibrary";
@@ -10,7 +12,7 @@ export function AppsPage() {
     <LibraryShelf
       kind="apps"
       items={library.items}
-      label="软件库"
+      label={text().tabs.apps}
       note={library.note}
       status={status}
       onUseFile={(target, file) => {
@@ -79,10 +81,10 @@ function AppCard({
         <img className="app-icon app-icon-image" src={app.icon} alt="" />
       ) : (
         <span className="app-icon" style={{ background: app.color }} aria-hidden>
-          {app.mark}
+          {displayAppMark(app.id, app.mark, currentLocale())}
         </span>
       )}
-      <span className="library-name">{name || app.name}</span>
+      <span className="library-name">{name || displayAppName(app.id, app.name, currentLocale())}</span>
     </button>
   );
 }

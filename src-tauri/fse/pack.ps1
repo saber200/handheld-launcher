@@ -27,13 +27,13 @@ $msix = Join-Path $root "identity.msix"
 $cer = Join-Path $root "identity.cer"
 $pfx = Join-Path $root "cert.pfx"
 if (Test-Path $msix) { Remove-Item $msix -Force }
-# /nv：exe 在包外。不跳过语义校验时，makeappx 会因 Handheld Launcher.exe 不在包内而拒绝清单。
+# /nv：exe 在包外。不跳过语义校验时，makeappx 会因 FantasyHub.exe 不在包内而拒绝清单。
 & $make.FullName pack /d $layout /p $msix /o /nv
 if ($LASTEXITCODE -ne 0) { throw "makeappx 失败" }
 
-$cert = New-SelfSignedCertificate -Type Custom -Subject "CN=Handheld Launcher" -KeyUsage DigitalSignature -FriendlyName "Handheld Launcher" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
-if ($cert.Subject -ne "CN=Handheld Launcher") {
-  throw "证书主题是 $($cert.Subject)，必须是 CN=Handheld Launcher"
+$cert = New-SelfSignedCertificate -Type Custom -Subject "CN=FantasyHub" -KeyUsage DigitalSignature -FriendlyName "FantasyHub" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+if ($cert.Subject -ne "CN=FantasyHub") {
+  throw "证书主题是 $($cert.Subject)，必须是 CN=FantasyHub"
 }
 $pwd = ConvertTo-SecureString -String "handheld" -Force -AsPlainText
 Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pwd | Out-Null

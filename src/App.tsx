@@ -3,16 +3,20 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
 import { FilesPage } from "./pages/FilesPage";
-import { SettingsPage } from "./pages/SettingsPage";
+import { SettingsPage, closePowerMenu } from "./pages/SettingsPage";
+import { BootSplash } from "./components/BootSplash";
 import { GamepadKeyboard } from "./components/GamepadKeyboard";
 import { closeGamepadKeyboard, gamepadKeyboardOpen, moveDirectionalFocus, steerFocus, useGamepadNav } from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
 import { libraryActions } from "./library/actions";
 import { TABS, type TabId } from "./types";
+import { text, useI18n } from "./i18n";
 
 export default function App() {
+  useI18n();
   const [tab, setTab] = useState<TabId>("games");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [intro, setIntro] = useState<"wait" | "play" | "done">("wait");
 
   const shiftTab = useCallback((dir: -1 | 1) => {
     if (fileActions().blocksTabs?.()) return;
@@ -24,10 +28,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    const win = getCurrentWindow();
-    void win.setFullscreen(true).catch(() => {});
+    let cancel = false;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    void (async () => {
+      if ("__TAURI_INTERNALS__" in window) {
+        await getCurrentWindow().setFullscreen(true).catch(() => {});
+      }
+      await document.fonts.ready.catch(() => undefined);
+      if (cancel) return;
+      setIntro(reduced ? "done" : "play");
+    })();
+    return () => {
+      cancel = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (intro !== "play") return;
+    const timer = window.setTimeout(() => setIntro("done"), 7600);
+    return () => window.clearTimeout(timer);
+  }, [intro]);
 
   const closeSettings = useCallback(() => {
     const active = document.activeElement as HTMLElement | null;
@@ -45,6 +65,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
       if (gamepadKeyboardOpen()) {
         if (e.key === "Escape" || e.key === "b" || e.key === "B") {
@@ -63,6 +84,7 @@ export default function App() {
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        if (closePowerMenu()) return;
         if (fileActions().back?.()) return;
         if (libraryActions().closeDialog?.()) return;
         toggleSettings();
@@ -92,6 +114,7 @@ export default function App() {
       }
       if (e.key === "b" || e.key === "B") {
         e.preventDefault();
+        if (closePowerMenu()) return;
         if (fileActions().back?.()) return;
         if (libraryActions().closeDialog?.()) return;
         libraryActions().openCardMenu?.();
@@ -127,9 +150,10 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shiftTab, toggleSettings]);
+  }, [intro, shiftTab, toggleSettings]);
 
   useGamepadNav({
+    enabled: intro === "done",
     onBumperLeft: () => shiftTab(-1),
     onBumperRight: () => shiftTab(1),
     onView: () => {
@@ -144,6 +168,7 @@ export default function App() {
       fileActions().toggleSelect?.();
     },
     onBack: () => {
+      if (closePowerMenu()) return;
       if (fileActions().back?.()) return;
       if (libraryActions().closeDialog?.()) return;
       if (libraryActions().openCardMenu?.()) return;
@@ -153,11 +178,16 @@ export default function App() {
     onTriggerRight: () => libraryActions().cycleGroup?.(1),
   });
 
+  const m = text();
+
+  const finishIntro = useCallback(() => setIntro("done"), []);
+
   return (
-    <div className="app-shell">
+    <>
+    <div className="app-shell" inert={intro !== "done"}>
       <div className="ambient" aria-hidden />
       <header className="tab-bar">
-        <nav className="tab-list" role="tablist" aria-label="主菜单">
+        <nav className="tab-list" role="tablist" aria-label={m.tabs.menu}>
           {TABS.map((item) => (
             <button
               key={item.id}
@@ -167,7 +197,7 @@ export default function App() {
               className="tab"
               onClick={() => setTab(item.id)}
             >
-              {item.label}
+              {m.tabs[item.id]}
             </button>
           ))}
         </nav>
@@ -184,12 +214,12 @@ export default function App() {
         <button
           type="button"
           className="drawer-scrim"
-          aria-label="关闭设置"
+          aria-label={m.settings.close}
           tabIndex={-1}
           onClick={closeSettings}
         />
-        <aside className="drawer" role="dialog" aria-label="设置">
-          <h1>设置</h1>
+        <aside className="drawer" role="dialog" aria-label={m.settings.title}>
+          <h1>{m.settings.title}</h1>
           <SettingsPage active={settingsOpen} />
         </aside>
       </div>
@@ -197,25 +227,27 @@ export default function App() {
       <footer className="shell-hint">
         {tab === "files" ? (
           <>
-            <span>方向键选择</span>
-            <span>X 多选</span>
-            <span>A 用系统打开</span>
-            <span>B 返回</span>
-            <span>Y 复制 / 移动</span>
-            <span>LB / RB 切换</span>
+            <span>{m.hints.filesNav}</span>
+            <span>{m.hints.filesMulti}</span>
+            <span>{m.hints.filesOpen}</span>
+            <span>{m.hints.filesBack}</span>
+            <span>{m.hints.filesCopy}</span>
+            <span>{m.hints.filesTabs}</span>
           </>
         ) : (
           <>
-            <span>LB / RB 切换</span>
-            <span>键盘 Q / E</span>
-            <span>Back / Share / Esc 设置</span>
-            <span>LT / RT 切换分组</span>
-            <span>方向键移到新建 / 添加</span>
-            <span>B 卡片操作</span>
-            <span>A / Enter 启动或确认</span>
+            <span>{m.hints.tabs}</span>
+            <span>{m.hints.keys}</span>
+            <span>{m.hints.settings}</span>
+            <span>{m.hints.groups}</span>
+            <span>{m.hints.focusTools}</span>
+            <span>{m.hints.cardMenu}</span>
+            <span>{m.hints.confirm}</span>
           </>
         )}
       </footer>
     </div>
+    {intro !== "done" && <BootSplash playing={intro === "play"} onDone={finishIntro} />}
+    </>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { setFileActions } from "./actions";
 import { useFileBrowser, type FileEntry } from "./useFileBrowser";
+import { text } from "../i18n";
 
 type Props = {
   title: string;
@@ -45,7 +46,7 @@ export function FilePicker({ title, onClose, onPick }: Props) {
       return;
     }
     if (!canLaunch(entry, files.preview)) {
-      files.setNote("请选择 .exe 程序。");
+      files.setNote(text().files.exeOnly);
       return;
     }
     onPick({ name: entry.name, path: entry.path });
@@ -54,24 +55,24 @@ export function FilePicker({ title, onClose, onPick }: Props) {
   const hint =
     files.note ||
     (files.preview
-      ? "浏览器预览可以选任意文件。A 进入文件夹或选中，B 返回。"
-      : "A 进入文件夹，或选中 .exe。B 返回，到盘符再按 B 关闭。");
+      ? text().files.pickerPreview
+      : text().files.pickerNative);
 
   return (
     <div className="group-dialog focus-trap open">
-      <button type="button" className="drawer-scrim" aria-label="关闭" tabIndex={-1} onClick={onClose} />
+      <button type="button" className="drawer-scrim" aria-label={text().close} tabIndex={-1} onClick={onClose} />
       <div className="group-dialog-panel file-picker-panel" role="dialog" aria-label={title}>
         <h2>{title}</h2>
         <p className="preview-note">{files.pathLabel}</p>
         <div className="library-tools" data-focus-zone="files-tools">
           {files.location != null && (
             <button type="button" className="library-tool" data-focusable onClick={() => files.up()}>
-              返回上一级
+              {text().files.up}
             </button>
           )}
         </div>
         {files.entries.length === 0 ? (
-          <p className="group-empty">这个文件夹是空的。</p>
+          <p className="group-empty">{text().files.emptyFolder}</p>
         ) : (
           <div className="file-list file-picker-list" data-focus-zone="files-list" ref={listRef}>
             {files.entries.map((entry) => (
@@ -83,7 +84,7 @@ export function FilePicker({ title, onClose, onPick }: Props) {
                 onClick={() => choose(entry)}
               >
                 <span className={entry.kind === "dir" ? "file-mark is-dir" : "file-mark"} aria-hidden>
-                  {entry.kind === "dir" ? "夹" : "文"}
+                  {entry.kind === "dir" ? text().files.dirMark : text().files.fileMark}
                 </span>
                 <span className="file-name">{entry.name}</span>
               </button>
