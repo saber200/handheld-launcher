@@ -162,8 +162,7 @@ mod windows {
     pub fn fse_status() -> String {
         state_dir()
             .and_then(|dir| std::fs::read_to_string(dir.join("fse-status.txt")).ok())
-            .map(|text| text.trim().to_string())
-            .filter(|text| !text.is_empty())
+            .and_then(|text| clean_fse_status(&text))
             .unwrap_or_else(|| "还没有登记到全屏体验。".into())
     }
 
@@ -208,22 +207,56 @@ mod windows {
             .arg(exe_name)
             .output()
             .map_err(|err| format!("无法登记：{err}"))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let token = ps_token(&output.stdout);
         if output.status.success() {
-            return Ok(stdout
-                .lines()
-                .find(|line| !line.trim().is_empty())
-                .unwrap_or("已登记。")
-                .trim()
-                .to_string());
+            return Ok(fse_user_text("OK"));
         }
-        let detail = format!("{}{}", stdout.trim(), stderr.trim());
-        Err(if detail.is_empty() {
-            "无法登记到全屏体验。".into()
+        Err(fse_user_text(&token))
+    }
+
+    fn ps_token(bytes: &[u8]) -> String {
+        let text = if bytes.len() >= 2 && bytes[1] == 0 {
+            let units: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .collect();
+            String::from_utf16_lossy(&units)
         } else {
-            format!("无法登记：{detail}")
-        })
+            String::from_utf8_lossy(bytes).into_owned()
+        };
+        text.lines()
+            .map(|line| line.trim().trim_start_matches('\u{feff}'))
+            .find(|line| !line.is_empty())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn fse_user_text(token: &str) -> String {
+        match token {
+            "OK" => "已登记。打开 Windows 设置，进入 游戏 → 全屏体验，把主应用选成「掌机启动器」。".into(),
+            "NEED_DEVMODE" => "需要先打开开发人员模式。到 设置 → 系统 → 开发者选项，打开之后再点一次登记。".into(),
+            "NO_EXE" => "安装目录里没有启动器，无法登记全屏体验。".into(),
+            _ => "无法登记到全屏体验。".into(),
+        }
+    }
+
+    fn clean_fse_status(text: &str) -> Option<String> {
+        let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+        let first = lines.next()?.to_string();
+        if lines.next().is_some() {
+            return None;
+        }
+        let lower = first.to_lowercase();
+        if lower.contains("register-fse.ps1")
+            || lower.contains("parsererror")
+            || lower.contains("categoryinfo")
+            || lower.contains("unexpectedtoken")
+            || first.contains('\u{fffd}')
+            || first.chars().count() > 80
+        {
+            return None;
+        }
+        Some(first)
     }
 
     fn fse_payload(resource_dir: Option<&std::path::Path>) -> Result<(PathBuf, PathBuf), String> {

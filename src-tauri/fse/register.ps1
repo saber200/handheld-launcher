@@ -7,7 +7,8 @@ param(
 $ErrorActionPreference = "Stop"
 $exePath = Join-Path $ExeDir $ExeName
 if (-not (Test-Path -LiteralPath $exePath)) {
-  throw "安装目录里没有 $ExeName，无法登记全屏体验。"
+  Write-Output "NO_EXE"
+  exit 1
 }
 $markerDir = Join-Path $env:APPDATA "handheld-launcher"
 New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
@@ -16,21 +17,23 @@ $installed = Get-AppxPackage -Name "com.handheld.launcher" -ErrorAction Silently
 $prev = ""
 if (Test-Path -LiteralPath $marker) { $prev = (Get-Content -LiteralPath $marker -Raw).Trim() }
 if ($installed -and $prev -eq $exePath) {
-  Write-Output "已登记。打开 Windows 设置，进入 游戏 → 全屏体验，把主应用选成「掌机启动器」。"
+  Write-Output "OK"
   exit 0
 }
-if ($installed) {
-  Remove-AppxPackage -Package $installed.PackageFullName
-}
-Import-Certificate -FilePath $Cer -CertStoreLocation "Cert:\CurrentUser\TrustedPeople" | Out-Null
 try {
+  if ($installed) {
+    Remove-AppxPackage -Package $installed.PackageFullName
+  }
+  Import-Certificate -FilePath $Cer -CertStoreLocation "Cert:\CurrentUser\TrustedPeople" | Out-Null
   Add-AppxPackage -Path $Msix -ExternalLocation $ExeDir
 } catch {
   $text = $_.Exception.Message
   if ($text -match "80073CFF") {
-    throw "需要先打开开发人员模式。到 设置 → 系统 → 开发者选项，打开之后再点一次登记。"
+    Write-Output "NEED_DEVMODE"
+    exit 1
   }
-  throw $text
+  Write-Output "FAIL"
+  exit 1
 }
-Set-Content -LiteralPath $marker -Value $exePath -Encoding UTF8
-Write-Output "已登记。打开 Windows 设置，进入 游戏 → 全屏体验，把主应用选成「掌机启动器」。"
+Set-Content -LiteralPath $marker -Value $exePath -Encoding ascii
+Write-Output "OK"

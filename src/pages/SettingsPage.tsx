@@ -27,6 +27,9 @@ export function SettingsPage({ active }: Props) {
 
   useEffect(() => {
     if (active) firstRef.current?.focus();
+    if (active && inTauri()) {
+      void invoke<string>("fse_status").then(setFse).catch(() => {});
+    }
   }, [active]);
 
   const toggleAutostart = async () => {
@@ -149,7 +152,7 @@ export function SettingsPage({ active }: Props) {
 
       {message && <p className="status-msg">{message}</p>}
 
-      <p className="about-line">Handheld Launcher v0.1.8</p>
+      <p className="about-line">Handheld Launcher v0.1.9</p>
     </div>
   );
 }
