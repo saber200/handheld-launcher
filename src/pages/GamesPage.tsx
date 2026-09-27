@@ -3,7 +3,7 @@ import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { type GameEntry } from "../data/previewGames";
-import { launchLibraryItem, useLocalGames, useRunningGameIds } from "../library/useLocalLibrary";
+import { launchLibraryItem, quitLibraryGame, useLocalGames, useRunningGameIds } from "../library/useLocalLibrary";
 
 export function GamesPage() {
   const library = useLocalGames();
@@ -23,6 +23,21 @@ export function GamesPage() {
       onHide={(id) => {
         setStatus("");
         return library.hide(id);
+      }}
+      onQuit={(id) => {
+        const game = library.items.find((item) => item.id === id);
+        if (!game) return text().library.failed;
+        setStatus("");
+        return quitLibraryGame({
+          id: game.id,
+          name: game.name,
+          launchPath: game.launchPath,
+          installPath: game.installPath,
+          customPath: game.customPath,
+        }).then((message) => {
+          setStatus(message);
+          return message;
+        });
       }}
       onSteamCover={(id, appId) => {
         setStatus("");

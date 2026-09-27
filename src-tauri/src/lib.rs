@@ -90,6 +90,7 @@ pub fn run() {
             scan::scan_apps,
             scan::launch_item,
             scan::running_games,
+            scan::quit_game,
             scan::cache_covers,
             scan::steam_library_cover,
             startup::autostart_enabled,

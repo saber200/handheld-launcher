@@ -73,6 +73,32 @@ export async function launchLibraryItem(item: {
   }
 }
 
+export async function quitLibraryGame(item: {
+  id: string;
+  name: string;
+  launchPath?: string;
+  installPath?: string;
+  customPath?: boolean;
+}): Promise<string> {
+  if (!inTauri()) {
+    return text().library.previewLaunch;
+  }
+  try {
+    await invoke<number>("quit_game", {
+      id: item.customPath ? `file:${item.id}` : item.id,
+      launchPath: item.launchPath ?? "",
+      installPath: item.installPath ?? "",
+    });
+    return text().library.quitGameDone(item.name);
+  } catch (err) {
+    const detail = formatError(err);
+    if (detail.includes("没有找到") || detail.toLowerCase().includes("no running")) {
+      return text().library.quitGameNotRunning(item.name);
+    }
+    return text().library.quitGameFailed(item.name, detail);
+  }
+}
+
 export function useRunningGameIds(items: GameEntry[]) {
   const [ids, setIds] = useState<string[]>([]);
   const itemsRef = useRef(items);

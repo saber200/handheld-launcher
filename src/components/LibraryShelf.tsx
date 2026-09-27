@@ -25,6 +25,7 @@ type Props<T extends Item> = {
   label: string;
   onUseFile: (target: FileTarget, file: PickedProgram) => string;
   onHide: (id: string) => string;
+  onQuit?: (id: string) => string | Promise<string>;
   onSteamCover?: (id: string, appId: string) => string | Promise<string>;
   onScan: () => void;
   scanning?: boolean;
@@ -39,6 +40,7 @@ export function LibraryShelf<T extends Item>({
   label,
   onUseFile,
   onHide,
+  onQuit,
   onSteamCover,
   onScan,
   scanning = false,
@@ -516,6 +518,22 @@ export function LibraryShelf<T extends Item>({
           >
             {menuView === "actions" && (
               <>
+                {kind === "games" && onQuit && (
+                  <button
+                    type="button"
+                    className="library-tool"
+                    data-focusable
+                    onClick={() => {
+                      if (!menuCardId) return;
+                      const id = menuCardId;
+                      setMenuCardId(null);
+                      setMenuView("actions");
+                      void Promise.resolve(onQuit(id)).then(setHint);
+                    }}
+                  >
+                    {text().library.quitGame}
+                  </button>
+                )}
                 <button type="button" className="library-tool" data-focusable onClick={() => setMenuView("group")}>
                   {text().library.setGroup}
                 </button>

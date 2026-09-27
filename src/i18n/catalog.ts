@@ -111,6 +111,10 @@ export type Catalog = {
     launched: (name: string) => string;
     switched: (name: string) => string;
     alreadyRunning: (name: string) => string;
+    quitGame: string;
+    quitGameDone: (name: string) => string;
+    quitGameNotRunning: (name: string) => string;
+    quitGameFailed: (name: string, detail: string) => string;
     launchFailed: (name: string, detail: string) => string;
     failed: string;
     added: (name: string) => string;
@@ -292,6 +296,7 @@ export const zh: Catalog = {
     changePath: "修改路径",
     steamMenu: "添加ID获取封面",
     remove: "从库中移除",
+    quitGame: "退出游戏",
     leaveGroup: "移出分组",
     currentGroup: " · 当前",
     noGroups: "还没有分组，请先新建。",
@@ -314,6 +319,9 @@ export const zh: Catalog = {
     launched: (name) => `已启动 ${name}`,
     switched: (name) => `已切换到 ${name}`,
     alreadyRunning: (name) => `${name} 已在运行`,
+    quitGameDone: (name) => `已退出 ${name}`,
+    quitGameNotRunning: (name) => `${name} 当前没有在运行`,
+    quitGameFailed: (name, detail) => `退出 ${name} 失败：${detail}`,
     launchFailed: (name, detail) => `无法启动 ${name}：${detail}`,
     failed: "扫描失败",
     added: (name) => `已添加「${name}」。按 A 会直接启动这个程序。`,
@@ -496,6 +504,7 @@ export const en: Catalog = {
     changePath: "Change path",
     steamMenu: "Steam cover",
     remove: "Remove from library",
+    quitGame: "Quit game",
     leaveGroup: "Remove from group",
     currentGroup: " · current",
     noGroups: "No groups yet. Create one first.",
@@ -518,6 +527,9 @@ export const en: Catalog = {
     launched: (name) => `Launched ${name}`,
     switched: (name) => `Switched to ${name}`,
     alreadyRunning: (name) => `${name} is already running`,
+    quitGameDone: (name) => `Quit ${name}`,
+    quitGameNotRunning: (name) => `${name} is not running`,
+    quitGameFailed: (name, detail) => `Couldn't quit ${name}: ${detail}`,
     launchFailed: (name, detail) => `Couldn't launch ${name}: ${detail}`,
     failed: "Scan failed",
     added: (name) => `Added “${name}”. Press A to launch it.`,
