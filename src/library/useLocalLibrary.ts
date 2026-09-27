@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PREVIEW_APPS, type AppEntry } from "../data/previewApps";
 import { PREVIEW_GAMES, type GameEntry } from "../data/previewGames";
 import { parentPath } from "../files/useFileBrowser";
@@ -49,6 +49,7 @@ export async function launchLibraryItem(item: {
   launchPath?: string;
   installPath?: string;
   customPath?: boolean;
+  switchIfRunning?: boolean;
 }): Promise<string> {
   if (!inTauri()) {
     return text().library.previewLaunch;
@@ -56,17 +57,57 @@ export async function launchLibraryItem(item: {
   if (launching) return text().library.launching;
   launching = true;
   try {
-    await invoke("launch_item", {
+    const outcome = await invoke<string>("launch_item", {
       id: item.customPath ? `file:${item.id}` : item.id,
       launchPath: item.launchPath ?? "",
       installPath: item.installPath ?? "",
+      switchIfRunning: item.switchIfRunning ?? false,
     });
+    if (outcome === "focused") return text().library.switched(item.name);
+    if (outcome === "running") return text().library.alreadyRunning(item.name);
     return text().library.launched(item.name);
   } catch (err) {
     return text().library.launchFailed(item.name, formatError(err));
   } finally {
     launching = false;
   }
+}
+
+export function useRunningGameIds(items: GameEntry[]) {
+  const [ids, setIds] = useState<string[]>([]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const key = items.map((item) => `${item.id}\n${item.launchPath ?? ""}\n${item.installPath ?? ""}`).join("\n");
+  useEffect(() => {
+    if (!inTauri() || key.length === 0) {
+      setIds((current) => (current.length === 0 ? current : []));
+      return;
+    }
+    let cancel = false;
+    const tick = () => {
+      void invoke<string[]>("running_games", {
+        items: itemsRef.current.map((item) => ({
+          id: item.id,
+          launchPath: item.launchPath ?? "",
+          installPath: item.installPath ?? "",
+        })),
+      })
+        .then((next) => {
+          if (cancel) return;
+          setIds((current) =>
+            current.length === next.length && current.every((id, index) => id === next[index]) ? current : next,
+          );
+        })
+        .catch(() => {});
+    };
+    tick();
+    const timer = window.setInterval(tick, 1500);
+    return () => {
+      cancel = true;
+      window.clearInterval(timer);
+    };
+  }, [key]);
+  return new Set(ids);
 }
 
 function formatError(err: unknown): string {

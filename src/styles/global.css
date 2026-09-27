@@ -414,6 +414,46 @@ button {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.library-card.is-running .game-cover,
+.library-card.is-running:focus .game-cover {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#121c2e, #121c2e) padding-box,
+    conic-gradient(
+      from var(--run-angle),
+      rgba(61, 214, 198, 0.15) 0deg,
+      #3dd6c6 28deg,
+      #f4fbff 52deg,
+      #7aa2ff 78deg,
+      rgba(61, 214, 198, 0.15) 110deg,
+      rgba(61, 214, 198, 0.15) 360deg
+    )
+      border-box;
+  box-shadow: none;
+  animation: library-running-border 2.6s linear infinite;
+}
+
+@property --run-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes library-running-border {
+  to {
+    --run-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-card.is-running .game-cover,
+  .library-card.is-running:focus .game-cover {
+    animation: none;
+    border: 2px solid var(--accent);
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
 .game-cover-fallback {
   display: block;
   background:

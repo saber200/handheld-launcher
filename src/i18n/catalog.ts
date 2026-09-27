@@ -109,6 +109,8 @@ export type Catalog = {
     previewLaunch: string;
     launching: string;
     launched: (name: string) => string;
+    switched: (name: string) => string;
+    alreadyRunning: (name: string) => string;
     launchFailed: (name: string, detail: string) => string;
     failed: string;
     added: (name: string) => string;
@@ -310,6 +312,8 @@ export const zh: Catalog = {
     previewLaunch: "浏览器预览不能启动。Windows 安装包里，在卡片上按 A 会打开程序。",
     launching: "正在启动…",
     launched: (name) => `已启动 ${name}`,
+    switched: (name) => `已切换到 ${name}`,
+    alreadyRunning: (name) => `${name} 已在运行`,
     launchFailed: (name, detail) => `无法启动 ${name}：${detail}`,
     failed: "扫描失败",
     added: (name) => `已添加「${name}」。按 A 会直接启动这个程序。`,
@@ -512,6 +516,8 @@ export const en: Catalog = {
     previewLaunch: "Browser preview can't launch. In the Windows app, press A on a card.",
     launching: "Launching…",
     launched: (name) => `Launched ${name}`,
+    switched: (name) => `Switched to ${name}`,
+    alreadyRunning: (name) => `${name} is already running`,
     launchFailed: (name, detail) => `Couldn't launch ${name}: ${detail}`,
     failed: "Scan failed",
     added: (name) => `Added “${name}”. Press A to launch it.`,

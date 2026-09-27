@@ -3,10 +3,11 @@ import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { type GameEntry } from "../data/previewGames";
-import { launchLibraryItem, useLocalGames } from "../library/useLocalLibrary";
+import { launchLibraryItem, useLocalGames, useRunningGameIds } from "../library/useLocalLibrary";
 
 export function GamesPage() {
   const library = useLocalGames();
+  const running = useRunningGameIds(library.items);
   const [status, setStatus] = useState("");
   return (
     <LibraryShelf
@@ -37,6 +38,7 @@ export function GamesPage() {
           picked={options?.picked}
           onPick={options?.onPick}
           name={options?.name}
+          running={running.has(game.id)}
           onStatus={setStatus}
         />
       )}
@@ -50,6 +52,7 @@ function GameCard({
   picked,
   onPick,
   name,
+  running,
   onStatus,
 }: {
   game: GameEntry;
@@ -57,6 +60,7 @@ function GameCard({
   picked?: boolean;
   onPick?: () => void;
   name?: string;
+  running?: boolean;
   onStatus: (message: string) => void;
 }) {
   const [coverFailed, setCoverFailed] = useState(false);
@@ -68,7 +72,7 @@ function GameCard({
     <button
       ref={cardRef}
       type="button"
-      className={picked ? "library-card is-picked" : "library-card"}
+      className={["library-card", picked ? "is-picked" : "", running ? "is-running" : ""].filter(Boolean).join(" ")}
       data-focusable
       data-card-id={game.id}
       onClick={() => {
@@ -82,6 +86,7 @@ function GameCard({
           launchPath: game.launchPath,
           installPath: game.installPath,
           customPath: game.customPath,
+          switchIfRunning: true,
         }).then(onStatus);
       }}
     >

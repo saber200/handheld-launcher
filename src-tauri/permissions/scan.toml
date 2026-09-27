@@ -14,6 +14,11 @@ description = "Launch a scanned game or application."
 commands.allow = ["launch_item"]
 
 [[permission]]
+identifier = "allow-running-games"
+description = "See which library games already have a running process."
+commands.allow = ["running_games"]
+
+[[permission]]
 identifier = "allow-cache-covers"
 description = "Save Steam cover images for offline use."
 commands.allow = ["cache_covers"]

@@ -17,6 +17,7 @@
     "allow-scan-games",
     "allow-scan-apps",
     "allow-launch-item",
+    "allow-running-games",
     "allow-cache-covers",
     "allow-steam-library-cover",
     "allow-autostart-enabled",

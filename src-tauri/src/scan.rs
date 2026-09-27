@@ -1,5 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
+use std::sync::Mutex;
 #[cfg(windows)]
 use std::collections::{HashMap, HashSet};
 #[cfg(windows)]
@@ -10,6 +11,7 @@ use crate::i18n::pick;
 /// Set after a launch leaves fullscreen. A later focus restores it once.
 pub static RESUME_FULLSCREEN: AtomicBool = AtomicBool::new(false);
 static RESUME_NOT_BEFORE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RECENT_LAUNCHES: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
 
 fn unix_ms() -> u64 {
     std::time::SystemTime::now()
@@ -89,26 +91,72 @@ pub fn steam_library_cover(app_id: String) -> Result<String, String> {
     crate::media::fetch_steam_library_cover(&app_id)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningQuery {
+    pub id: String,
+    #[serde(default)]
+    pub launch_path: String,
+    #[serde(default)]
+    pub install_path: String,
+}
+
+enum GamePresence {
+    Absent,
+    Running,
+    Focused,
+}
+
+#[tauri::command]
+pub fn running_games(items: Vec<RunningQuery>) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        return windows::running_ids(&items);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = items;
+        Vec::new()
+    }
+}
+
 #[tauri::command]
 pub fn launch_item(
     app: tauri::AppHandle,
     id: String,
     launch_path: String,
     install_path: String,
-) -> Result<(), String> {
+    switch_if_running: Option<bool>,
+) -> Result<String, String> {
     #[cfg(windows)]
     {
+        if switch_if_running.unwrap_or(false) {
+            match windows::activate_game(&launch_path, &install_path) {
+                GamePresence::Focused => {
+                    leave_fullscreen(&app);
+                    if let Some(window) = launcher_window(&app) {
+                        let _ = window.minimize();
+                    }
+                    arm_fullscreen_resume();
+                    return Ok("focused".into());
+                }
+                GamePresence::Running => return Ok("running".into()),
+                GamePresence::Absent if launched_recently(&id) => return Ok("running".into()),
+                GamePresence::Absent => {}
+            }
+        }
         leave_fullscreen(&app);
         if let Err(err) = windows::launch(&id, &launch_path, &install_path) {
             restore_fullscreen(&app);
             return Err(err);
         }
+        remember_launch(&id);
         arm_fullscreen_resume();
-        return Ok(());
+        return Ok("launched".into());
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, id, launch_path, install_path);
+        let _ = (app, id, launch_path, install_path, switch_if_running);
         Err(pick("只能在 Windows 上启动", "Launching only works on Windows.").into())
     }
 }
@@ -187,6 +235,93 @@ fn protocol_url(id: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn remember_launch(id: &str) {
+    if id.is_empty() {
+        return;
+    }
+    let now = unix_ms();
+    let mut list = RECENT_LAUNCHES.lock().unwrap_or_else(|err| err.into_inner());
+    list.retain(|(_, at)| now.saturating_sub(*at) < 8_000);
+    list.push((id.to_string(), now));
+}
+
+fn launched_recently(id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    let now = unix_ms();
+    let list = RECENT_LAUNCHES.lock().unwrap_or_else(|err| err.into_inner());
+    list.iter().any(|(key, at)| key == id && now.saturating_sub(*at) < 8_000)
+}
+
+fn normalize_win_path(path: &str) -> String {
+    path.replace('/', "\\").trim().trim_end_matches('\\').to_ascii_lowercase()
+}
+
+fn usable_game_root(path: &str) -> Option<String> {
+    let norm = normalize_win_path(path);
+    let rest = norm.split_once('\\').map(|(_, tail)| tail).unwrap_or("");
+    let parts: Vec<&str> = rest.split('\\').filter(|part| !part.is_empty()).collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    const GENERIC: &[&str] = &[
+        "program files",
+        "program files (x86)",
+        "windows",
+        "users",
+        "steam",
+        "steamapps",
+        "common",
+        "games",
+        "desktop",
+        "downloads",
+    ];
+    if parts.last().is_some_and(|part| GENERIC.contains(part)) {
+        return None;
+    }
+    Some(norm)
+}
+
+fn process_belongs_to_game(launch_path: &str, install_path: &str, process_path: &str) -> bool {
+    let process = normalize_win_path(process_path);
+    if process.is_empty() {
+        return false;
+    }
+    let launch = normalize_win_path(launch_path);
+    if !launch.is_empty() && process == launch {
+        return true;
+    }
+    let file = process.rsplit('\\').next().unwrap_or("");
+    const HELPERS: &[&str] = &[
+        "steam.exe",
+        "steamwebhelper.exe",
+        "steamservice.exe",
+        "steamerrorreporter.exe",
+        "gameoverlayui.exe",
+        "epicgameslauncher.exe",
+        "epicwebhelper.exe",
+        "explorer.exe",
+    ];
+    if HELPERS.contains(&file) {
+        return false;
+    }
+    let under = |root: &str| process == root || process.starts_with(&format!("{root}\\"));
+    if let Some(root) = usable_game_root(install_path) {
+        if under(&root) {
+            return true;
+        }
+    }
+    if let Some(parent) = launch.rsplit_once('\\').map(|(dir, _)| dir) {
+        if let Some(root) = usable_game_root(parent) {
+            if under(&root) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -475,6 +610,170 @@ mod windows {
     use winreg::RegKey;
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    pub fn running_ids(items: &[RunningQuery]) -> Vec<String> {
+        let processes = process_paths();
+        items
+            .iter()
+            .filter(|item| {
+                processes
+                    .iter()
+                    .any(|(_, path)| process_belongs_to_game(&item.launch_path, &item.install_path, path))
+            })
+            .map(|item| item.id.clone())
+            .collect()
+    }
+
+    pub fn activate_game(launch_path: &str, install_path: &str) -> GamePresence {
+        let pids: Vec<u32> = process_paths()
+            .into_iter()
+            .filter(|(_, path)| process_belongs_to_game(launch_path, install_path, path))
+            .map(|(pid, _)| pid)
+            .collect();
+        if pids.is_empty() {
+            return GamePresence::Absent;
+        }
+        match game_window(&pids) {
+            Some(hwnd) => {
+                focus_window(hwnd);
+                GamePresence::Focused
+            }
+            None => GamePresence::Running,
+        }
+    }
+
+    fn process_paths() -> Vec<(u32, String)> {
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+        };
+
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap.is_null() || snap == INVALID_HANDLE_VALUE {
+                return Vec::new();
+            }
+            let mut entry = PROCESSENTRY32W::default();
+            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+            let mut found = Vec::new();
+            if Process32FirstW(snap, &mut entry) != 0 {
+                loop {
+                    let pid = entry.th32ProcessID;
+                    if let Some(path) = image_path(pid) {
+                        found.push((pid, path));
+                    }
+                    if Process32NextW(snap, &mut entry) == 0 {
+                        break;
+                    }
+                }
+            }
+            CloseHandle(snap);
+            found
+        }
+    }
+
+    fn image_path(pid: u32) -> Option<String> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        if pid == 0 {
+            return None;
+        }
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return None;
+            }
+            let mut buf = [0u16; 1024];
+            let mut len = buf.len() as u32;
+            let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
+            CloseHandle(handle);
+            if ok == 0 || len == 0 {
+                return None;
+            }
+            let end = (len as usize).min(buf.len());
+            Some(String::from_utf16_lossy(&buf[..end]))
+        }
+    }
+
+    fn game_window(pids: &[u32]) -> Option<windows_sys::Win32::Foundation::HWND> {
+        use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetWindow, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER,
+        };
+
+        struct Pick {
+            pids: Vec<u32>,
+            hwnd: HWND,
+            area: i64,
+        }
+        unsafe extern "system" fn each(hwnd: HWND, param: LPARAM) -> i32 {
+            let pick = &mut *(param as *mut Pick);
+            if hwnd.is_null() || IsWindowVisible(hwnd) == 0 || !GetWindow(hwnd, GW_OWNER).is_null() {
+                return 1;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if !pick.pids.contains(&pid) {
+                return 1;
+            }
+            let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            if GetWindowRect(hwnd, &mut rect) == 0 {
+                return 1;
+            }
+            let area = i64::from(rect.right.saturating_sub(rect.left))
+                * i64::from(rect.bottom.saturating_sub(rect.top));
+            if area > pick.area {
+                pick.hwnd = hwnd;
+                pick.area = area;
+            }
+            1
+        }
+        let mut pick = Pick {
+            pids: pids.to_vec(),
+            hwnd: std::ptr::null_mut(),
+            area: 0,
+        };
+        unsafe {
+            EnumWindows(Some(each), &mut pick as *mut Pick as LPARAM);
+        }
+        (!pick.hwnd.is_null() && pick.area > 0).then_some(pick.hwnd)
+    }
+
+    fn focus_window(hwnd: windows_sys::Win32::Foundation::HWND) {
+        use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsIconic, SetForegroundWindow, ShowWindow,
+            SW_RESTORE, SW_SHOW,
+        };
+        unsafe {
+            if IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            } else {
+                ShowWindow(hwnd, SW_SHOW);
+            }
+            let foreground = GetForegroundWindow();
+            let foreground_thread = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+            let target_thread = GetWindowThreadProcessId(hwnd, std::ptr::null_mut());
+            let current = GetCurrentThreadId();
+            let attach_foreground = foreground_thread != 0
+                && foreground_thread != current
+                && AttachThreadInput(current, foreground_thread, 1) != 0;
+            let attach_target = target_thread != 0
+                && target_thread != current
+                && target_thread != foreground_thread
+                && AttachThreadInput(current, target_thread, 1) != 0;
+            SetForegroundWindow(hwnd);
+            BringWindowToTop(hwnd);
+            if attach_target {
+                AttachThreadInput(current, target_thread, 0);
+            }
+            if attach_foreground {
+                AttachThreadInput(current, foreground_thread, 0);
+            }
+        }
+    }
 
     pub fn launch(id: &str, launch_path: &str, install_path: &str) -> Result<(), String> {
         if id.starts_with("steam:") {
@@ -877,6 +1176,35 @@ mod windows {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matches_only_the_games_own_process() {
+        assert!(process_belongs_to_game(
+            r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
+            r"D:\SteamLibrary\steamapps\common\Elden Ring",
+            r"D:\SteamLibrary\steamapps\common\Elden Ring\start_protected_game.exe",
+        ));
+        assert!(process_belongs_to_game(
+            r"C:\Games\Hades.exe",
+            r"C:\Games",
+            r"C:\Games\Hades.exe",
+        ));
+        assert!(!process_belongs_to_game(
+            r"C:\Games\Hades.exe",
+            r"C:\Games",
+            r"C:\Games\Other.exe",
+        ));
+        assert!(!process_belongs_to_game(
+            r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
+            r"D:\SteamLibrary\steamapps\common\Elden Ring",
+            r"C:\Program Files (x86)\Steam\steam.exe",
+        ));
+        assert!(!process_belongs_to_game(
+            r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
+            r"D:\SteamLibrary\steamapps\common\Elden Ring",
+            r"D:\SteamLibrary\steamapps\common\Elden Ring\steamwebhelper.exe",
+        ));
+    }
 
     #[test]
     fn reads_library_folders() {
