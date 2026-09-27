@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -12,7 +13,6 @@ export function SettingsPage({ active }: Props) {
   const [autostart, setAutostart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [fse, setFse] = useState("登记后，可在 Windows 的全屏体验里被选成主应用。");
   const [isTauri, setIsTauri] = useState(false);
 
   useEffect(() => {
@@ -22,14 +22,10 @@ export function SettingsPage({ active }: Props) {
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage("无法读取开机自启状态（需在打包后的桌面端测试）"));
-    void invoke<string>("fse_status").then(setFse).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (active) firstRef.current?.focus();
-    if (active && inTauri()) {
-      void invoke<string>("fse_status").then(setFse).catch(() => {});
-    }
   }, [active]);
 
   const toggleAutostart = async () => {
@@ -54,22 +50,19 @@ export function SettingsPage({ active }: Props) {
     }
   };
 
-  const registerFse = async () => {
+  const enterFullscreen = async () => {
     if (!isTauri) {
-      setMessage("浏览器预览无法登记全屏体验");
+      setMessage("浏览器预览无法回到全屏");
       return;
     }
-    setBusy(true);
     try {
-      const text = await invoke<string>("register_fse");
-      setFse(text);
-      setMessage(text);
+      const win = getCurrentWindow();
+      await win.show();
+      await win.setFocus();
+      await win.setFullscreen(true);
+      setMessage("已回到全屏。");
     } catch (e) {
-      const text = `全屏体验登记失败：${String(e)}`;
-      setFse(text);
-      setMessage(text);
-    } finally {
-      setBusy(false);
+      setMessage(`无法回到全屏：${String(e)}`);
     }
   };
 
@@ -119,11 +112,11 @@ export function SettingsPage({ active }: Props) {
           className="setting-row"
           data-focusable
           disabled={busy}
-          onClick={() => void registerFse()}
+          onClick={() => void enterFullscreen()}
         >
           <span>
-            <strong>全屏体验</strong>
-            <small>{fse}</small>
+            <strong>回到全屏</strong>
+            <small>把启动器重新铺满屏幕</small>
           </span>
           <span className="chev">▣</span>
         </button>
@@ -152,7 +145,7 @@ export function SettingsPage({ active }: Props) {
 
       {message && <p className="status-msg">{message}</p>}
 
-      <p className="about-line">Handheld Launcher v0.1.10</p>
+      <p className="about-line">Handheld Launcher v0.1.11</p>
     </div>
   );
 }

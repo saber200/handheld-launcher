@@ -1,4 +1,5 @@
 mod files;
+mod fse_watch;
 mod media;
 mod scan;
 mod startup;
@@ -61,6 +62,10 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
     });
 }
 
+pub fn watch_fullscreen_experience() {
+    fse_watch::watch();
+}
+
 fn reveal_running_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -110,6 +115,7 @@ pub fn run() {
         ])
         .setup(|app| {
             startup::prepare();
+            fse_watch::start();
             let resources = app.path().resource_dir().ok();
             startup::schedule_fse_registration(resources);
             if let Some(window) = app.get_webview_window("main") {
