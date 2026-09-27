@@ -18,6 +18,22 @@ type Options = {
   enabled?: boolean;
 };
 
+let textEditing = false;
+let suspendCaret = false;
+
+type VirtualKeyboard = {
+  overlaysContent: boolean;
+  boundingRect: DOMRect;
+  show: () => void;
+  hide: () => void;
+  addEventListener: (type: "geometrychange", listener: () => void) => void;
+  removeEventListener: (type: "geometrychange", listener: () => void) => void;
+};
+
+function virtualKeyboard(): VirtualKeyboard | null {
+  return (navigator as Navigator & { virtualKeyboard?: VirtualKeyboard }).virtualKeyboard ?? null;
+}
+
 function typingTarget(): HTMLInputElement | HTMLTextAreaElement | null {
   const el = document.activeElement;
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
@@ -71,6 +87,126 @@ function insertNewline(el: HTMLTextAreaElement) {
 
 function focusZone(el: HTMLElement): string | null {
   return el.closest("[data-focus-zone]")?.getAttribute("data-focus-zone") ?? null;
+}
+
+let keyboardOpenFlag = false;
+let keyboardTarget: HTMLInputElement | HTMLTextAreaElement | null = null;
+let keyboardCaret = 0;
+const keyboardListeners = new Set<() => void>();
+
+function emitKeyboard() {
+  keyboardListeners.forEach((listener) => listener());
+}
+
+export function gamepadKeyboardOpen() {
+  return keyboardOpenFlag;
+}
+
+export function subscribeGamepadKeyboard(listener: () => void) {
+  keyboardListeners.add(listener);
+  return () => keyboardListeners.delete(listener);
+}
+
+export function openGamepadKeyboard(el: HTMLInputElement | HTMLTextAreaElement) {
+  keyboardTarget = el;
+  keyboardCaret = el.selectionStart ?? el.value.length;
+  keyboardOpenFlag = true;
+  textEditing = false;
+  suspendCaret = true;
+  emitKeyboard();
+}
+
+export function closeGamepadKeyboard() {
+  if (!keyboardOpenFlag) return false;
+  const field = keyboardTarget;
+  const caret = keyboardCaret;
+  keyboardOpenFlag = false;
+  textEditing = false;
+  suspendCaret = true;
+  emitKeyboard();
+  field?.focus();
+  try {
+    field?.setSelectionRange(caret, caret);
+  } catch {
+    /* 有的输入框不能设置光标 */
+  }
+  return true;
+}
+
+function writeField(next: string, caret: number) {
+  const el = keyboardTarget;
+  if (!el) return;
+  const limit = el.maxLength;
+  if (limit > 0 && next.length > limit) return;
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, next);
+  keyboardCaret = caret;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+export function typeIntoGamepadField(text: string) {
+  const el = keyboardTarget;
+  if (!el) return;
+  const next = `${el.value.slice(0, keyboardCaret)}${text}${el.value.slice(keyboardCaret)}`;
+  writeField(next, keyboardCaret + text.length);
+}
+
+export function backspaceGamepadField() {
+  const el = keyboardTarget;
+  if (!el || keyboardCaret <= 0) return;
+  const next = `${el.value.slice(0, keyboardCaret - 1)}${el.value.slice(keyboardCaret)}`;
+  writeField(next, keyboardCaret - 1);
+}
+
+/** Direction leaves a field that is not currently accepting text, and opens the keyboard with confirm. */
+export function steerFocus(dx: number, dy: number) {
+  const field = typingTarget();
+  const editing = field instanceof HTMLTextAreaElement ? !suspendCaret : textEditing && !suspendCaret;
+  if (field && editing) {
+    if (field instanceof HTMLInputElement && dy !== 0) {
+      textEditing = false;
+      moveDirectionalFocus(dx, dy);
+      return;
+    }
+    if (field instanceof HTMLTextAreaElement && dy !== 0) {
+      const pos = field.selectionStart ?? 0;
+      const leaving = (dy < 0 && pos === 0) || (dy > 0 && pos === field.value.length);
+      if (leaving) {
+        textEditing = false;
+        moveDirectionalFocus(0, dy);
+        return;
+      }
+    }
+    moveTextCaret(field, dx, dy);
+    return;
+  }
+  suspendCaret = false;
+  moveDirectionalFocus(dx, dy);
+}
+
+export function confirmFocused() {
+  const field = typingTarget();
+  if (field instanceof HTMLTextAreaElement && textEditing && !suspendCaret) {
+    insertNewline(field);
+    return;
+  }
+  if (field instanceof HTMLInputElement && field.inputMode === "numeric" && visibleFocusables().includes(field)) {
+    openGamepadKeyboard(field);
+    return;
+  }
+  const el = document.activeElement as HTMLElement | null;
+  if (el && visibleFocusables().includes(el)) el.click();
+}
+
+/** Leave the on-screen keyboard and return focus to a button. */
+export function leaveTextEntry(): boolean {
+  const field = typingTarget();
+  if (!field || !textEditing) return false;
+  textEditing = false;
+  suspendCaret = false;
+  const scope = field.closest(".focus-trap, .card-menu, .file-menu");
+  scope?.querySelector<HTMLElement>("button[data-focusable]")?.focus();
+  return true;
 }
 
 export function moveDirectionalFocus(dx: number, dy: number) {
@@ -146,13 +282,14 @@ export function moveDirectionalFocus(dx: number, dy: number) {
 }
 
 export function visibleFocusables(): HTMLElement[] {
+  const keyboard = document.querySelector("[data-gamepad-keyboard]");
   const trap = document.querySelector(".focus-trap.open");
-  const scope: ParentNode = trap ?? document;
+  const scope: ParentNode = keyboard ?? trap ?? document;
   return Array.from(scope.querySelectorAll<HTMLElement>("[data-focusable]")).filter(
     (el) =>
       !el.hasAttribute("disabled") &&
       el.offsetParent !== null &&
-      (trap !== null || !el.closest(".focus-trap")),
+      (keyboard !== null || trap !== null || !el.closest(".focus-trap")),
   );
 }
 
@@ -185,9 +322,33 @@ export function useGamepadNav({
   useEffect(() => {
     if (!enabled) return;
 
-    const moveFocus = (dx: number, dy: number) => {
-      moveDirectionalFocus(dx, dy);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+      if (target.disabled || target.readOnly) return;
+      textEditing = true;
+      suspendCaret = false;
     };
+    document.addEventListener("pointerdown", onPointerDown);
+    const keyboard = virtualKeyboard();
+    const onKeyboard = () => {
+      if ((keyboard?.boundingRect.height ?? 0) < 1) {
+        textEditing = false;
+        suspendCaret = true;
+      }
+    };
+    keyboard?.addEventListener("geometrychange", onKeyboard);
+    const viewport = window.visualViewport;
+    let viewportHeight = viewport?.height ?? window.innerHeight;
+    const onViewport = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      if (textEditing && height > viewportHeight + 80) {
+        textEditing = false;
+        suspendCaret = true;
+      }
+      viewportHeight = height;
+    };
+    viewport?.addEventListener("resize", onViewport);
 
     const tick = () => {
       const pads = navigator.getGamepads?.() ?? [];
@@ -215,7 +376,7 @@ export function useGamepadNav({
       if (rt && !triggers.current.r) onTriggerRight?.();
       triggers.current = { l: lt, r: rt };
 
-      const field = typingTarget();
+      const field = textEditing ? typingTarget() : null;
       const faceTop = !!pad.buttons[3]?.pressed;
       if (faceTop && !faceTopHeld.current && !field) onFaceTop?.();
       faceTopHeld.current = faceTop;
@@ -240,8 +401,7 @@ export function useGamepadNav({
       const roseX = dx !== 0 && dx !== prev.x;
       const roseY = dy !== 0 && dy !== prev.y;
       const steer = (sx: number, sy: number) => {
-        if (field) moveTextCaret(field, sx, sy);
-        else moveFocus(sx, sy);
+        steerFocus(sx, sy);
       };
       if (roseX || roseY) {
         steer(roseX ? dx : 0, roseX ? 0 : dy);
@@ -254,18 +414,13 @@ export function useGamepadNav({
 
       const confirm = !!pad.buttons[0]?.pressed;
       if (confirm && !confirmHeld.current) {
-        if (field instanceof HTMLTextAreaElement) insertNewline(field);
-        else if (field instanceof HTMLInputElement) field.closest("form")?.requestSubmit();
-        else {
-          const el = document.activeElement as HTMLElement | null;
-          if (el && visibleFocusables().includes(el)) el.click();
-          onConfirm?.();
-        }
+        confirmFocused();
+        onConfirm?.();
       }
       confirmHeld.current = confirm;
 
       const back = !!pad.buttons[1]?.pressed;
-      if (back && !backHeld.current) onBack?.();
+      if (back && !backHeld.current && !closeGamepadKeyboard() && !leaveTextEntry()) onBack?.();
       backHeld.current = back;
     };
 
@@ -275,6 +430,11 @@ export function useGamepadNav({
       frame = window.requestAnimationFrame(loop);
     };
     frame = window.requestAnimationFrame(loop);
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", onPointerDown);
+      keyboard?.removeEventListener("geometrychange", onKeyboard);
+      viewport?.removeEventListener("resize", onViewport);
+    };
   }, [enabled, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft]);
 }

@@ -108,6 +108,14 @@ export function LibraryShelf<T extends Item>({
       },
       closeDialog: () => {
         if (filePickRef.current) return false;
+        const active = document.activeElement;
+        if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+          const button = active.closest(".focus-trap, .card-menu")?.querySelector<HTMLElement>("button[data-focusable]");
+          if (button) {
+            button.focus();
+            return true;
+          }
+        }
         if (coverForRef.current) {
           setCoverFor(null);
           setCoverDraft("");
@@ -409,6 +417,7 @@ export function LibraryShelf<T extends Item>({
             <input
               ref={coverRef}
               className="group-name-input"
+              data-focusable
               value={coverDraft}
               placeholder="例如 1245620"
               inputMode="numeric"
@@ -461,6 +470,7 @@ export function LibraryShelf<T extends Item>({
             <input
               ref={nameRef}
               className="group-name-input"
+              data-focusable
               value={draft}
               placeholder="分组名称"
               maxLength={16}
@@ -562,7 +572,7 @@ export function LibraryShelf<T extends Item>({
                     setMenuView("actions");
                   }}
                 >
-                  {kind === "games" ? "删除游戏" : "删除软件"}
+                  从库中移除
                 </button>
               </>
             )}
@@ -614,6 +624,7 @@ export function LibraryShelf<T extends Item>({
                 <input
                   ref={renameRef}
                   className="group-name-input"
+                  data-focusable
                   value={draft}
                   maxLength={24}
                   onChange={(event) => setDraft(event.target.value)}

@@ -19,6 +19,11 @@ description = "Save Steam cover images for offline use."
 commands.allow = ["cache_covers"]
 
 [[permission]]
+identifier = "allow-steam-library-cover"
+description = "Look up a Steam library cover from an app id."
+commands.allow = ["steam_library_cover"]
+
+[[permission]]
 identifier = "allow-autostart-enabled"
 description = "Read whether launch at login is enabled."
 commands.allow = ["autostart_enabled"]

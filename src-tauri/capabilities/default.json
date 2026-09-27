@@ -17,6 +17,7 @@
     "allow-scan-apps",
     "allow-launch-item",
     "allow-cache-covers",
+    "allow-steam-library-cover",
     "allow-autostart-enabled",
     "allow-set-autostart",
     "allow-fse-status",

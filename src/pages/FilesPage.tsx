@@ -466,6 +466,7 @@ export function FilesPage() {
             <input
               ref={nameRef}
               className="group-name-input"
+              data-focusable
               value={draft}
               placeholder="名称"
               maxLength={120}

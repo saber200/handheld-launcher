@@ -243,7 +243,7 @@ type ExtraItem = {
   iconPath?: string;
 };
 
-type CoverExtra = { appId: string; coverPath?: string };
+type CoverExtra = { appId: string; coverPath?: string; coverUrl?: string };
 
 type Extras = {
   added: ExtraItem[];
@@ -260,6 +260,50 @@ function steamLibraryCover(appId: string) {
   return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`;
 }
 
+function libraryAssetOk(name: string) {
+  const file = name.split("/").pop() ?? "";
+  if (!["library_capsule.jpg", "library_capsule_2x.jpg", "library_600x900.jpg", "library_600x900_2x.jpg"].includes(file)) {
+    return false;
+  }
+  return name.split("/").every((part) => part.length > 0 && /^[A-Za-z0-9_.]+$/.test(part));
+}
+
+function coverFromAssets(assets: {
+  asset_url_format?: string;
+  library_capsule?: string;
+  library_capsule_2x?: string;
+}) {
+  const format = assets.asset_url_format ?? "";
+  const file = [assets.library_capsule, assets.library_capsule_2x].find((name) => name && libraryAssetOk(name));
+  if (!file || !format.startsWith("steam/apps/") || !format.includes("${FILENAME}")) return "";
+  const appId = format.slice("steam/apps/".length).split("/")[0] ?? "";
+  if (!/^\d{1,10}$/.test(appId)) return "";
+  const path = format.replace("${FILENAME}", file);
+  if (path.includes("..")) return "";
+  return `https://shared.akamai.steamstatic.com/store_item_assets/${path}`;
+}
+
+async function resolveSteamLibraryCover(appId: string) {
+  if (inTauri()) {
+    return invoke<string>("steam_library_cover", { appId });
+  }
+  const input = {
+    ids: [{ appid: Number(appId) }],
+    context: { language: "english", country_code: "US", steam_realm: 1 },
+    data_request: { include_assets: true },
+  };
+  const response = await fetch(
+    `/steam-api/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(JSON.stringify(input))}`,
+  );
+  if (!response.ok) throw new Error("missing");
+  const data = (await response.json()) as {
+    response?: { store_items?: Array<{ assets?: Parameters<typeof coverFromAssets>[0] }> };
+  };
+  const url = coverFromAssets(data.response?.store_items?.[0]?.assets ?? {});
+  if (!url) throw new Error("missing");
+  return url;
+}
+
 function loadCovers(value: unknown): Record<string, CoverExtra> {
   if (!value || typeof value !== "object") return {};
   const covers: Record<string, CoverExtra> = {};
@@ -267,8 +311,13 @@ function loadCovers(value: unknown): Record<string, CoverExtra> {
     if (!row || typeof row !== "object") continue;
     const appId = (row as { appId?: unknown }).appId;
     const coverPath = (row as { coverPath?: unknown }).coverPath;
+    const coverUrl = (row as { coverUrl?: unknown }).coverUrl;
     if (typeof appId !== "string" || !/^\d{1,10}$/.test(appId)) continue;
-    covers[id] = typeof coverPath === "string" && coverPath ? { appId, coverPath } : { appId };
+    covers[id] = {
+      appId,
+      ...(typeof coverPath === "string" && coverPath ? { coverPath } : {}),
+      ...(typeof coverUrl === "string" && coverUrl.startsWith("https://") ? { coverUrl } : {}),
+    };
   }
   return covers;
 }
@@ -352,12 +401,16 @@ function useLibraryExtras(kind: "games" | "apps") {
     return "已从库里拿掉。磁盘上的文件还在。";
   }, []);
 
-  const setCover = useCallback((id: string, appId: string, coverPath?: string) => {
+  const setCover = useCallback((id: string, appId: string, coverPath?: string, coverUrl?: string) => {
     setExtras((prev) => ({
       ...prev,
       covers: {
         ...prev.covers,
-        [id]: coverPath ? { appId, coverPath } : { appId },
+        [id]: {
+          appId,
+          ...(coverPath ? { coverPath } : {}),
+          ...(coverUrl ? { coverUrl } : {}),
+        },
       },
     }));
   }, []);
@@ -408,7 +461,9 @@ export function useLocalGames() {
         const saved = extra.extras.covers[item.id];
         if (!saved) return item;
         const cover =
-          saved.coverPath && inTauri() ? convertFileSrc(saved.coverPath) : steamLibraryCover(saved.appId);
+          saved.coverPath && inTauri()
+            ? convertFileSrc(saved.coverPath)
+            : saved.coverUrl || steamLibraryCover(saved.appId);
         return { ...item, cover };
       })
       .filter((item) => !extra.extras.hidden.includes(item.id))
@@ -425,14 +480,20 @@ export function useLocalGames() {
     async (id: string, appId: string) => {
       const digits = appId.trim();
       if (!/^\d{1,10}$/.test(digits)) return "请输入 Steam 的数字编号。";
-      extra.setCover(id, digits);
+      let url = "";
+      try {
+        url = await resolveSteamLibraryCover(digits);
+      } catch {
+        return "没有找到这个 Steam 编号的封面。";
+      }
+      extra.setCover(id, digits, undefined, url);
       if (inTauri()) {
         try {
           const saved = await invoke<Array<{ id: string; coverPath: string }>>("cache_covers", {
-            covers: [{ id, url: steamLibraryCover(digits) }],
+            covers: [{ id, url }],
           });
           const coverPath = saved.find((row) => row.id === id)?.coverPath;
-          if (coverPath) extra.setCover(id, digits, coverPath);
+          if (coverPath) extra.setCover(id, digits, coverPath, url);
         } catch {
           /* 网络封面仍可显示，下次再缓存 */
         }

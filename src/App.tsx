@@ -4,7 +4,8 @@ import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
 import { FilesPage } from "./pages/FilesPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { moveDirectionalFocus, useGamepadNav } from "./hooks/useGamepadNav";
+import { GamepadKeyboard } from "./components/GamepadKeyboard";
+import { closeGamepadKeyboard, gamepadKeyboardOpen, moveDirectionalFocus, steerFocus, useGamepadNav } from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
 import { libraryActions } from "./library/actions";
 import { TABS, type TabId } from "./types";
@@ -45,6 +46,21 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (gamepadKeyboardOpen()) {
+        if (e.key === "Escape" || e.key === "b" || e.key === "B") {
+          e.preventDefault();
+          closeGamepadKeyboard();
+          return;
+        }
+        if (e.key === "ArrowLeft") moveDirectionalFocus(-1, 0);
+        if (e.key === "ArrowRight") moveDirectionalFocus(1, 0);
+        if (e.key === "ArrowUp") moveDirectionalFocus(0, -1);
+        if (e.key === "ArrowDown") moveDirectionalFocus(0, 1);
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+          e.preventDefault();
+        }
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         if (fileActions().back?.()) return;
@@ -53,7 +69,15 @@ export default function App() {
         return;
       }
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (tag === "INPUT" || tag === "TEXTAREA") {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown") {
+          e.preventDefault();
+          const dx = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+          const dy = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0;
+          steerFocus(dx, dy);
+        }
+        return;
+      }
       if (e.key === "y" || e.key === "Y") {
         if (fileActions().openMenu?.()) {
           e.preventDefault();
@@ -169,6 +193,7 @@ export default function App() {
           <SettingsPage active={settingsOpen} />
         </aside>
       </div>
+      <GamepadKeyboard />
       <footer className="shell-hint">
         {tab === "files" ? (
           <>

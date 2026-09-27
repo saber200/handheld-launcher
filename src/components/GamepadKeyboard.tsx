@@ -1,0 +1,53 @@
+import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import {
+  backspaceGamepadField,
+  closeGamepadKeyboard,
+  gamepadKeyboardOpen,
+  subscribeGamepadKeyboard,
+  typeIntoGamepadField,
+} from "../hooks/useGamepadNav";
+
+const ROWS = ["123", "456", "789"];
+
+export function GamepadKeyboard() {
+  const open = useSyncExternalStore(subscribeGamepadKeyboard, gamepadKeyboardOpen);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    rootRef.current?.querySelector<HTMLElement>("[data-focusable]")?.focus();
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div ref={rootRef} className="gamepad-keyboard" data-gamepad-keyboard role="group" aria-label="数字键盘">
+      {ROWS.map((row) => (
+        <div key={row} className="gamepad-keyboard-row">
+          {row.split("").map((key) => (
+            <button
+              key={key}
+              type="button"
+              className="gamepad-key"
+              data-focusable
+              onClick={() => typeIntoGamepadField(key)}
+            >
+              {key}
+            </button>
+          ))}
+        </div>
+      ))}
+      <div className="gamepad-keyboard-row">
+        <button type="button" className="gamepad-key" data-focusable onClick={() => backspaceGamepadField()}>
+          删除
+        </button>
+        <button type="button" className="gamepad-key" data-focusable onClick={() => typeIntoGamepadField("0")}>
+          0
+        </button>
+        <button type="button" className="gamepad-key" data-focusable onClick={() => closeGamepadKeyboard()}>
+          完成
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -83,6 +83,11 @@ pub fn cache_covers(
 }
 
 #[tauri::command]
+pub fn steam_library_cover(app_id: String) -> Result<String, String> {
+    crate::media::fetch_steam_library_cover(&app_id)
+}
+
+#[tauri::command]
 pub fn launch_item(
     app: tauri::AppHandle,
     id: String,

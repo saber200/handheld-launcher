@@ -17,10 +17,75 @@ pub struct CachedCover {
 }
 
 pub fn allowed_cover_url(url: &str) -> bool {
-    let steam_library = url.starts_with("https://cdn.cloudflare.steamstatic.com/steam/apps/")
-        || url.starts_with("https://cdn.akamai.steamstatic.com/steam/apps/")
-        || url.starts_with("https://shared.akamai.steamstatic.com/store_item_assets/");
-    steam_library && url.ends_with("/library_600x900.jpg") && !url.contains("..")
+    let (base, query) = url.split_once('?').unwrap_or((url, ""));
+    if base.contains("..") || query.contains("..") || query.contains("://") {
+        return false;
+    }
+    let host_ok = base.starts_with("https://cdn.cloudflare.steamstatic.com/steam/apps/")
+        || base.starts_with("https://cdn.akamai.steamstatic.com/steam/apps/")
+        || base.starts_with("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/")
+        || base.starts_with("https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/");
+    if !host_ok {
+        return false;
+    }
+    let Some(rest) = base.split("/steam/apps/").nth(1) else {
+        return false;
+    };
+    let mut parts = rest.split('/');
+    let appid = parts.next().unwrap_or("");
+    if appid.is_empty() || !appid.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    matches!(
+        parts.next_back().unwrap_or(""),
+        "library_600x900.jpg" | "library_600x900_2x.jpg" | "library_capsule.jpg" | "library_capsule_2x.jpg"
+    )
+}
+
+/// Steam now stores new library art at a hashed path. Older games still use library_600x900.jpg.
+pub fn library_cover_from_assets(assets: &serde_json::Value) -> Option<String> {
+    let format = assets.get("asset_url_format")?.as_str()?;
+    let file = ["library_capsule", "library_capsule_2x"].into_iter().find_map(|key| {
+        let name = assets.get(key)?.as_str()?;
+        cover_asset_name_ok(name).then_some(name)
+    })?;
+    if !format.starts_with("steam/apps/") || !format.contains("${FILENAME}") {
+        return None;
+    }
+    let appid = format.trim_start_matches("steam/apps/").split('/').next()?;
+    if appid.is_empty() || appid.len() > 10 || !appid.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let path = format.replacen("${FILENAME}", file, 1);
+    if path.contains("..") {
+        return None;
+    }
+    Some(format!("https://shared.akamai.steamstatic.com/store_item_assets/{path}"))
+}
+
+fn cover_asset_name_ok(name: &str) -> bool {
+    let file = name.rsplit('/').next().unwrap_or("");
+    if !matches!(
+        file,
+        "library_capsule.jpg" | "library_capsule_2x.jpg" | "library_600x900.jpg" | "library_600x900_2x.jpg"
+    ) {
+        return false;
+    }
+    name.split('/').all(|part| {
+        !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.')
+    })
+}
+
+pub fn fetch_steam_library_cover(appid: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        return windows::fetch_steam_library_cover(appid);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = appid;
+        Err("只能在 Windows 上获取 Steam 封面。".into())
+    }
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -357,6 +422,48 @@ mod windows {
         dynamic.write_to(&mut bytes, image::ImageFormat::Png).ok()?;
         Some(bytes.into_inner())
     }
+
+    pub fn fetch_steam_library_cover(appid: &str) -> Result<String, String> {
+        if appid.is_empty() || appid.len() > 10 || !appid.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err("请输入 Steam 的数字编号。".into());
+        }
+        let input = format!(
+            r#"{{"ids":[{{"appid":{appid}}}],"context":{{"language":"english","country_code":"US","steam_realm":1}},"data_request":{{"include_assets":true}}}}"#
+        );
+        let url = format!(
+            "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json={}",
+            encode_query(&input)
+        );
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(8))
+            .timeout_read(std::time::Duration::from_secs(20))
+            .build();
+        let response = agent
+            .get(&url)
+            .set("User-Agent", "HandheldLauncher")
+            .call()
+            .map_err(|_| "没有连上 Steam，封面没取到。".to_string())?;
+        let body = response
+            .into_string()
+            .map_err(|_| "没有找到这个 Steam 编号的封面。".to_string())?;
+        let data: serde_json::Value =
+            serde_json::from_str(&body).map_err(|_| "没有找到这个 Steam 编号的封面。".to_string())?;
+        let assets = data
+            .pointer("/response/store_items/0/assets")
+            .ok_or("没有找到这个 Steam 编号的封面。")?;
+        super::library_cover_from_assets(assets).ok_or_else(|| "没有找到这个 Steam 编号的封面。".into())
+    }
+
+    fn encode_query(text: &str) -> String {
+        let mut out = String::new();
+        for byte in text.bytes() {
+            match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+                _ => out.push_str(&format!("%{byte:02X}")),
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -368,9 +475,24 @@ mod tests {
         assert!(allowed_cover_url(
             "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900.jpg"
         ));
+        assert!(allowed_cover_url(
+            "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3357650/2c65f388cb3ac6631c8a38ff1a59903263fc70e9/library_capsule.jpg?t=1789603448"
+        ));
         assert!(!allowed_cover_url(
             "https://cdn.cloudflare.steamstatic.com/steam/apps/730/header.jpg"
         ));
         assert!(!allowed_cover_url("https://example.com/library_600x900.jpg"));
+    }
+
+    #[test]
+    fn reads_hashed_library_capsule() {
+        let assets = serde_json::json!({
+            "asset_url_format": "steam/apps/3357650/${FILENAME}?t=1789603448",
+            "library_capsule": "2c65f388cb3ac6631c8a38ff1a59903263fc70e9/library_capsule.jpg"
+        });
+        assert_eq!(
+            super::library_cover_from_assets(&assets).as_deref(),
+            Some("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3357650/2c65f388cb3ac6631c8a38ff1a59903263fc70e9/library_capsule.jpg?t=1789603448")
+        );
     }
 }
