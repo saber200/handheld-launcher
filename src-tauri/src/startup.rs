@@ -8,7 +8,7 @@ pub fn quit_allowed() -> bool {
     QUIT_ALLOWED.load(Ordering::SeqCst)
 }
 
-/// User chose 退出. The watcher must not start another copy until the next sign-in.
+/// User chose 退出. Do not bring the window back in this session.
 pub fn request_quit() {
     QUIT_ALLOWED.store(true, Ordering::SeqCst);
     #[cfg(windows)]
@@ -115,31 +115,36 @@ mod windows {
     const SHELL_KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
 
     pub fn enabled() -> bool {
-        shell_is_ours()
+        run_value_exists()
     }
 
     pub fn set_enabled(enabled: bool) -> Result<(), String> {
         if enabled {
-            enable_shell()?;
+            enable_login()?;
         } else {
-            disable_shell();
+            disable_autostart();
         }
         Ok(())
     }
 
+    /// Drop a shell takeover from 0.1.6/0.1.7, then keep a normal login start if the user had opted in.
     pub fn prepare() {
         clear_suppress();
-        if !shell_is_ours() && !keep_alive_exists() && !old_launch_exists() {
+        let opted_in = shell_is_ours() || keep_alive_exists() || old_launch_exists() || run_value_exists();
+        release_shell();
+        if !opted_in {
             return;
         }
-        let _ = enable_shell();
+        let _ = write_run_value();
+        delete_task(OLD_TASK);
+        remove_shortcut();
     }
 
     pub fn hold_until_next_sign_in() {
         if let Some(dir) = state_dir() {
             let _ = std::fs::write(dir.join("suppress"), "");
         }
-        start_explorer();
+        release_shell();
     }
 
     pub fn start_explorer() {
@@ -244,35 +249,51 @@ mod windows {
         Err("安装包里没有全屏体验身份文件。请安装带这个功能的版本。".into())
     }
 
-    fn enable_shell() -> Result<(), String> {
-        let exe = std::env::current_exe().map_err(|err| format!("无法开启开机自启：{err}"))?;
-        remember_shell();
-        set_shell(&format!("\"{}\"", exe.display()))?;
-        let dir = state_dir().ok_or("无法开启开机自启：找不到数据目录")?;
-        std::fs::write(dir.join("keep-alive"), exe.display().to_string())
-            .map_err(|err| format!("无法开启开机自启：{err}"))?;
-        let _ = std::fs::remove_file(dir.join("suppress"));
-        write_watch_script(&dir)?;
-        write_watch_task(&dir)?;
-        spawn_watcher();
+    fn enable_login() -> Result<(), String> {
+        release_shell();
+        write_run_value()?;
         delete_task(OLD_TASK);
         remove_shortcut();
-        clear_run_values();
         Ok(())
     }
 
-    fn disable_shell() {
-        restore_shell();
+    fn disable_autostart() {
+        release_shell();
         if let Some(dir) = state_dir() {
-            let _ = std::fs::remove_file(dir.join("keep-alive"));
             let _ = std::fs::remove_file(dir.join("suppress"));
-            let _ = std::fs::remove_file(dir.join("watch.ps1"));
         }
-        delete_task(WATCH_TASK);
         delete_task(OLD_TASK);
         remove_shortcut();
         clear_run_values();
-        start_explorer();
+    }
+
+    /// Winlogon Shell must stay the Windows shell. Replacing it stops Xbox Game Bar and the Xbox button.
+    fn release_shell() {
+        let was_shell = shell_is_ours();
+        if was_shell {
+            restore_shell();
+        }
+        if let Some(dir) = state_dir() {
+            let _ = std::fs::remove_file(dir.join("keep-alive"));
+            let _ = std::fs::remove_file(dir.join("watch.ps1"));
+        }
+        delete_task(WATCH_TASK);
+        if was_shell {
+            start_explorer();
+        }
+    }
+
+    fn write_run_value() -> Result<(), String> {
+        let exe = std::env::current_exe().map_err(|err| format!("无法开启开机自启：{err}"))?;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hkcu
+            .create_subkey(RUN_KEY)
+            .map_err(|err| format!("无法开启开机自启：{err}"))?;
+        let quoted = format!("\"{}\"", exe.display());
+        key.set_value("Handheld Launcher", &quoted)
+            .map_err(|err| format!("无法开启开机自启：{err}"))?;
+        let _ = key.delete_value("handheld-launcher");
+        Ok(())
     }
 
     fn shortcut_path() -> Option<PathBuf> {
@@ -321,24 +342,16 @@ mod windows {
     }
 
     fn shell_is_ours() -> bool {
-        let Ok(exe) = std::env::current_exe() else {
-            return false;
-        };
         let Some(shell) = shell_value() else {
             return false;
         };
-        shell.to_lowercase().contains(&exe.display().to_string().to_lowercase())
-    }
-
-    fn remember_shell() {
-        if shell_is_ours() {
-            return;
+        let shell = shell.to_lowercase();
+        if let Ok(exe) = std::env::current_exe() {
+            if shell.contains(&exe.display().to_string().to_lowercase()) {
+                return true;
+            }
         }
-        let Some(dir) = state_dir() else {
-            return;
-        };
-        let previous = shell_value().unwrap_or_else(|| "*".into());
-        let _ = std::fs::write(dir.join("previous-shell.txt"), previous);
+        shell.contains("handheld launcher.exe")
     }
 
     fn set_shell(value: &str) -> Result<(), String> {
@@ -364,66 +377,6 @@ mod windows {
         } else {
             let _ = set_shell(previous.trim());
         }
-    }
-
-    fn write_watch_script(dir: &std::path::Path) -> Result<(), String> {
-        let script = r#"$root = Join-Path $env:APPDATA 'handheld-launcher'
-$flag = Join-Path $root 'keep-alive'
-$suppress = Join-Path $root 'suppress'
-$mutex = New-Object System.Threading.Mutex($false, 'Local\HandheldLauncherWatch')
-if (-not $mutex.WaitOne(0)) { exit 0 }
-try {
-  while (Test-Path -LiteralPath $flag) {
-    if (Test-Path -LiteralPath $suppress) { Start-Sleep -Seconds 3; continue }
-    $exe = (Get-Content -LiteralPath $flag -Raw).Trim()
-    if (-not $exe) { Start-Sleep -Seconds 3; continue }
-    $name = [IO.Path]::GetFileName($exe).Replace("'", "''")
-    $running = Get-CimInstance Win32_Process -Filter "Name='$name'" -ErrorAction SilentlyContinue |
-      Where-Object { $_.ExecutablePath -eq $exe }
-    if (-not $running) { Start-Process -FilePath $exe }
-    Start-Sleep -Seconds 3
-  }
-} finally { $mutex.ReleaseMutex() | Out-Null }
-"#;
-        std::fs::write(dir.join("watch.ps1"), script).map_err(|err| format!("无法开启开机自启：{err}"))
-    }
-
-    fn write_watch_task(dir: &std::path::Path) -> Result<(), String> {
-        let script = dir.join("watch.ps1");
-        let run = format!(
-            "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"{}\"",
-            script.display()
-        );
-        let output = hidden(&mut Command::new("schtasks"))
-            .args(["/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", WATCH_TASK, "/TR", &run])
-            .output()
-            .map_err(|err| format!("无法开启开机自启：{err}"))?;
-        if output.status.success() {
-            return Ok(());
-        }
-        let err = String::from_utf8_lossy(&output.stderr);
-        Err(format!("无法开启开机自启：{err}"))
-    }
-
-    fn spawn_watcher() {
-        let Some(dir) = state_dir() else {
-            return;
-        };
-        let script = dir.join("watch.ps1");
-        if !script.is_file() {
-            return;
-        }
-        let _ = hidden(&mut Command::new("powershell.exe"))
-            .args([
-                "-NoProfile",
-                "-WindowStyle",
-                "Hidden",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-            ])
-            .arg(&script)
-            .spawn();
     }
 
     fn task_exists(name: &str) -> bool {

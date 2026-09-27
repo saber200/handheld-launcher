@@ -104,7 +104,7 @@ export function SettingsPage({ active }: Props) {
         >
           <span>
             <strong>开机自启</strong>
-            <small>登录后由启动器当桌面。被关掉会再打开</small>
+            <small>登录后打开启动器，不替换 Windows 桌面和 Xbox 键</small>
           </span>
           <span className={`switch ${autostart ? "on" : ""}`}>
             {autostart ? "开" : "关"}
@@ -149,7 +149,7 @@ export function SettingsPage({ active }: Props) {
 
       {message && <p className="status-msg">{message}</p>}
 
-      <p className="about-line">Handheld Launcher v0.1.7</p>
+      <p className="about-line">Handheld Launcher v0.1.8</p>
     </div>
   );
 }
