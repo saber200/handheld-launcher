@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]
 use tauri::Manager;
 
+#[cfg(not(windows))]
 use crate::i18n::pick;
 
 static QUIT_ALLOWED: AtomicBool = AtomicBool::new(false);
@@ -144,6 +145,7 @@ pub fn prepare() {
 
 #[cfg(windows)]
 mod windows {
+    use crate::i18n::pick;
     use std::path::PathBuf;
     use std::process::Command;
 

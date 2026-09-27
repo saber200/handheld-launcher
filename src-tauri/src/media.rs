@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[cfg(not(windows))]
 use crate::i18n::pick;
 
 #[derive(Debug, Deserialize)]
@@ -140,6 +141,7 @@ fn cache_name(id: &str, ext: &str) -> String {
 #[cfg(windows)]
 mod windows {
     use super::{allowed_cover_url, cache_name, CachedCover, CoverRequest};
+    use crate::i18n::pick;
     use std::io::Cursor;
     use std::path::{Path, PathBuf};
     use tauri::Manager;
