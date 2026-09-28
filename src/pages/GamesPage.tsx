@@ -1,4 +1,4 @@
-import { useEffect, useState, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
@@ -84,10 +84,15 @@ function GameCard({
   running?: boolean;
   onStatus: (message: string) => void;
 }) {
-  const [coverFailed, setCoverFailed] = useState(false);
+  const [src, setSrc] = useState(game.cover);
+  const [failed, setFailed] = useState(false);
+  const triesRef = useRef(0);
+
   useEffect(() => {
-    setCoverFailed(false);
-  }, [game.cover]);
+    setSrc(game.cover);
+    setFailed(false);
+    triesRef.current = 0;
+  }, [game.cover, game.coverRemote]);
 
   return (
     <button
@@ -112,14 +117,27 @@ function GameCard({
       }}
     >
       {picked && <span className="pick-mark">✓</span>}
-      {coverFailed || !game.cover ? (
+      {failed || !src ? (
         <span className="game-cover game-cover-fallback" aria-hidden />
       ) : (
         <img
           className="game-cover"
-          src={game.cover}
+          src={src}
           alt=""
-          onError={() => setCoverFailed(true)}
+          onError={() => {
+            triesRef.current += 1;
+            // WebView asset protocol can flake when many cards remount on group switch.
+            if (triesRef.current === 1 && game.cover && src === game.cover) {
+              const join = game.cover.includes("?") ? "&" : "?";
+              setSrc(`${game.cover}${join}r=${Date.now()}`);
+              return;
+            }
+            if (game.coverRemote && src !== game.coverRemote) {
+              setSrc(game.coverRemote);
+              return;
+            }
+            setFailed(true);
+          }}
         />
       )}
       <span className="library-name">{name || displayGameName(game.id, game.name, currentLocale())}</span>

@@ -2,6 +2,8 @@ export type GameEntry = {
   id: string;
   name: string;
   cover: string;
+  /** HTTPS fallback when a local asset:// cover fails to load. */
+  coverRemote?: string;
   installPath?: string;
   launchPath?: string;
   /** Set when launch should open this path instead of Steam or Epic. */

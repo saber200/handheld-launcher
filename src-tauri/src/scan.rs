@@ -974,7 +974,7 @@ mod windows {
                 let local = crate::media::local_steam_cover(app, &roots, appid);
                 if !local.is_empty() {
                     game.cover_path = local;
-                    game.cover.clear();
+                    // Keep the CDN URL so the UI can fall back if the local file is missing.
                 }
             }
         }

@@ -180,8 +180,15 @@ mod windows {
             let Some(dest) = cache_file(app, "covers", &cache_name(&cover.id, "jpg")) else {
                 continue;
             };
-            if !dest.is_file() && !download(&agent, &cover.url, &dest) {
-                continue;
+            let valid = dest.is_file()
+                && std::fs::metadata(&dest)
+                    .map(|meta| meta.len() > 1024)
+                    .unwrap_or(false);
+            if !valid {
+                let _ = std::fs::remove_file(&dest);
+                if !download(&agent, &cover.url, &dest) {
+                    continue;
+                }
             }
             if dest.is_file() {
                 saved.push(CachedCover {

@@ -215,13 +215,22 @@ function useScanned<TRaw, T extends { name: string }>(
 
   useEffect(() => {
     if (!native) return;
-    if (readScanCache<TRaw>(command)) return;
+    const cached = readScanCache<TRaw>(command);
     const cancel = { current: false };
+    if (cached) {
+      const mapped = cached.map(map).sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
+      afterLoad?.(mapped, (updated) => {
+        if (!cancel.current) setItems(updated);
+      });
+      return () => {
+        cancel.current = true;
+      };
+    }
     run(cancel);
     return () => {
       cancel.current = true;
     };
-  }, [command, native, run]);
+  }, [afterLoad, command, map, native, run]);
 
   const rescan = useCallback(() => {
     if (!native) return;
@@ -243,21 +252,35 @@ function displayCover(row: RawGame): string {
   return row.cover;
 }
 
+function remoteCoverFor(row: RawGame): string | undefined {
+  if (row.cover.startsWith("https://")) return row.cover;
+  const steam = row.id.match(/^steam:(\d+)$/);
+  if (steam) return steamLibraryCover(steam[1]);
+  return undefined;
+}
+
 function mapGame(row: RawGame): GameEntry {
   return {
     id: row.id,
     name: row.name,
     cover: displayCover(row),
+    coverRemote: remoteCoverFor(row),
     installPath: row.installPath,
     launchPath: row.launchPath,
   };
 }
 
 function cacheMissingCovers(items: GameEntry[], update: (next: GameEntry[]) => void) {
-  const pending = items.filter((game) => game.cover.startsWith("https://"));
+  const pending = items.filter((game) => {
+    const remote = game.coverRemote ?? (game.cover.startsWith("https://") ? game.cover : "");
+    return remote.startsWith("https://");
+  });
   if (pending.length === 0) return;
   void invoke<Array<{ id: string; coverPath: string }>>("cache_covers", {
-    covers: pending.map((game) => ({ id: game.id, url: game.cover })),
+    covers: pending.map((game) => ({
+      id: game.id,
+      url: game.coverRemote ?? game.cover,
+    })),
   })
     .then((saved) => {
       if (saved.length === 0) return;
@@ -268,14 +291,23 @@ function cacheMissingCovers(items: GameEntry[], update: (next: GameEntry[]) => v
           "scan_games",
           cached.map((row) => {
             const path = paths.get(row.id);
-            return path ? { ...row, coverPath: path, cover: "" } : row;
+            // Keep the HTTPS URL so upgrades / missing files can fall back.
+            return path ? { ...row, coverPath: path } : row;
           }),
         );
       }
       update(
         items.map((game) => {
           const path = paths.get(game.id);
-          return path ? { ...game, cover: convertFileSrc(path) } : game;
+          if (!path) return game;
+          const remote =
+            game.coverRemote ??
+            (game.cover.startsWith("https://") ? game.cover : undefined);
+          return {
+            ...game,
+            cover: convertFileSrc(path),
+            coverRemote: remote,
+          };
         }),
       );
     })
@@ -535,11 +567,10 @@ export function useLocalGames() {
       .map((item) => {
         const saved = extra.extras.covers[item.id];
         if (!saved) return item;
+        const remote = saved.coverUrl || steamLibraryCover(saved.appId);
         const cover =
-          saved.coverPath && inTauri()
-            ? convertFileSrc(saved.coverPath)
-            : saved.coverUrl || steamLibraryCover(saved.appId);
-        return { ...item, cover };
+          saved.coverPath && inTauri() ? convertFileSrc(saved.coverPath) : remote;
+        return { ...item, cover, coverRemote: remote };
       })
       .filter((item) => !extra.extras.hidden.includes(item.id))
       .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
@@ -563,11 +594,10 @@ export function useLocalGames() {
       .map((item) => {
         const saved = extra.extras.covers[item.id];
         if (!saved) return item;
+        const remote = saved.coverUrl || steamLibraryCover(saved.appId);
         const cover =
-          saved.coverPath && inTauri()
-            ? convertFileSrc(saved.coverPath)
-            : saved.coverUrl || steamLibraryCover(saved.appId);
-        return { ...item, cover };
+          saved.coverPath && inTauri() ? convertFileSrc(saved.coverPath) : remote;
+        return { ...item, cover, coverRemote: remote };
       })
       .filter((item) => hidden.has(item.id))
       .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
