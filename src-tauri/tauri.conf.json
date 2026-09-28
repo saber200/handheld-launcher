@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FantasyHub",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "identifier": "com.handheld.launcher",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -42,7 +42,8 @@
     ],
     "resources": [
       "fse/identity.msix",
-      "fse/identity.cer"
+      "fse/identity.cer",
+      "drivers/WinRing0x64.sys"
     ],
     "windows": {
       "nsis": {

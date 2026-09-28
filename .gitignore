@@ -8,5 +8,6 @@ src-tauri/gen
 src-tauri/fse/identity.msix
 src-tauri/fse/identity.cer
 src-tauri/fse/cert.pfx
+src-tauri/drivers/WinRing0x64.sys
 .vscode/*
 !.vscode/extensions.json

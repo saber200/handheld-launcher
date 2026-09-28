@@ -228,9 +228,13 @@ mod windows {
     }
 
     const WINRING0_SERVICE: &str = "WinRing0_1_2_0";
-    const WINRING0_URLS: [&str; 2] = [
+    // Prefer CDN / mirrors first — raw.githubusercontent.com often fails on CN networks
+    // with ureq ("network error encountered in the status line").
+    const WINRING0_URLS: [&str; 4] = [
+        "https://cdn.jsdelivr.net/gh/seerge/g-helper@main/app/WinRing0x64.sys",
+        "https://ghproxy.net/https://raw.githubusercontent.com/seerge/g-helper/main/app/WinRing0x64.sys",
         "https://raw.githubusercontent.com/seerge/g-helper/main/app/WinRing0x64.sys",
-        "https://raw.githubusercontent.com/openhardwaremonitor/openhardwaremonitor/master/External/WinRing0/WinRing0x64.sys",
+        "https://cdn.jsdelivr.net/gh/openhardwaremonitor/openhardwaremonitor@master/External/WinRing0/WinRing0x64.sys",
     ];
 
     pub fn tdp_driver_status() -> TdpDriverStatus {
@@ -274,7 +278,20 @@ mod windows {
 
         let driver_dir = driver_dir()?;
         let sys_path = driver_dir.join("WinRing0x64.sys");
-        download_winring0(&sys_path)?;
+        if let Some(bundled) = bundled_winring0(app) {
+            crate::logutil::write_line(&format!(
+                "toolbox: using bundled winring0 {}",
+                bundled.display()
+            ));
+            fs::copy(&bundled, &sys_path).map_err(|err| {
+                pick(
+                    &format!("无法复制自带驱动：{err}"),
+                    &format!("Couldn't copy bundled driver: {err}"),
+                )
+            })?;
+        } else {
+            download_winring0(&sys_path)?;
+        }
         crate::logutil::write_line(&format!(
             "toolbox: winring0 saved {}",
             sys_path.display()
@@ -341,23 +358,108 @@ mod windows {
         Ok(dir)
     }
 
+    fn bundled_winring0(app: &tauri::AppHandle) -> Option<PathBuf> {
+        let dir = app.path().resource_dir().ok()?;
+        for candidate in [
+            dir.join("drivers").join("WinRing0x64.sys"),
+            dir.join("WinRing0x64.sys"),
+        ] {
+            if candidate.is_file() && candidate.metadata().map(|m| m.len()).unwrap_or(0) > 10_000 {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
     fn download_winring0(dest: &Path) -> Result<(), String> {
         let mut last_err = String::new();
         for url in WINRING0_URLS {
-            match download(url, dest) {
+            crate::logutil::write_line(&format!("toolbox: fetch winring0 {url}"));
+            match download_file(url, dest) {
                 Ok(()) => {
-                    if dest.is_file() && dest.metadata().map(|m| m.len()).unwrap_or(0) > 10_000 {
+                    let len = dest.metadata().map(|m| m.len()).unwrap_or(0);
+                    if dest.is_file() && len > 10_000 {
+                        crate::logutil::write_line(&format!(
+                            "toolbox: winring0 download ok bytes={len} from {url}"
+                        ));
                         return Ok(());
                     }
-                    last_err = pick("下载的驱动文件过小，可能无效。", "Downloaded driver file looks too small.");
+                    let _ = fs::remove_file(dest);
+                    last_err = pick(
+                        &format!("下载的驱动文件过小（{len} 字节），可能无效。"),
+                        &format!("Downloaded driver looks too small ({len} bytes)."),
+                    );
                 }
-                Err(err) => last_err = err,
+                Err(err) => {
+                    crate::logutil::write_line(&format!("toolbox: winring0 fetch failed: {err}"));
+                    last_err = err;
+                }
             }
         }
         Err(pick(
-            &format!("无法下载 WinRing0 驱动：{last_err}"),
-            &format!("Couldn't download WinRing0: {last_err}"),
+            &format!(
+                "无法下载 WinRing0 驱动（网络异常）：{last_err}。可换网络/开代理后重试，或稍后再试。"
+            ),
+            &format!(
+                "Couldn't download WinRing0 (network): {last_err}. Try another network/proxy, then retry."
+            ),
         ))
+    }
+
+    /// Prefer Windows curl.exe / PowerShell — ureq often fails on CN links to GitHub.
+    fn download_file(url: &str, dest: &Path) -> Result<(), String> {
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::remove_file(dest);
+        if download_with_curl(url, dest).is_ok() {
+            return Ok(());
+        }
+        if download_with_powershell(url, dest).is_ok() {
+            return Ok(());
+        }
+        download(url, dest)
+    }
+
+    fn download_with_curl(url: &str, dest: &Path) -> Result<(), String> {
+        let status = Command::new("curl.exe")
+            .args([
+                "-fsSL",
+                "--connect-timeout",
+                "20",
+                "--max-time",
+                "120",
+                "-A",
+                "FantasyHub-Toolbox",
+                "-o",
+            ])
+            .arg(dest)
+            .arg(url)
+            .status()
+            .map_err(|err| format!("curl: {err}"))?;
+        if status.success() && dest.is_file() {
+            Ok(())
+        } else {
+            Err(format!("curl exit {:?}", status.code()))
+        }
+    }
+
+    fn download_with_powershell(url: &str, dest: &Path) -> Result<(), String> {
+        let dest_ps = dest.to_string_lossy().replace('\'', "''");
+        let url_ps = url.replace('\'', "''");
+        let script = format!(
+            "Invoke-WebRequest -Uri '{url_ps}' -OutFile '{dest_ps}' -UseBasicParsing -UserAgent 'FantasyHub-Toolbox'"
+        );
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .output()
+            .map_err(|err| format!("powershell: {err}"))?;
+        if output.status.success() && dest.is_file() {
+            Ok(())
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(format!("powershell: {}", err.trim()))
+        }
     }
 
     fn run_sc(args: &[&str]) -> Result<(), String> {

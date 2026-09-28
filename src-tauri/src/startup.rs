@@ -300,7 +300,12 @@ mod windows {
             .ok_or_else(|| pick("无法登记：程序名不能用", "Couldn't register: the program name can't be used"))?;
         let dir = state_dir().ok_or_else(|| pick("无法登记：找不到数据目录", "Couldn't register: data folder not found"))?;
         let script = dir.join("register-fse.ps1");
-        std::fs::write(&script, REGISTER_PS1).map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
+        // Windows PowerShell 5.1 mis-parses UTF-8 scripts without BOM when any
+        // non-ASCII sneaks in; always write UTF-8 with BOM.
+        let mut script_bytes = vec![0xEF, 0xBB, 0xBF];
+        script_bytes.extend_from_slice(REGISTER_PS1.as_bytes());
+        std::fs::write(&script, script_bytes)
+            .map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
         crate::logutil::write_line(&format!(
             "fse register begin msix={} cer={} exe={}",
             msix.display(),
@@ -330,11 +335,25 @@ mod windows {
         let err_text = ps_token(&output.stderr);
         if !err_text.is_empty() {
             crate::logutil::write_line(&format!("fse stderr: {err_text}"));
+            if let Some(dir) = state_dir() {
+                let _ = std::fs::write(dir.join("fse-last-error.txt"), &err_text);
+            }
         }
         if output.status.success() && token == "OK" {
             return Ok(fse_user_text("OK"));
         }
-        let mapped = if token.is_empty() { "FAIL" } else { token.as_str() };
+        let mapped = if token.is_empty() {
+            if err_text.to_ascii_lowercase().contains("parsererror")
+                || err_text.contains("字符")
+                || err_text.contains("UnexpectedToken")
+            {
+                "SCRIPT_FAIL"
+            } else {
+                "FAIL"
+            }
+        } else {
+            token.as_str()
+        };
         Err(fse_user_text(mapped))
     }
 
@@ -380,6 +399,10 @@ mod windows {
             "ADD_FAIL" => pick(
                 "系统拒绝了全屏体验包。请打开开发人员模式后重试；详情见日志。",
                 "Windows rejected the fullscreen package. Enable Developer Mode and check the log.",
+            ),
+            "SCRIPT_FAIL" => pick(
+                "登记脚本无法运行（PowerShell 解析失败）。请安装新版本后再试，并把日志发给开发者。",
+                "The register script failed to parse in PowerShell. Install a newer build and share the log.",
             ),
             _ => pick(
                 "无法登记到全屏体验。请到设置里点「登记全屏体验」，并把日志发给开发者。",

@@ -75,10 +75,10 @@ try {
   Add-AppxPackage -Path $Msix -ExternalLocation $ExeDir
 } catch {
   $text = $_.Exception.Message
-  if ($text -match "80073CFF|Developer Mode|开发人员") {
+  if ($text -match "80073CFF|Developer Mode") {
     Fail "NEED_DEVMODE" $text
   }
-  if ($text -match "80073CF9|certificate|签名|签名无效|trusted") {
+  if ($text -match "80073CF9|certificate|trusted|signature") {
     Fail "CERT_FAIL" $text
   }
   Fail "ADD_FAIL" $text

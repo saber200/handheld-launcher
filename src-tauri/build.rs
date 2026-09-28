@@ -1,6 +1,10 @@
 fn main() {
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    for name in ["fse/identity.msix", "fse/identity.cer"] {
+    for name in [
+        "fse/identity.msix",
+        "fse/identity.cer",
+        "drivers/WinRing0x64.sys",
+    ] {
         let path = manifest_dir.join(name);
         if !path.exists() {
             if let Some(parent) = path.parent() {

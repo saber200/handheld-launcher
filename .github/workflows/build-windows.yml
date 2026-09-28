@@ -37,6 +37,25 @@ jobs:
           }
           Write-Host "FSE identity ready: msix=$($msix.Length) cer=$($cer.Length)"
 
+      - name: Fetch WinRing0 for offline TDP install
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/drivers | Out-Null
+          $out = "src-tauri/drivers/WinRing0x64.sys"
+          $urls = @(
+            "https://cdn.jsdelivr.net/gh/seerge/g-helper@main/app/WinRing0x64.sys",
+            "https://raw.githubusercontent.com/seerge/g-helper/main/app/WinRing0x64.sys"
+          )
+          foreach ($u in $urls) {
+            Write-Host "try $u"
+            & curl.exe -fsSL --connect-timeout 20 --max-time 120 -A FantasyHub -o $out $u
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $out) -and (Get-Item $out).Length -gt 10000) {
+              Write-Host "WinRing0 ready $((Get-Item $out).Length) bytes"
+              exit 0
+            }
+          }
+          throw "Failed to fetch WinRing0x64.sys for bundling"
+
       - name: Build Tauri (Windows) + Release
         uses: tauri-apps/tauri-action@v0
         env:

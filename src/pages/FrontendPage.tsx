@@ -152,6 +152,7 @@ export function FrontendPage({ active }: Props) {
                 data-focusable
                 disabled={driverBusy}
                 onClick={() => void installDriver()}
+                style={{ marginTop: "10px" }}
               >
                 <span>
                   <strong>{m.tdpDriverInstall}</strong>
