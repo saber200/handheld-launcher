@@ -345,7 +345,7 @@ export const zh: Catalog = {
     optiscalerInstalled: "该游戏目录已检测到 OptiScaler，可再次覆盖安装。",
     optiscalerHint: "安装到所选游戏主程序所在目录。",
     optiscalerNoGame: "游戏库里还没有可安装的游戏，先在主界面添加或扫描。",
-    later: "以后再说",
+    later: "展开",
     soon: "即将推出",
   },
   keyboard: { label: "数字键盘", backspace: "删除", done: "完成" },

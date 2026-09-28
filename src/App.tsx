@@ -71,7 +71,17 @@ export default function App() {
 
   useEffect(() => {
     if (!frontendOpen) return;
+    if (inTauri()) return;
     document.querySelector<HTMLElement>(".frontend-preview [data-focusable]")?.focus();
+  }, [frontendOpen]);
+
+  useEffect(() => {
+    if (!frontendOpen || !inTauri()) return;
+    const steal = () => {
+      void invoke("focus_frontend").catch(() => {});
+    };
+    window.addEventListener("focus", steal);
+    return () => window.removeEventListener("focus", steal);
   }, [frontendOpen]);
 
   const closeSettings = useCallback(() => {
@@ -115,7 +125,23 @@ export default function App() {
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
-      if (frontendOpen) {
+      if (frontendOpen && inTauri()) {
+        if (
+          e.key === "Escape" ||
+          e.key === "End" ||
+          e.key === "b" ||
+          e.key === "B" ||
+          (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h")
+        ) {
+          e.preventDefault();
+          closeFrontend();
+          return;
+        }
+        e.preventDefault();
+        void invoke("focus_frontend").catch(() => {});
+        return;
+      }
+      if (frontendOpen && !inTauri()) {
         if (
           e.key === "Escape" ||
           e.key === "End" ||
@@ -224,7 +250,7 @@ export default function App() {
   }, [intro, shiftTab, toggleSettings, toggleFrontend, closeFrontend, frontendOpen]);
 
   useGamepadNav({
-    enabled: intro === "done",
+    enabled: intro === "done" && !(frontendOpen && inTauri()),
     onBumperLeft: () => {
       if (!frontendOpen) shiftTab(-1);
     },
@@ -238,6 +264,10 @@ export default function App() {
       toggleSettings();
     },
     onStart: () => {
+      if (frontendOpen && !inTauri()) {
+        closeFrontend();
+        return;
+      }
       toggleFrontend();
     },
     onFaceTop: () => {
@@ -269,7 +299,8 @@ export default function App() {
 
   const m = text();
   const finishIntro = useCallback(() => setIntro("done"), []);
-  // Lock the main shell while frontend panel is open; settings stay usable.
+  const previewFrontend = frontendOpen && !inTauri();
+  // Floating frontend window: lock main shell. Browser preview uses the same flag.
   const mainLocked = intro !== "done" || frontendOpen;
 
   return (
@@ -325,7 +356,7 @@ export default function App() {
     <div
       className={`drawer-root focus-trap ${settingsOpen ? "open" : ""}`}
       aria-hidden={!settingsOpen}
-      inert={intro !== "done" || frontendOpen || undefined}
+      inert={intro !== "done" || (frontendOpen && inTauri()) || undefined}
     >
       <button
         type="button"
@@ -339,7 +370,7 @@ export default function App() {
         <SettingsPage active={settingsOpen} />
       </aside>
     </div>
-    {frontendOpen && (
+    {previewFrontend && (
       <div className="drawer-root focus-trap open frontend-preview">
         <button
           type="button"

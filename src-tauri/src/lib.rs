@@ -57,7 +57,9 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
                 }
             }
             WindowEvent::Focused(true) => {
-                if scan::take_fullscreen_resume() {
+                if frontend::frontend_visible(&app_handle) {
+                    let _ = frontend::focus_frontend(app_handle.clone());
+                } else if scan::take_fullscreen_resume() {
                     startup::fill_screen(&watched);
                 }
             }
@@ -137,6 +139,7 @@ pub fn run() {
                 let _ = window.set_fullscreen(true);
                 attach_main(&window, app.handle());
             }
+            frontend::preload(app.handle());
             if let Err(err) = frontend::install_hotkeys(app) {
                 logutil::write_line(&format!("frontend hotkeys: {err}"));
             }

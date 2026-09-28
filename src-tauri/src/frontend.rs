@@ -1,28 +1,64 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
+};
+
+use crate::i18n::pick;
+
+const FRONTEND_LABEL: &str = "frontend";
+const FRONTEND_WIDTH: f64 = 440.0;
 
 static FRONTEND_OPEN: AtomicBool = AtomicBool::new(false);
+static PRELOAD_STARTED: AtomicBool = AtomicBool::new(false);
+
+/// Create the floating frontend window once at startup (hidden).
+/// Windows WebView2 deadlocks if we `build()` inside a sync IPC command.
+pub fn preload(app: &AppHandle) {
+    if app.get_webview_window(FRONTEND_LABEL).is_some() {
+        return;
+    }
+    if PRELOAD_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        crate::logutil::write_line("frontend preload begin");
+        match create_hidden(&app) {
+            Ok(()) => crate::logutil::write_line("frontend preload ok"),
+            Err(err) => {
+                PRELOAD_STARTED.store(false, Ordering::SeqCst);
+                crate::logutil::write_line(&format!("frontend preload failed: {err}"));
+            }
+        }
+    });
+}
 
 #[tauri::command]
-pub fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
+pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
     let next = !FRONTEND_OPEN.load(Ordering::SeqCst);
     crate::logutil::write_line(&format!("toggle_frontend -> {next}"));
-    set_open(&app, next);
+    set_open(&app, next).await?;
     Ok(next)
 }
 
 #[tauri::command]
-pub fn close_frontend(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn close_frontend(app: tauri::AppHandle) -> Result<(), String> {
     crate::logutil::write_line("close_frontend");
-    set_open(&app, false);
+    set_open(&app, false).await?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn focus_frontend(app: tauri::AppHandle) -> Result<(), String> {
-    // Frontend is an in-app panel on the main window now.
-    reveal_main(&app);
+    let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
+        return Ok(());
+    };
+    if FRONTEND_OPEN.load(Ordering::SeqCst) {
+        let _ = window.set_focus();
+        let _ = window.set_always_on_top(true);
+    }
     Ok(())
 }
 
@@ -30,11 +66,8 @@ pub fn frontend_visible(_app: &AppHandle) -> bool {
     FRONTEND_OPEN.load(Ordering::SeqCst)
 }
 
-/// True when FantasyHub itself currently has keyboard focus.
 pub fn software_focused(app: &AppHandle) -> bool {
-    app.get_webview_window("main")
-        .and_then(|window| window.is_focused().ok())
-        .unwrap_or(false)
+    window_focused(app, "main") || window_focused(app, FRONTEND_LABEL)
 }
 
 pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -62,47 +95,170 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-fn set_open(app: &AppHandle, open: bool) {
-    FRONTEND_OPEN.store(open, Ordering::SeqCst);
+async fn set_open(app: &AppHandle, open: bool) -> Result<(), String> {
     if open {
-        reveal_main(app);
+        ensure_created(app).await?;
+        show(app)?;
+    } else {
+        hide(app);
     }
+    FRONTEND_OPEN.store(open, Ordering::SeqCst);
     let _ = app.emit("frontend-state", open);
+    Ok(())
 }
 
-fn reveal_main(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
-        crate::logutil::write_line("reveal_main: no main window");
+async fn ensure_created(app: &AppHandle) -> Result<(), String> {
+    if app.get_webview_window(FRONTEND_LABEL).is_some() {
+        return Ok(());
+    }
+    crate::logutil::write_line("frontend ensure_created (async)");
+    // Async command context avoids the Windows WebView2 sync-command deadlock.
+    create_hidden(app)
+}
+
+fn create_hidden(app: &AppHandle) -> Result<(), String> {
+    if app.get_webview_window(FRONTEND_LABEL).is_some() {
+        return Ok(());
+    }
+    let title = pick("前端", "Frontend");
+    let window = WebviewWindowBuilder::new(app, FRONTEND_LABEL, WebviewUrl::App("index.html".into()))
+        .title(title)
+        .inner_size(FRONTEND_WIDTH, 800.0)
+        .decorations(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .visible(false)
+        .initialization_script(
+            r#"
+            window.__FANTASYHUB_FRONTEND__ = true;
+            try { sessionStorage.setItem("fantasyhub-shell", "frontend"); } catch (e) {}
+            "#,
+        )
+        .build()
+        .map_err(|err| {
+            pick(
+                &format!("无法打开前端：{err}"),
+                &format!("Couldn't open frontend: {err}"),
+            )
+        })?;
+    place(&window, app);
+    attach(&window, app);
+    let _ = window.hide();
+    crate::logutil::write_line("frontend window built (hidden)");
+    Ok(())
+}
+
+fn show(app: &AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
+        return Err(pick("前端窗口还没准备好", "Frontend window is not ready yet."));
+    };
+    place(&window, app);
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = window.set_always_on_top(true);
+    crate::logutil::write_line("frontend shown");
+    Ok(())
+}
+
+fn hide(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(FRONTEND_LABEL) {
+        let _ = window.hide();
+        crate::logutil::write_line("frontend hidden");
+    }
+    focus_main_if_idle(app);
+}
+
+fn attach(window: &WebviewWindow, app: &AppHandle) {
+    let app = app.clone();
+    window.on_window_event(move |event| {
+        match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                FRONTEND_OPEN.store(false, Ordering::SeqCst);
+                if let Some(window) = app.get_webview_window(FRONTEND_LABEL) {
+                    let _ = window.hide();
+                }
+                let _ = app.emit("frontend-state", false);
+                focus_main_if_idle(&app);
+            }
+            WindowEvent::Destroyed => {
+                FRONTEND_OPEN.store(false, Ordering::SeqCst);
+                PRELOAD_STARTED.store(false, Ordering::SeqCst);
+                let _ = app.emit("frontend-state", false);
+                focus_main_if_idle(&app);
+            }
+            _ => {}
+        }
+    });
+}
+
+fn focus_main_if_idle(app: &AppHandle) {
+    let Some(main) = app.get_webview_window("main") else {
         return;
     };
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_fullscreen(true);
-    let _ = window.set_focus();
-    crate::logutil::write_line("reveal_main ok");
+    let minimized = main.is_minimized().unwrap_or(false);
+    let visible = main.is_visible().unwrap_or(false);
+    if visible && !minimized {
+        let _ = main.set_focus();
+    }
+}
+
+fn window_focused(app: &AppHandle, label: &str) -> bool {
+    app.get_webview_window(label)
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false)
+}
+
+fn place(window: &WebviewWindow, app: &AppHandle) {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| {
+            app.get_webview_window("main")
+                .and_then(|main| main.current_monitor().ok().flatten())
+        })
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        crate::logutil::write_line("frontend place: no monitor");
+        return;
+    };
+    let screen = monitor.size();
+    let origin = monitor.position();
+    let scale = monitor.scale_factor();
+    let width = ((FRONTEND_WIDTH * scale).round() as u32)
+        .max(320)
+        .min(screen.width);
+    let height = screen.height;
+    let x = origin.x + screen.width.saturating_sub(width) as i32;
+    let y = origin.y;
+    crate::logutil::write_line(&format!(
+        "frontend place x={x} y={y} w={width} h={height} scale={scale}"
+    ));
+    let _ = window.set_size(tauri::Size::Physical(PhysicalSize { width, height }));
+    let _ = window.set_position(tauri::Position::Physical(PhysicalPosition { x, y }));
 }
 
 fn schedule_toggle(app: &AppHandle, reason: &str) {
     crate::logutil::write_line(&format!("schedule_toggle ({reason})"));
     let app = app.clone();
     let reason = reason.to_string();
-    if let Err(err) = app.clone().run_on_main_thread(move || {
-        crate::logutil::write_line(&format!("toggle on main ({reason})"));
-        match toggle_frontend(app) {
+    tauri::async_runtime::spawn(async move {
+        crate::logutil::write_line(&format!("toggle async ({reason})"));
+        match toggle_frontend(app).await {
             Ok(open) => crate::logutil::write_line(&format!("toggle_frontend done -> {open}")),
             Err(err) => crate::logutil::write_line(&format!("toggle_frontend error: {err}")),
         }
-    }) {
-        crate::logutil::write_line(&format!("run_on_main_thread failed: {err}"));
-    }
+    });
 }
 
 #[cfg(windows)]
 fn start_chord_watch(app: AppHandle) {
-    use std::sync::atomic::AtomicBool as Flag;
     use std::time::Duration;
 
-    static CHORD_WATCHING: Flag = Flag::new(false);
+    static CHORD_WATCHING: AtomicBool = AtomicBool::new(false);
     if CHORD_WATCHING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -134,8 +290,7 @@ fn start_chord_watch(app: AppHandle) {
                 }
             }
             if pressed && !held {
-                let focused = software_focused(&app);
-                if focused {
+                if software_focused(&app) {
                     crate::logutil::write_line("chord Back+Start ignored (app focused)");
                 } else {
                     crate::logutil::write_line("chord Back+Start");

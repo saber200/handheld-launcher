@@ -42,7 +42,6 @@ export function FrontendPage({ active }: Props) {
   useEffect(() => {
     if (!active) return;
     if (!inTauri()) {
-      setStatus(text().frontend.tdpPreview);
       return;
     }
     void invoke<TdpInfo>("tdp_status")
@@ -60,7 +59,6 @@ export function FrontendPage({ active }: Props) {
     const next = Math.min(maxW, Math.max(minW, Math.round(watts)));
     setDraft(next);
     if (!inTauri()) {
-      setStatus(m.tdpPreview);
       return;
     }
     setBusy(true);
@@ -133,7 +131,6 @@ export function FrontendPage({ active }: Props) {
         <button type="button" className="setting-row" data-focusable disabled>
           <span>
             <strong>{m.fan}</strong>
-            <small>{m.fanBody}</small>
           </span>
           <span className="switch">{m.later}</span>
         </button>
@@ -148,7 +145,6 @@ export function FrontendPage({ active }: Props) {
         >
           <span>
             <strong>{m.toolbox}</strong>
-            <small>{m.toolsBody}</small>
           </span>
           <span className={`switch${toolboxOpen ? " on" : ""}`}>
             {toolboxOpen ? m.toolboxHide : m.toolboxShow}
