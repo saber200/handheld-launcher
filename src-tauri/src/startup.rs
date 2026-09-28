@@ -306,11 +306,13 @@ mod windows {
         script_bytes.extend_from_slice(REGISTER_PS1.as_bytes());
         std::fs::write(&script, script_bytes)
             .map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
+        // Strip \\?\ so Add-AppxPackage does not treat the path as a broken URI.
+        let msix_arg = for_powershell_path(&msix);
+        let cer_arg = for_powershell_path(&cer);
+        let exe_dir_arg = for_powershell_path(exe_dir);
         crate::logutil::write_line(&format!(
-            "fse register begin msix={} cer={} exe={}",
-            msix.display(),
-            cer.display(),
-            exe.display()
+            "fse register begin msix={msix_arg} cer={cer_arg} exe={}",
+            for_powershell_path(&exe)
         ));
         let output = hidden(&mut Command::new("powershell.exe"))
             .args([
@@ -322,11 +324,11 @@ mod windows {
             ])
             .arg(&script)
             .arg("-Msix")
-            .arg(&msix)
+            .arg(&msix_arg)
             .arg("-Cer")
-            .arg(&cer)
+            .arg(&cer_arg)
             .arg("-ExeDir")
-            .arg(exe_dir)
+            .arg(&exe_dir_arg)
             .arg("-ExeName")
             .arg(exe_name)
             .output()
@@ -355,6 +357,19 @@ mod windows {
             token.as_str()
         };
         Err(fse_user_text(mapped))
+    }
+
+    /// Tauri resource paths may use the \\?\ extended prefix; PowerShell AppX APIs hate that.
+    fn for_powershell_path(path: &std::path::Path) -> String {
+        let raw = path.to_string_lossy();
+        let trimmed = if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{rest}")
+        } else if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            rest.to_string()
+        } else {
+            raw.into_owned()
+        };
+        trimmed.replace('/', "\\")
     }
 
     fn ps_token(bytes: &[u8]) -> String {
@@ -397,8 +412,8 @@ mod windows {
                 "Couldn't trust the package certificate. Run FantasyHub as admin and register again.",
             ),
             "ADD_FAIL" => pick(
-                "系统拒绝了全屏体验包。请打开开发人员模式后重试；详情见日志。",
-                "Windows rejected the fullscreen package. Enable Developer Mode and check the log.",
+                "系统拒绝了全屏体验包。详情已写入日志（不一定是开发者模式问题）。",
+                "Windows rejected the fullscreen package. Details are in the log (not always Developer Mode).",
             ),
             "SCRIPT_FAIL" => pick(
                 "登记脚本无法运行（PowerShell 解析失败）。请安装新版本后再试，并把日志发给开发者。",

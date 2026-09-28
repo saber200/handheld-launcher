@@ -22,6 +22,20 @@ function Fail([string]$token, [string]$message) {
   exit 1
 }
 
+# Tauri resource_dir() often yields \\?\C:\... which Add-AppxPackage treats as a bad URI.
+function Normalize-WinPath([string]$p) {
+  if ([string]::IsNullOrWhiteSpace($p)) { return $p }
+  $p = $p.Trim().Trim('"')
+  if ($p.StartsWith("\\?\UNC\")) { return ("\\" + $p.Substring(8)) }
+  if ($p.StartsWith("\\?\")) { return $p.Substring(4) }
+  return $p
+}
+
+$Msix = Normalize-WinPath $Msix
+$Cer = Normalize-WinPath $Cer
+$ExeDir = Normalize-WinPath $ExeDir
+$ExeName = Normalize-WinPath $ExeName
+
 $exePath = Join-Path $ExeDir $ExeName
 if (-not (Test-Path -LiteralPath $exePath)) {
   Fail "NO_EXE" "Missing launcher exe: $exePath"
@@ -72,7 +86,11 @@ try {
   if ($installed) {
     Remove-AppxPackage -Package $installed.PackageFullName
   }
-  Add-AppxPackage -Path $Msix -ExternalLocation $ExeDir
+  # Use resolved filesystem paths (no \\?\ prefix) for Add-AppxPackage.
+  $msixFull = (Resolve-Path -LiteralPath $Msix).Path
+  $exeDirFull = (Resolve-Path -LiteralPath $ExeDir).Path
+  Write-Detail "Add-AppxPackage Path=$msixFull ExternalLocation=$exeDirFull"
+  Add-AppxPackage -Path $msixFull -ExternalLocation $exeDirFull
 } catch {
   $text = $_.Exception.Message
   if ($text -match "80073CFF|Developer Mode") {
@@ -80,6 +98,9 @@ try {
   }
   if ($text -match "80073CF9|certificate|trusted|signature") {
     Fail "CERT_FAIL" $text
+  }
+  if ($text -match "URI|主机名|hostname") {
+    Fail "ADD_FAIL" "Bad path for Add-AppxPackage (URI parse). Msix=$Msix ExeDir=$ExeDir Detail=$text"
   }
   Fail "ADD_FAIL" $text
 }

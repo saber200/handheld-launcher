@@ -293,24 +293,42 @@ mod windows {
         } else {
             download_winring0(&sys_path)?;
         }
+        let sys_len = sys_path.metadata().map(|m| m.len()).unwrap_or(0);
         crate::logutil::write_line(&format!(
-            "toolbox: winring0 saved {}",
+            "toolbox: winring0 saved {} bytes={sys_len}",
             sys_path.display()
         ));
+        if sys_len < 10_000 {
+            return Err(pick(
+                &format!("驱动文件异常（仅 {sys_len} 字节），请重装 FantasyHub 后再试。"),
+                &format!("Driver file looks wrong ({sys_len} bytes). Reinstall FantasyHub and retry."),
+            ));
+        }
 
         // Recreate service so a stale/broken registration can be fixed.
+        crate::logutil::write_line("toolbox: sc stop/delete WinRing0_1_2_0");
         let _ = run_sc(&["stop", WINRING0_SERVICE]);
         let _ = run_sc(&["delete", WINRING0_SERVICE]);
         // sc.exe requires a space after '=' inside each option token.
-        let bin = format!("binPath= {}", sys_path.display());
+        let bin = format!("binPath= \"{}\"", sys_path.display());
+        crate::logutil::write_line(&format!("toolbox: sc create {bin}"));
         run_sc(&[
             "create",
             WINRING0_SERVICE,
             "type= kernel",
             "start= demand",
             &bin,
-        ])?;
+        ])
+        .map_err(|err| {
+            crate::logutil::write_line(&format!("toolbox: sc create failed: {err}"));
+            pick(
+                &format!("注册驱动服务失败：{err}"),
+                &format!("Couldn't create driver service: {err}"),
+            )
+        })?;
+        crate::logutil::write_line("toolbox: sc start WinRing0_1_2_0");
         run_sc(&["start", WINRING0_SERVICE]).map_err(|err| {
+            crate::logutil::write_line(&format!("toolbox: sc start failed: {err}"));
             pick(
                 &format!(
                     "驱动服务启动失败：{err}。若 Windows 安全中心拦截了 WinRing0，请允许后再试；也可暂时关闭核心隔离后再装。"
