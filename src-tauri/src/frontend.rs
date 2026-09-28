@@ -48,8 +48,9 @@ pub fn preload(app: &AppHandle) {
 #[tauri::command]
 pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
     let next = !FRONTEND_OPEN.load(Ordering::SeqCst);
-    crate::logutil::write_line(&format!("toggle_frontend -> {next}"));
-    set_open(&app, next).await?;
+    crate::logutil::write_line(&format!("toggle_frontend schedule -> {next}"));
+    // Return immediately so the main WebView IPC cannot deadlock waiting on show/focus.
+    schedule_set_open(app, next, "toggle_frontend");
     Ok(next)
 }
 
@@ -57,30 +58,24 @@ pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
 pub async fn open_frontend(app: tauri::AppHandle) -> Result<(), String> {
     if FRONTEND_OPEN.load(Ordering::SeqCst) {
         crate::logutil::write_line("open_frontend (already open)");
-        let _ = focus_frontend(app.clone());
+        schedule_focus(app);
         return Ok(());
     }
-    crate::logutil::write_line("open_frontend");
-    set_open(&app, true).await?;
+    crate::logutil::write_line("open_frontend schedule");
+    schedule_set_open(app, true, "open_frontend");
     Ok(())
 }
 
 #[tauri::command]
 pub async fn close_frontend(app: tauri::AppHandle) -> Result<(), String> {
-    crate::logutil::write_line("close_frontend");
-    set_open(&app, false).await?;
+    crate::logutil::write_line("close_frontend schedule");
+    schedule_set_open(app, false, "close_frontend");
     Ok(())
 }
 
 #[tauri::command]
 pub fn focus_frontend(app: tauri::AppHandle) -> Result<(), String> {
-    let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
-        return Ok(());
-    };
-    if FRONTEND_OPEN.load(Ordering::SeqCst) {
-        let _ = window.set_focus();
-        let _ = window.set_always_on_top(true);
-    }
+    schedule_focus(app);
     Ok(())
 }
 
@@ -105,7 +100,7 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
                         return;
                     }
                     if shortcut.matches(Modifiers::CONTROL, Code::KeyH) {
-                        schedule_toggle(app, "hotkey Control+H");
+                        schedule_set_open(app.clone(), !FRONTEND_OPEN.load(Ordering::SeqCst), "hotkey Control+H");
                     }
                 })
                 .build(),
@@ -117,24 +112,57 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-async fn set_open(app: &AppHandle, open: bool) -> Result<(), String> {
+fn schedule_set_open(app: AppHandle, open: bool, reason: &str) {
+    let reason = reason.to_string();
+    std::thread::spawn(move || {
+        crate::logutil::write_line(&format!("frontend set_open begin ({reason}) open={open}"));
+        // Run off the IPC/async worker and do NOT block the UI thread waiting.
+        // If show() stalls under FSE, the main window must stay responsive.
+        match set_open_direct(&app, open) {
+            Ok(()) => {
+                crate::logutil::write_line(&format!("frontend set_open ok ({reason}) open={open}"))
+            }
+            Err(err) => {
+                if open {
+                    FRONTEND_OPEN.store(false, Ordering::SeqCst);
+                    let _ = app.emit("frontend-state", false);
+                }
+                crate::logutil::write_line(&format!("frontend set_open err ({reason}): {err}"));
+            }
+        }
+    });
+}
+
+fn schedule_focus(app: AppHandle) {
+    let _ = app.run_on_main_thread(move || {
+        let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
+            return;
+        };
+        if FRONTEND_OPEN.load(Ordering::SeqCst) {
+            let _ = window.set_always_on_top(true);
+            let _ = window.set_focus();
+        }
+    });
+}
+
+fn set_open_direct(app: &AppHandle, open: bool) -> Result<(), String> {
     if open {
-        ensure_created(app).await?;
+        FRONTEND_OPEN.store(true, Ordering::SeqCst);
+        ensure_created(app)?;
         show(app)?;
     } else {
         hide(app);
+        FRONTEND_OPEN.store(false, Ordering::SeqCst);
     }
-    FRONTEND_OPEN.store(open, Ordering::SeqCst);
     let _ = app.emit("frontend-state", open);
     Ok(())
 }
 
-async fn ensure_created(app: &AppHandle) -> Result<(), String> {
+fn ensure_created(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window(FRONTEND_LABEL).is_some() {
         return Ok(());
     }
-    crate::logutil::write_line("frontend ensure_created (async)");
-    // Async command context avoids the Windows WebView2 sync-command deadlock.
+    crate::logutil::write_line("frontend ensure_created");
     create_hidden(app)
 }
 
@@ -176,12 +204,14 @@ fn show(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
         return Err(pick("前端窗口还没准备好", "Frontend window is not ready yet."));
     };
+    crate::logutil::write_line("frontend show: place");
     place(&window, app);
+    crate::logutil::write_line("frontend show: show()");
     let _ = window.show();
-    let _ = window.set_focus();
     let _ = window.set_always_on_top(true);
-    // Direct emit so the preload webview can't miss the broadcast timing.
+    let _ = window.set_focus();
     let _ = window.emit("frontend-state", true);
+    FRONTEND_OPEN.store(true, Ordering::SeqCst);
     crate::logutil::write_line("frontend shown");
     Ok(())
 }
@@ -237,14 +267,11 @@ fn window_focused(app: &AppHandle, label: &str) -> bool {
 }
 
 fn place(window: &WebviewWindow, app: &AppHandle) {
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| {
-            app.get_webview_window("main")
-                .and_then(|main| main.current_monitor().ok().flatten())
-        })
+    // Prefer the main window's monitor. Asking a hidden frontend window for
+    // current_monitor() has hung under FSE home / exclusive fullscreen.
+    let monitor = app
+        .get_webview_window("main")
+        .and_then(|main| main.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else {
         crate::logutil::write_line("frontend place: no monitor");
@@ -264,19 +291,6 @@ fn place(window: &WebviewWindow, app: &AppHandle) {
     ));
     let _ = window.set_size(tauri::Size::Physical(PhysicalSize { width, height }));
     let _ = window.set_position(tauri::Position::Physical(PhysicalPosition { x, y }));
-}
-
-fn schedule_toggle(app: &AppHandle, reason: &str) {
-    crate::logutil::write_line(&format!("schedule_toggle ({reason})"));
-    let app = app.clone();
-    let reason = reason.to_string();
-    tauri::async_runtime::spawn(async move {
-        crate::logutil::write_line(&format!("toggle async ({reason})"));
-        match toggle_frontend(app).await {
-            Ok(open) => crate::logutil::write_line(&format!("toggle_frontend done -> {open}")),
-            Err(err) => crate::logutil::write_line(&format!("toggle_frontend error: {err}")),
-        }
-    });
 }
 
 #[cfg(windows)]
@@ -321,7 +335,6 @@ fn start_chord_watch(app: AppHandle) {
                 if back && start {
                     pressed = true;
                 }
-                // Second WebView often gets an empty Gamepad API; bridge XInput instead.
                 if FRONTEND_OPEN.load(Ordering::SeqCst) {
                     let lx = state.Gamepad.sThumbLX as i32;
                     let ly = state.Gamepad.sThumbLY as i32;
@@ -356,7 +369,11 @@ fn start_chord_watch(app: AppHandle) {
                     crate::logutil::write_line("chord Back+Start ignored (app focused)");
                 } else {
                     crate::logutil::write_line("chord Back+Start");
-                    schedule_toggle(&app, "chord Back+Start");
+                    schedule_set_open(
+                        app.clone(),
+                        !FRONTEND_OPEN.load(Ordering::SeqCst),
+                        "chord Back+Start",
+                    );
                 }
             }
             held = pressed;

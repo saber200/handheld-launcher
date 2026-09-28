@@ -75,14 +75,8 @@ export default function App() {
     document.querySelector<HTMLElement>(".frontend-preview [data-focusable]")?.focus();
   }, [frontendOpen]);
 
-  useEffect(() => {
-    if (!frontendOpen || !inTauri()) return;
-    const steal = () => {
-      void invoke("focus_frontend").catch(() => {});
-    };
-    window.addEventListener("focus", steal);
-    return () => window.removeEventListener("focus", steal);
-  }, [frontendOpen]);
+  // Do NOT steal focus back to the frontend window on every main-window focus.
+  // Under FSE home that focus fight freezes the UI before the panel paints.
 
   const closeSettings = useCallback(() => {
     const active = document.activeElement as HTMLElement | null;
@@ -114,18 +108,16 @@ export default function App() {
       setFrontendOpen((open) => !open);
       return;
     }
-    // Optimistic lock so main-window pad can't Start-toggle us closed mid-open.
-    setFrontendOpen(true);
-    void invoke<boolean>("toggle_frontend")
-      .then(setFrontendOpen)
-      .catch((err) => {
-        setFrontendOpen(false);
-        console.error("toggle_frontend", err);
-      });
+    // Rust returns before the window is shown; frontend-state sets the real flag.
+    void invoke("toggle_frontend").catch((err) => {
+      setFrontendOpen(false);
+      console.error("toggle_frontend", err);
+    });
   }, [closeSettings]);
 
   /** Start opens only. Closing is B/Esc on the frontend window (or chord toggle). */
   const openFrontend = useCallback(() => {
+    if (frontendOpen) return;
     if (fileActions().blocksTabs?.()) return;
     fileActions().dismiss?.();
     libraryActions().closeDialog?.();
@@ -134,14 +126,12 @@ export default function App() {
       setFrontendOpen(true);
       return;
     }
-    setFrontendOpen(true);
-    void invoke("open_frontend")
-      .then(() => setFrontendOpen(true))
-      .catch((err) => {
-        setFrontendOpen(false);
-        console.error("open_frontend", err);
-      });
-  }, [closeSettings]);
+    // Do not setFrontendOpen(true) here — that inert-locks main before the panel exists.
+    void invoke("open_frontend").catch((err) => {
+      setFrontendOpen(false);
+      console.error("open_frontend", err);
+    });
+  }, [closeSettings, frontendOpen]);
 
   useEffect(() => {
     if (intro !== "done") return;
@@ -158,8 +148,8 @@ export default function App() {
           closeFrontend();
           return;
         }
+        // Don't call focus_frontend on every key — FSE home focus fights freeze the app.
         e.preventDefault();
-        void invoke("focus_frontend").catch(() => {});
         return;
       }
       if (frontendOpen && !inTauri()) {
