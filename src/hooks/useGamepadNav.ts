@@ -326,6 +326,34 @@ export function useGamepadNav({
   useEffect(() => {
     if (!enabled) return;
 
+    // When this shell becomes active mid-hold (e.g. frontend shown while Start
+    // is still down), treat current presses as already held so we don't fire
+    // open+close on the same physical press.
+    const seedHeld = () => {
+      const pads = navigator.getGamepads?.() ?? [];
+      const pad = pads.find(Boolean);
+      if (!pad) {
+        bumpers.current = { l: false, r: false };
+        triggers.current = { l: false, r: false };
+        viewHeld.current = false;
+        startHeld.current = false;
+        faceTopHeld.current = false;
+        faceLeftHeld.current = false;
+        confirmHeld.current = false;
+        backHeld.current = false;
+        return;
+      }
+      bumpers.current = { l: !!pad.buttons[4]?.pressed, r: !!pad.buttons[5]?.pressed };
+      triggers.current = { l: !!pad.buttons[6]?.pressed, r: !!pad.buttons[7]?.pressed };
+      viewHeld.current = !!pad.buttons[8]?.pressed;
+      startHeld.current = !!pad.buttons[9]?.pressed;
+      faceTopHeld.current = !!pad.buttons[3]?.pressed;
+      faceLeftHeld.current = !!pad.buttons[2]?.pressed;
+      confirmHeld.current = !!pad.buttons[0]?.pressed;
+      backHeld.current = !!pad.buttons[1]?.pressed;
+    };
+    seedHeld();
+
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;

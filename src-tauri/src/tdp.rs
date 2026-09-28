@@ -72,6 +72,18 @@ fn stored_watts() -> Option<u32> {
     (value >= MIN_W && value <= MAX_W).then_some(value)
 }
 
+/// Whether the WinRing0 device can be opened (TDP backend ready).
+pub fn winring0_ready() -> bool {
+    #[cfg(windows)]
+    {
+        return windows::driver_ready();
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 #[cfg_attr(not(windows), allow(dead_code))]
 fn remember_watts(watts: u32) {
     LAST_WATTS.store(watts, Ordering::Relaxed);
@@ -141,8 +153,8 @@ mod windows {
             );
         } else {
             message = pick(
-                "检测到 Intel，但读不到 WinRing0。请用管理员运行，或先装带该驱动的调优工具后再试。",
-                "Intel detected, but WinRing0 isn't available. Run as admin, or install a tuner that provides that driver.",
+                "检测到 Intel，但读不到 WinRing0。请在工具箱安装 TDP 驱动，并以管理员运行。",
+                "Intel detected, but WinRing0 isn't available. Install the TDP driver from the toolbox, and run as admin.",
             );
         }
 
@@ -171,8 +183,8 @@ mod windows {
 
         let Some(handle) = open_driver() else {
             return Err(pick(
-                "打不开 WinRing0。请用管理员运行 FantasyHub，或先装 ThrottleStop / UXTU 等带该驱动的工具。",
-                "Couldn't open WinRing0. Run FantasyHub as admin, or install ThrottleStop / UXTU first.",
+                "打不开 WinRing0。请在工具箱安装 TDP 驱动，并以管理员运行 FantasyHub。",
+                "Couldn't open WinRing0. Install the TDP driver from the toolbox, and run FantasyHub as admin.",
             ));
         };
 
@@ -289,6 +301,16 @@ mod windows {
             }
         }
         None
+    }
+
+    pub fn driver_ready() -> bool {
+        let Some(handle) = open_driver() else {
+            return false;
+        };
+        unsafe {
+            CloseHandle(handle);
+        }
+        true
     }
 
     fn cpu_name() -> String {

@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use serde::Serialize;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
@@ -12,6 +13,15 @@ const FRONTEND_WIDTH: f64 = 440.0;
 
 static FRONTEND_OPEN: AtomicBool = AtomicBool::new(false);
 static PRELOAD_STARTED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy, Serialize)]
+struct FrontendPad {
+    dx: i8,
+    dy: i8,
+    a: bool,
+    b: bool,
+    start: bool,
+}
 
 /// Create the floating frontend window once at startup (hidden).
 /// Windows WebView2 deadlocks if we `build()` inside a sync IPC command.
@@ -158,6 +168,8 @@ fn show(app: &AppHandle) -> Result<(), String> {
     let _ = window.show();
     let _ = window.set_focus();
     let _ = window.set_always_on_top(true);
+    // Direct emit so the preload webview can't miss the broadcast timing.
+    let _ = window.emit("frontend-state", true);
     crate::logutil::write_line("frontend shown");
     Ok(())
 }
@@ -165,6 +177,7 @@ fn show(app: &AppHandle) -> Result<(), String> {
 fn hide(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(FRONTEND_LABEL) {
         let _ = window.hide();
+        let _ = window.emit("frontend-state", false);
         crate::logutil::write_line("frontend hidden");
     }
     focus_main_if_idle(app);
@@ -265,7 +278,9 @@ fn start_chord_watch(app: AppHandle) {
     crate::logutil::write_line("chord watch started");
     std::thread::spawn(move || {
         use windows_sys::Win32::UI::Input::XboxController::{
-            XInputGetState, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_START, XINPUT_STATE,
+            XInputGetState, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
+            XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT,
+            XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_START, XINPUT_STATE,
         };
 
         let mut held = false;
@@ -275,6 +290,13 @@ fn start_chord_watch(app: AppHandle) {
                 break;
             }
             let mut pressed = false;
+            let mut pad = FrontendPad {
+                dx: 0,
+                dy: 0,
+                a: false,
+                b: false,
+                start: false,
+            };
             for index in 0..4u32 {
                 let mut state = unsafe { std::mem::zeroed::<XINPUT_STATE>() };
                 let ok = unsafe { XInputGetState(index, &mut state) };
@@ -286,6 +308,34 @@ fn start_chord_watch(app: AppHandle) {
                 let start = buttons & XINPUT_GAMEPAD_START != 0;
                 if back && start {
                     pressed = true;
+                }
+                // Second WebView often gets an empty Gamepad API; bridge XInput instead.
+                if FRONTEND_OPEN.load(Ordering::SeqCst) {
+                    let lx = state.Gamepad.sThumbLX as i32;
+                    let ly = state.Gamepad.sThumbLY as i32;
+                    let dead = 16000;
+                    let mut dx = 0i8;
+                    let mut dy = 0i8;
+                    if buttons & XINPUT_GAMEPAD_DPAD_LEFT != 0 || lx < -dead {
+                        dx = -1;
+                    } else if buttons & XINPUT_GAMEPAD_DPAD_RIGHT != 0 || lx > dead {
+                        dx = 1;
+                    }
+                    if buttons & XINPUT_GAMEPAD_DPAD_UP != 0 || ly > dead {
+                        dy = -1;
+                    } else if buttons & XINPUT_GAMEPAD_DPAD_DOWN != 0 || ly < -dead {
+                        dy = 1;
+                    }
+                    pad = FrontendPad {
+                        dx,
+                        dy,
+                        a: buttons & XINPUT_GAMEPAD_A != 0,
+                        b: buttons & XINPUT_GAMEPAD_B != 0,
+                        start,
+                    };
+                    break;
+                }
+                if pressed {
                     break;
                 }
             }
@@ -298,6 +348,12 @@ fn start_chord_watch(app: AppHandle) {
                 }
             }
             held = pressed;
+
+            if FRONTEND_OPEN.load(Ordering::SeqCst) {
+                if let Some(window) = app.get_webview_window(FRONTEND_LABEL) {
+                    let _ = window.emit("frontend-pad", pad);
+                }
+            }
             std::thread::sleep(Duration::from_millis(40));
         }
     });

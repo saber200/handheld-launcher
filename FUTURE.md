@@ -16,13 +16,13 @@
 
 - 大概做什么：按start键需要在右侧弹出抽屉，这里当作前端来使用
 - 为什么需要：掌机玩家有可能会频繁的操作tdp、风扇等功能。并且我希望我们的软件可以为掌机用户提供一些工具上的安装和补全，所以可能里面也会集成工具箱的相关功能
-- 备注：Start / End / Ctrl+H / 游戏中 Back+Start 打开独立置顶前端；TDP 已接；风扇延后；工具箱开始接入
+- 备注：Start / End / Ctrl+H / 游戏中 Back+Start 打开独立置顶前端；TDP 先检测 WinRing0，未装则引导安装，装好后才显示调节；风扇延后；工具箱：运行库 + OptiScaler（latest）
 
 ## 功能 3（已落地壳）
 
 - 大概做什么：我希望前端能够脱离程序主页面，在屏幕右侧弹出
 - 为什么需要：这样可以在游戏途中快速的调节掌机，因为掌机游玩过程中，频繁的切换窗口对用户的体验非常差哈
-- 备注：独立置顶右侧窗口。软件内仍可用 Start；游戏中（非软件焦点）用 Back+Start 或全局 Ctrl+H。打开后主应用无法操作，关掉前端后才能继续。
+- 备注：独立置顶右侧窗口。软件内仍可用 Start；游戏中（非软件焦点）用 Back+Start 或全局 Ctrl+H。打开后主应用无法操作，关掉前端后才能继续。第二 WebView 用手柄时走 Rust XInput 桥，不依赖该窗的 Gamepad API。
 
 ---
 
@@ -46,7 +46,7 @@
 
 - 大概做什么：从游戏库选中某个游戏，一键把 OptiScaler 装进该游戏目录（参考 GitHub 开源 OptiScaler / OptiScaler-Client，以及 juij.fun 一类一键站的体验）
 - 为什么需要：掌机核显常用 FSR/XeSS 等补帧与超分，手动解压改名对手柄用户不友好
-- 备注：安装源以 **OptiScaler 官方 GitHub Release** 为准。第一版：从游戏库选游戏 → 下载 zip → 解压到主程序旁并改名为 `dxgi.dll`；卸载 / 换 hook / Fakenvapi 等后续补
+- 备注：安装源以 **OptiScaler 官方 GitHub Release** 为准。第一版：从游戏库选游戏 → 下载 **latest** zip → 解压到主程序旁并改名为 `dxgi.dll`。**版本选择 / 多 hook（dxgi、winmm 等）暂缓**，之后对一下可装哪些版本再做；卸载 / Fakenvapi 等后续补
 
 ---
 
@@ -55,6 +55,14 @@
 - 大概做什么：工具箱继续扩展（更多补丁、修复工具、常用小工具安装等）
 - 为什么需要：前端工具箱要成为掌机侧「常用工具入口」，运行库和 OptiScaler 只是第一批
 - 备注：具体条目随试用反馈往这里追加
+
+---
+
+## 功能 9（进行中）— FSE 稀疏包身份产物
+
+- 大概做什么：发布时由 GitHub Actions（Windows）跑 `src-tauri/fse/pack.ps1`，生成非空 `identity.msix` + `identity.cer` 打进安装包；登记脚本已能写失败原因到日志
+- 为什么需要：身份文件不进 git（空占位会让掌机登记失败），需在 CI 现打
+- 备注：**你不需要本机 Windows**。完整 OmniConsole 式 WinUI MSIX 暂不做；先把稀疏包 + CI 跑通。开发者模式仍可能需要
 
 ---
 

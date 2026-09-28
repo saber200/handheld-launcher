@@ -68,6 +68,49 @@ pub fn toolbox_install_optiscaler(app: tauri::AppHandle, launch_path: String) ->
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TdpDriverStatus {
+    pub ready: bool,
+    pub elevated: bool,
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn toolbox_tdp_driver_status() -> TdpDriverStatus {
+    #[cfg(windows)]
+    {
+        return windows::tdp_driver_status();
+    }
+    #[cfg(not(windows))]
+    {
+        TdpDriverStatus {
+            ready: false,
+            elevated: false,
+            message: pick(
+                "TDP 驱动只能在 Windows 上安装。",
+                "The TDP driver can only be installed on Windows.",
+            ),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn toolbox_install_tdp_driver(app: tauri::AppHandle) -> Result<TdpDriverStatus, String> {
+    #[cfg(windows)]
+    {
+        return windows::install_tdp_driver(&app);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err(pick(
+            "TDP 驱动只能在 Windows 上安装。",
+            "The TDP driver can only be installed on Windows.",
+        ))
+    }
+}
+
 #[cfg(windows)]
 mod windows {
     use super::*;
@@ -182,6 +225,165 @@ mod windows {
             "已安装 OptiScaler（dxgi.dll）。进游戏后按 Home 打开菜单。",
             "OptiScaler installed as dxgi.dll. Press Home in-game for the menu.",
         ))
+    }
+
+    const WINRING0_SERVICE: &str = "WinRing0_1_2_0";
+    const WINRING0_URLS: [&str; 2] = [
+        "https://raw.githubusercontent.com/seerge/g-helper/main/app/WinRing0x64.sys",
+        "https://raw.githubusercontent.com/openhardwaremonitor/openhardwaremonitor/master/External/WinRing0/WinRing0x64.sys",
+    ];
+
+    pub fn tdp_driver_status() -> TdpDriverStatus {
+        let elevated = is_elevated();
+        let ready = crate::tdp::winring0_ready();
+        let message = if ready {
+            pick(
+                "TDP 驱动可用，可以调节功耗。",
+                "TDP driver is ready; power limits can be changed.",
+            )
+        } else if !elevated {
+            pick(
+                "还没检测到 TDP 驱动，且当前不是管理员。安装驱动需要管理员权限（启动时应有 UAC）。",
+                "TDP driver not detected, and FantasyHub isn't elevated. Installing needs admin (UAC prompt on launch).",
+            )
+        } else {
+            pick(
+                "还没检测到 TDP 驱动。可点下方安装（下载 WinRing0 并注册服务）。若 Defender 拦截，需允许后重试。",
+                "TDP driver not detected. Install below (downloads WinRing0 and registers the service). If Defender blocks it, allow and retry.",
+            )
+        };
+        TdpDriverStatus {
+            ready,
+            elevated,
+            message,
+        }
+    }
+
+    pub fn install_tdp_driver(app: &tauri::AppHandle) -> Result<TdpDriverStatus, String> {
+        crate::logutil::write_line("toolbox: install tdp driver begin");
+        if !is_elevated() {
+            return Err(pick(
+                "需要管理员权限才能安装 TDP 驱动。请确认启动 FantasyHub 时出现 UAC，并选择“是”。",
+                "Admin rights are required to install the TDP driver. Confirm UAC appears when launching FantasyHub and choose Yes.",
+            ));
+        }
+
+        if crate::tdp::winring0_ready() {
+            crate::logutil::write_line("toolbox: winring0 already ready; reinstalling");
+        }
+
+        let driver_dir = driver_dir()?;
+        let sys_path = driver_dir.join("WinRing0x64.sys");
+        download_winring0(&sys_path)?;
+        crate::logutil::write_line(&format!(
+            "toolbox: winring0 saved {}",
+            sys_path.display()
+        ));
+
+        // Recreate service so a stale/broken registration can be fixed.
+        let _ = run_sc(&["stop", WINRING0_SERVICE]);
+        let _ = run_sc(&["delete", WINRING0_SERVICE]);
+        // sc.exe requires a space after '=' inside each option token.
+        let bin = format!("binPath= {}", sys_path.display());
+        run_sc(&[
+            "create",
+            WINRING0_SERVICE,
+            "type= kernel",
+            "start= demand",
+            &bin,
+        ])?;
+        run_sc(&["start", WINRING0_SERVICE]).map_err(|err| {
+            pick(
+                &format!(
+                    "驱动服务启动失败：{err}。若 Windows 安全中心拦截了 WinRing0，请允许后再试；也可暂时关闭核心隔离后再装。"
+                ),
+                &format!(
+                    "Couldn't start the driver service: {err}. If Defender blocked WinRing0, allow it and retry; Core Isolation may also block it."
+                ),
+            )
+        })?;
+
+        // Give the device a moment to appear.
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if !crate::tdp::winring0_ready() {
+            crate::logutil::write_line("toolbox: winring0 service started but device still closed");
+            return Err(pick(
+                "服务已启动，但仍打不开 WinRing0 设备。请查看安全中心是否隔离了驱动，或重启后再试。",
+                "Service started, but WinRing0 still won't open. Check Defender quarantine, or reboot and retry.",
+            ));
+        }
+
+        crate::logutil::write_line("toolbox: install tdp driver ok");
+        let mut status = tdp_driver_status();
+        status.message = pick(
+            "TDP 驱动已安装。现在可以在上方调节功耗。",
+            "TDP driver installed. You can change power limits above.",
+        );
+        let _ = app;
+        Ok(status)
+    }
+
+    fn is_elevated() -> bool {
+        unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 }
+    }
+
+    fn driver_dir() -> Result<PathBuf, String> {
+        let base = std::env::var_os("PROGRAMDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        let dir = base.join("FantasyHub").join("drivers");
+        fs::create_dir_all(&dir).map_err(|err| {
+            pick(
+                &format!("无法创建驱动目录：{err}"),
+                &format!("Couldn't create driver folder: {err}"),
+            )
+        })?;
+        Ok(dir)
+    }
+
+    fn download_winring0(dest: &Path) -> Result<(), String> {
+        let mut last_err = String::new();
+        for url in WINRING0_URLS {
+            match download(url, dest) {
+                Ok(()) => {
+                    if dest.is_file() && dest.metadata().map(|m| m.len()).unwrap_or(0) > 10_000 {
+                        return Ok(());
+                    }
+                    last_err = pick("下载的驱动文件过小，可能无效。", "Downloaded driver file looks too small.");
+                }
+                Err(err) => last_err = err,
+            }
+        }
+        Err(pick(
+            &format!("无法下载 WinRing0 驱动：{last_err}"),
+            &format!("Couldn't download WinRing0: {last_err}"),
+        ))
+    }
+
+    fn run_sc(args: &[&str]) -> Result<(), String> {
+        let output = Command::new("sc")
+            .args(args)
+            .output()
+            .map_err(|err| {
+                pick(
+                    &format!("无法运行 sc：{err}"),
+                    &format!("Couldn't run sc: {err}"),
+                )
+            })?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = format!("{}{}", stdout.trim(), stderr.trim());
+        Err(if detail.is_empty() {
+            pick(
+                &format!("sc 退出码：{:?}", output.status.code()),
+                &format!("sc exit code: {:?}", output.status.code()),
+            )
+        } else {
+            detail
+        })
     }
 
     fn vc_runtime_installed(arch: &str) -> bool {

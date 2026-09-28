@@ -28,7 +28,14 @@ jobs:
 
       - name: Pack fullscreen experience identity
         shell: pwsh
-        run: ./src-tauri/fse/pack.ps1
+        run: |
+          ./src-tauri/fse/pack.ps1
+          $msix = Get-Item ./src-tauri/fse/identity.msix
+          $cer = Get-Item ./src-tauri/fse/identity.cer
+          if ($msix.Length -lt 200 -or $cer.Length -lt 200) {
+            throw "FSE identity still empty after pack.ps1 (msix=$($msix.Length) cer=$($cer.Length))"
+          }
+          Write-Host "FSE identity ready: msix=$($msix.Length) cer=$($cer.Length)"
 
       - name: Build Tauri (Windows) + Release
         uses: tauri-apps/tauri-action@v0

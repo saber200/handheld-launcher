@@ -125,6 +125,20 @@ pub fn register_fse(app: tauri::AppHandle) -> String {
 }
 
 #[tauri::command]
+pub fn open_fse_settings() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        return windows::open_fse_settings();
+    }
+    #[cfg(not(windows))]
+    Err(pick(
+        "只能在 Windows 上打开全屏体验设置。",
+        "Fullscreen experience settings are only available on Windows.",
+    )
+    .into())
+}
+
+#[tauri::command]
 pub fn autostart_enabled() -> bool {
     #[cfg(windows)]
     {
@@ -263,8 +277,15 @@ mod windows {
             Ok(text) => text,
             Err(text) => text,
         };
+        crate::logutil::write_line(&format!("fse register: {result}"));
         if let Some(dir) = state_dir() {
             let _ = std::fs::write(dir.join("fse-status.txt"), &result);
+            if let Ok(detail) = std::fs::read_to_string(dir.join("fse-last-error.txt")) {
+                let trimmed = detail.trim();
+                if !trimmed.is_empty() {
+                    crate::logutil::write_line(&format!("fse detail: {trimmed}"));
+                }
+            }
         }
         result
     }
@@ -280,6 +301,12 @@ mod windows {
         let dir = state_dir().ok_or_else(|| pick("无法登记：找不到数据目录", "Couldn't register: data folder not found"))?;
         let script = dir.join("register-fse.ps1");
         std::fs::write(&script, REGISTER_PS1).map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
+        crate::logutil::write_line(&format!(
+            "fse register begin msix={} cer={} exe={}",
+            msix.display(),
+            cer.display(),
+            exe.display()
+        ));
         let output = hidden(&mut Command::new("powershell.exe"))
             .args([
                 "-NoProfile",
@@ -300,10 +327,15 @@ mod windows {
             .output()
             .map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
         let token = ps_token(&output.stdout);
-        if output.status.success() {
+        let err_text = ps_token(&output.stderr);
+        if !err_text.is_empty() {
+            crate::logutil::write_line(&format!("fse stderr: {err_text}"));
+        }
+        if output.status.success() && token == "OK" {
             return Ok(fse_user_text("OK"));
         }
-        Err(fse_user_text(&token))
+        let mapped = if token.is_empty() { "FAIL" } else { token.as_str() };
+        Err(fse_user_text(mapped))
     }
 
     fn ps_token(bytes: &[u8]) -> String {
@@ -326,18 +358,33 @@ mod windows {
     fn fse_user_text(token: &str) -> String {
         match token {
             "OK" => pick(
-                "已登记。打开 Windows 设置，进入 游戏 → 全屏体验，把主应用选成「幻想枢纽」。",
-                "Registered. Open Windows Settings, go to Gaming → Full screen experience, and choose FantasyHub as the home app.",
+                "已登记。请打开 Windows 设置 → 游戏 → Xbox 模式(全屏体验)，把主页应用选成「幻想枢纽」。",
+                "Registered. Open Windows Settings → Gaming → Xbox mode (FSE) and choose FantasyHub as the home app.",
             ),
             "NEED_DEVMODE" => pick(
-                "需要先打开开发人员模式。到 设置 → 系统 → 开发者选项，打开之后再点一次登记。",
-                "Turn on Developer Mode first. Open Settings → System → For developers, then register again.",
+                "需要先打开开发人员模式。到 设置 → 系统 → 开发者选项，打开之后再点「登记全屏体验」。",
+                "Turn on Developer Mode first (Settings → System → For developers), then register again.",
             ),
             "NO_EXE" => pick(
                 "安装目录里没有启动器，无法登记全屏体验。",
                 "The launcher isn't in the install folder, so fullscreen experience can't be registered.",
             ),
-            _ => pick("无法登记到全屏体验。", "Couldn't register for fullscreen experience."),
+            "EMPTY_PAYLOAD" => pick(
+                "安装包里的全屏体验身份文件无效或为空，请安装完整版本后再试。",
+                "This build's fullscreen identity files are missing or empty. Install a complete build.",
+            ),
+            "CERT_FAIL" => pick(
+                "证书信任失败。请确认以管理员运行启动器后，再点一次登记。",
+                "Couldn't trust the package certificate. Run FantasyHub as admin and register again.",
+            ),
+            "ADD_FAIL" => pick(
+                "系统拒绝了全屏体验包。请打开开发人员模式后重试；详情见日志。",
+                "Windows rejected the fullscreen package. Enable Developer Mode and check the log.",
+            ),
+            _ => pick(
+                "无法登记到全屏体验。请到设置里点「登记全屏体验」，并把日志发给开发者。",
+                "Couldn't register for fullscreen experience. Tap Register in Settings and share the log.",
+            ),
         }
     }
 
@@ -353,7 +400,7 @@ mod windows {
             || lower.contains("categoryinfo")
             || lower.contains("unexpectedtoken")
             || first.contains('\u{fffd}')
-            || first.chars().count() > 80
+            || first.chars().count() > 120
         {
             return None;
         }
@@ -376,14 +423,29 @@ mod windows {
         for dir in dirs {
             let msix = dir.join("identity.msix");
             let cer = dir.join("identity.cer");
-            if msix.is_file() && cer.is_file() {
+            let msix_ok = std::fs::metadata(&msix).map(|m| m.len() > 200).unwrap_or(false);
+            let cer_ok = std::fs::metadata(&cer).map(|m| m.len() > 200).unwrap_or(false);
+            if msix_ok && cer_ok {
                 return Ok((msix, cer));
             }
         }
         Err(pick(
             "安装包里没有全屏体验身份文件。请安装带这个功能的版本。",
             "This build has no fullscreen experience identity. Install a version that includes it.",
-        ).into())
+        )
+        .into())
+    }
+
+    pub fn open_fse_settings() -> Result<(), String> {
+        let status = hidden(&mut Command::new("cmd.exe"))
+            .args(["/C", "start", "", "ms-settings:gaming-fullscreenexperience"])
+            .status()
+            .map_err(|err| pick(&format!("无法打开设置：{err}"), &format!("Couldn't open settings: {err}")))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(pick("无法打开全屏体验设置页。", "Couldn't open the fullscreen experience settings page.").into())
+        }
     }
 
     fn enable_login() -> Result<(), String> {

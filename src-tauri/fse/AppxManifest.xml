@@ -30,7 +30,7 @@
         Square44x44Logo="Assets\Square44x44Logo.png" />
       <Extensions>
         <uap3:Extension Category="windows.appExtension">
-          <uap3:AppExtension Name="windows.gamingApp" Id="Home" DisplayName="幻想枢纽" Description="幻想枢纽" PublicFolder="Public" />
+          <uap3:AppExtension Name="windows.gamingApp" Id="App" DisplayName="幻想枢纽" Description="幻想枢纽" PublicFolder="Public" />
         </uap3:Extension>
       </Extensions>
     </Application>

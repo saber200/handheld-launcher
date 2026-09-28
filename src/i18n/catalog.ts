@@ -40,6 +40,13 @@ export type Catalog = {
     fullscreenHint: string;
     desktop: string;
     desktopHint: string;
+    fse: string;
+    fseHint: string;
+    fseRegister: string;
+    fseRegisterHint: string;
+    fseOpenSettings: string;
+    fseOpenSettingsHint: string;
+    fsePreview: string;
     quit: string;
     quitHint: string;
     autostartReadFailed: string;
@@ -53,6 +60,7 @@ export type Catalog = {
     desktopPreview: string;
     desktopDone: string;
     desktopFailed: (detail: string) => string;
+    fseOpenFailed: (detail: string) => string;
     powerPreview: string;
     slept: string;
     powerFailed: (detail: string) => string;
@@ -83,6 +91,13 @@ export type Catalog = {
     toolboxReinstall: string;
     toolboxWorking: string;
     toolboxInstalling: string;
+    tdpDriverTitle: string;
+    tdpDriverBody: string;
+    tdpDriverInstall: string;
+    tdpDriverReinstall: string;
+    tdpDriverReady: string;
+    tdpDriverNeedAdmin: string;
+    tdpDriverInstalling: string;
     runtimesTitle: string;
     runtimesBody: string;
     runtimesEmpty: string;
@@ -291,6 +306,13 @@ export const zh: Catalog = {
     fullscreenHint: "启动器将重新铺满屏幕",
     desktop: "打开桌面",
     desktopHint: "打开 Windows 桌面",
+    fse: "全屏体验状态",
+    fseHint: "登记后可在系统设置里选成主页应用",
+    fseRegister: "登记全屏体验",
+    fseRegisterHint: "需要开发人员模式；管理员运行更稳",
+    fseOpenSettings: "打开系统全屏体验设置",
+    fseOpenSettingsHint: "把主页应用选成「幻想枢纽」",
+    fsePreview: "浏览器预览无法登记全屏体验",
     quit: "退出启动器",
     quitHint: "退出并回到桌面",
     autostartReadFailed: "无法读取开机自启状态（需在打包后的桌面端测试）",
@@ -304,6 +326,7 @@ export const zh: Catalog = {
     desktopPreview: "浏览器预览无法打开 Windows 桌面",
     desktopDone: "已打开 Windows 桌面，启动器还在。",
     desktopFailed: (detail) => `无法打开桌面：${detail}`,
+    fseOpenFailed: (detail) => `无法打开设置：${detail}`,
     powerPreview: "浏览器预览无法休眠、重启或关机",
     slept: "已进入休眠。",
     powerFailed: (detail) => `电源操作失败：${detail}`,
@@ -334,11 +357,19 @@ export const zh: Catalog = {
     toolboxReinstall: "重装",
     toolboxWorking: "…",
     toolboxInstalling: "正在下载并安装，请稍候…",
+    tdpDriverTitle: "TDP 驱动 (WinRing0)",
+    tdpDriverBody:
+      "调节 TDP 需要内核驱动。可一键下载并安装；需管理员权限。若安全中心提示风险，属已知情况，允许后即可用。",
+    tdpDriverInstall: "安装 TDP 驱动",
+    tdpDriverReinstall: "重新安装",
+    tdpDriverReady: "驱动已就绪",
+    tdpDriverNeedAdmin: "当前不是管理员，安装会失败；请确认启动时有 UAC。",
+    tdpDriverInstalling: "正在下载并安装 TDP 驱动…",
     runtimesTitle: "游戏运行库",
     runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
     runtimesEmpty: "暂时没有可安装的运行库项。",
     optiscalerTitle: "OptiScaler",
-    optiscalerBody: "针对库里的某个游戏，一键装到游戏目录（官方 GitHub 包，默认 dxgi.dll）。",
+    optiscalerBody: "针对库里的某个游戏，一键装到游戏目录（官方 GitHub 最新包，默认 dxgi.dll；版本选择以后再对）。",
     optiscalerPick: "选择游戏",
     optiscalerInstall: "一键安装 OptiScaler",
     optiscalerInstalling: "正在下载并安装 OptiScaler…",
@@ -543,6 +574,13 @@ export const en: Catalog = {
     fullscreenHint: "The launcher covers the screen again",
     desktop: "Show desktop",
     desktopHint: "Open the Windows desktop",
+    fse: "Fullscreen experience status",
+    fseHint: "After registering, pick FantasyHub as the home app in Windows Settings",
+    fseRegister: "Register fullscreen experience",
+    fseRegisterHint: "Needs Developer Mode; admin helps",
+    fseOpenSettings: "Open Windows FSE settings",
+    fseOpenSettingsHint: "Choose FantasyHub as the home app",
+    fsePreview: "Browser preview can't register fullscreen experience",
     quit: "Quit",
     quitHint: "Leave and return to the desktop",
     autostartReadFailed: "Couldn't read the startup setting. Try the installed app.",
@@ -556,6 +594,7 @@ export const en: Catalog = {
     desktopPreview: "Browser preview can't open the Windows desktop",
     desktopDone: "The desktop is open. The launcher is still running.",
     desktopFailed: (detail) => `Couldn't open the desktop: ${detail}`,
+    fseOpenFailed: (detail) => `Couldn't open settings: ${detail}`,
     powerPreview: "Browser preview can't sleep, restart, or shut down",
     slept: "Going to sleep.",
     powerFailed: (detail) => `Power action failed: ${detail}`,
@@ -586,11 +625,19 @@ export const en: Catalog = {
     toolboxReinstall: "Reinstall",
     toolboxWorking: "…",
     toolboxInstalling: "Downloading and installing…",
+    tdpDriverTitle: "TDP driver (WinRing0)",
+    tdpDriverBody:
+      "TDP control needs a kernel driver. One-click download and install; admin required. Defender may warn — that's expected; allow it to continue.",
+    tdpDriverInstall: "Install TDP driver",
+    tdpDriverReinstall: "Reinstall",
+    tdpDriverReady: "Driver ready",
+    tdpDriverNeedAdmin: "Not elevated — install will fail. Confirm UAC on launch.",
+    tdpDriverInstalling: "Downloading and installing TDP driver…",
     runtimesTitle: "Game runtimes",
     runtimesBody: "Official Microsoft redistributables first; more packages later.",
     runtimesEmpty: "No runtime packages available yet.",
     optiscalerTitle: "OptiScaler",
-    optiscalerBody: "One-click install into a library game folder from the official GitHub release (dxgi.dll).",
+    optiscalerBody: "One-click install into a library game folder from the latest official GitHub release (dxgi.dll; version picker later).",
     optiscalerPick: "Choose game",
     optiscalerInstall: "Install OptiScaler",
     optiscalerInstalling: "Downloading and installing OptiScaler…",

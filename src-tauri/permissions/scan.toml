@@ -54,6 +54,11 @@ description = "Register the launcher as a fullscreen experience home app."
 commands.allow = ["register_fse"]
 
 [[permission]]
+identifier = "allow-open-fse-settings"
+description = "Open the Windows fullscreen experience settings page."
+commands.allow = ["open_fse_settings"]
+
+[[permission]]
 identifier = "allow-open-desktop"
 description = "Show the Windows desktop without exiting the launcher."
 commands.allow = ["open_desktop"]
@@ -122,3 +127,13 @@ commands.allow = ["toolbox_optiscaler_installed"]
 identifier = "allow-toolbox-install-optiscaler"
 description = "Download and install OptiScaler into a game folder."
 commands.allow = ["toolbox_install_optiscaler"]
+
+[[permission]]
+identifier = "allow-toolbox-tdp-driver-status"
+description = "Check whether the WinRing0 TDP driver is available."
+commands.allow = ["toolbox_tdp_driver_status"]
+
+[[permission]]
+identifier = "allow-toolbox-install-tdp-driver"
+description = "Download and install the WinRing0 TDP driver."
+commands.allow = ["toolbox_install_tdp_driver"]

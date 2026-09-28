@@ -14,6 +14,11 @@ pub fn init() {
         *guard = Some(path.clone());
     }
     write_line(&format!("FantasyHub start pid={}", std::process::id()));
+    #[cfg(windows)]
+    {
+        let elevated = unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 };
+        write_line(&format!("elevated={elevated}"));
+    }
 }
 
 pub fn write_line(message: &str) {

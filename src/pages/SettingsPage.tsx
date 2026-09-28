@@ -21,6 +21,7 @@ export function SettingsPage({ active }: Props) {
   const [autostart, setAutostart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [fse, setFse] = useState("");
   const [isTauri, setIsTauri] = useState(false);
   const [powerOpen, setPowerOpen] = useState(false);
   const sleepRef = useRef<HTMLButtonElement>(null);
@@ -32,6 +33,9 @@ export function SettingsPage({ active }: Props) {
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage(text().settings.autostartReadFailed));
+    void invoke<string>("fse_status")
+      .then(setFse)
+      .catch(() => setFse(text().settings.fsePreview));
   }, []);
 
   useEffect(() => {
@@ -102,6 +106,35 @@ export function SettingsPage({ active }: Props) {
       setMessage(text().settings.desktopDone);
     } catch (e) {
       setMessage(text().settings.desktopFailed(String(e)));
+    }
+  };
+
+  const registerFse = async () => {
+    if (!isTauri) {
+      setMessage(text().settings.fsePreview);
+      return;
+    }
+    setBusy(true);
+    try {
+      const status = await invoke<string>("register_fse");
+      setFse(status);
+      setMessage(status);
+    } catch (e) {
+      setMessage(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openFseSettings = async () => {
+    if (!isTauri) {
+      setMessage(text().settings.fsePreview);
+      return;
+    }
+    try {
+      await invoke("open_fse_settings");
+    } catch (e) {
+      setMessage(text().settings.fseOpenFailed(String(e)));
     }
   };
 
@@ -195,6 +228,40 @@ export function SettingsPage({ active }: Props) {
             <small>{m.desktopHint}</small>
           </span>
           <span className="chev">⌂</span>
+        </button>
+
+        <div className="setting-row">
+          <span>
+            <strong>{m.fse}</strong>
+            <small>{fse || m.fseHint}</small>
+          </span>
+        </div>
+
+        <button
+          type="button"
+          className="setting-row"
+          data-focusable
+          disabled={busy}
+          onClick={() => void registerFse()}
+        >
+          <span>
+            <strong>{m.fseRegister}</strong>
+            <small>{m.fseRegisterHint}</small>
+          </span>
+          <span className="chev">⟳</span>
+        </button>
+
+        <button
+          type="button"
+          className="setting-row"
+          data-focusable
+          onClick={() => void openFseSettings()}
+        >
+          <span>
+            <strong>{m.fseOpenSettings}</strong>
+            <small>{m.fseOpenSettingsHint}</small>
+          </span>
+          <span className="chev">↗</span>
         </button>
 
         <button

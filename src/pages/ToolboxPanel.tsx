@@ -186,6 +186,7 @@ export function ToolboxPanel({ active }: Props) {
   };
 
   const selected = games.find((game) => game.id === selectedId) ?? null;
+  const anyBusy = busyId !== "" || optiBusy;
 
   return (
     <div className="toolbox-panel">
@@ -206,7 +207,7 @@ export function ToolboxPanel({ active }: Props) {
                 type="button"
                 className={`library-tool${pkg.installed ? " on" : ""}`}
                 data-focusable
-                disabled={busyId !== "" || optiBusy}
+                disabled={anyBusy}
                 onClick={() => void installRuntime(pkg.id)}
               >
                 {busyId === pkg.id
@@ -233,7 +234,7 @@ export function ToolboxPanel({ active }: Props) {
                 className="toolbox-select"
                 data-focusable
                 value={selected?.id ?? ""}
-                disabled={optiBusy || busyId !== ""}
+                disabled={anyBusy}
                 onChange={(e) => setSelectedId(e.target.value)}
               >
                 {games.map((game) => (
@@ -247,7 +248,7 @@ export function ToolboxPanel({ active }: Props) {
               type="button"
               className="setting-row"
               data-focusable
-              disabled={optiBusy || busyId !== "" || !selected}
+              disabled={anyBusy || !selected}
               onClick={() => void installOptiscaler()}
             >
               <span>
