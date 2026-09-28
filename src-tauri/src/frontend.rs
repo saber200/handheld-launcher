@@ -54,6 +54,18 @@ pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub async fn open_frontend(app: tauri::AppHandle) -> Result<(), String> {
+    if FRONTEND_OPEN.load(Ordering::SeqCst) {
+        crate::logutil::write_line("open_frontend (already open)");
+        let _ = focus_frontend(app.clone());
+        return Ok(());
+    }
+    crate::logutil::write_line("open_frontend");
+    set_open(&app, true).await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn close_frontend(app: tauri::AppHandle) -> Result<(), String> {
     crate::logutil::write_line("close_frontend");
     set_open(&app, false).await?;

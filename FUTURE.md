@@ -58,6 +58,14 @@
 
 ---
 
+## 功能 10（延后）— 工具箱：Game++ 下载安装
+
+- 大概做什么：在工具箱里提供 [Game++](https://www.xiaoheihe.cn/app/game_plus)（或官方渠道）的一键下载与安装
+- 为什么需要：方便用户监控 TDP、CPU/GPU 占用、帧率等硬件使用率，和本机 TDP 调节形成互补（我们管写功耗，Game++ 管看状态）
+- 备注：**暂时先不做**。等前端手柄 / FSE / 自带 TDP 稳定后再接；接入时确认官方安装包来源与静默安装参数，避免捆绑不明下载站
+
+---
+
 ## 功能 9（进行中）— FSE 稀疏包身份产物
 
 - 大概做什么：发布时由 GitHub Actions（Windows）跑 `src-tauri/fse/pack.ps1`，生成非空 `identity.msix` + `identity.cer` 打进安装包；登记脚本已能写失败原因到日志

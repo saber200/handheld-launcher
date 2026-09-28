@@ -3,6 +3,7 @@ fn main() {
     for name in [
         "fse/identity.msix",
         "fse/identity.cer",
+        "fse/CustomCapability.SCCD",
         "drivers/WinRing0x64.sys",
     ] {
         let path = manifest_dir.join(name);

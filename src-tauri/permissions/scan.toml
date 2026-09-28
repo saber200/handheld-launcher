@@ -84,6 +84,11 @@ description = "Open or close the floating frontend panel."
 commands.allow = ["toggle_frontend"]
 
 [[permission]]
+identifier = "allow-open-frontend"
+description = "Open the floating frontend panel without toggling."
+commands.allow = ["open_frontend"]
+
+[[permission]]
 identifier = "allow-close-frontend"
 description = "Close the floating frontend panel."
 commands.allow = ["close_frontend"]

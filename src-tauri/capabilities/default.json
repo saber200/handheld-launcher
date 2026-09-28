@@ -42,6 +42,7 @@
     "allow-quit-launcher",
     "allow-set-locale",
     "allow-toggle-frontend",
+    "allow-open-frontend",
     "allow-close-frontend",
     "allow-focus-frontend",
     "allow-tdp-status",

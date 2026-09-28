@@ -114,11 +114,32 @@ export default function App() {
       setFrontendOpen((open) => !open);
       return;
     }
+    // Optimistic lock so main-window pad can't Start-toggle us closed mid-open.
+    setFrontendOpen(true);
     void invoke<boolean>("toggle_frontend")
       .then(setFrontendOpen)
       .catch((err) => {
         setFrontendOpen(false);
         console.error("toggle_frontend", err);
+      });
+  }, [closeSettings]);
+
+  /** Start opens only. Closing is B/Esc on the frontend window (or chord toggle). */
+  const openFrontend = useCallback(() => {
+    if (fileActions().blocksTabs?.()) return;
+    fileActions().dismiss?.();
+    libraryActions().closeDialog?.();
+    closeSettings();
+    if (!inTauri()) {
+      setFrontendOpen(true);
+      return;
+    }
+    setFrontendOpen(true);
+    void invoke("open_frontend")
+      .then(() => setFrontendOpen(true))
+      .catch((err) => {
+        setFrontendOpen(false);
+        console.error("open_frontend", err);
       });
   }, [closeSettings]);
 
@@ -264,11 +285,15 @@ export default function App() {
       toggleSettings();
     },
     onStart: () => {
-      if (frontendOpen && !inTauri()) {
-        closeFrontend();
+      if (frontendOpen) {
+        if (!inTauri()) closeFrontend();
         return;
       }
-      toggleFrontend();
+      // Back+Start is handled by the Rust chord watcher — don't also open here.
+      const pads = navigator.getGamepads?.() ?? [];
+      const pad = pads.find(Boolean);
+      if (pad?.buttons[8]?.pressed) return;
+      openFrontend();
     },
     onFaceTop: () => {
       if (frontendOpen) return;
@@ -279,8 +304,9 @@ export default function App() {
       fileActions().toggleSelect?.();
     },
     onBack: () => {
+      // Tauri: frontend window owns B-to-close. Browser preview closes here.
       if (frontendOpen) {
-        closeFrontend();
+        if (!inTauri()) closeFrontend();
         return;
       }
       if (closePowerMenu()) return;

@@ -24,13 +24,18 @@ type FrontendPad = {
   start: boolean;
 };
 
+/** Ignore B close until open-press is released (Start opens; B closes). */
+const CLOSE_GRACE_MS = 1200;
+
 export function FrontendShell() {
   useI18n();
   const m = text().frontend;
   // Hidden preload window still runs JS; only handle input while shown.
   const [shellActive, setShellActive] = useState(!inTauri());
-  const padHeld = useRef({ a: false, b: false, start: false, dx: 0, dy: 0 });
+  const padHeld = useRef({ a: false, b: false, dx: 0, dy: 0 });
   const padRepeatAt = useRef(0);
+  const closeGraceUntil = useRef(0);
+  const bMustRelease = useRef(false);
 
   const close = useCallback(() => {
     if (!inTauri()) {
@@ -40,6 +45,12 @@ export function FrontendShell() {
     }
     void invoke("close_frontend").catch(() => {});
   }, []);
+
+  const closeFromPad = useCallback(() => {
+    if (performance.now() < closeGraceUntil.current) return;
+    if (bMustRelease.current) return;
+    close();
+  }, [close]);
 
   useEffect(() => {
     if (!inTauri()) {
@@ -69,6 +80,8 @@ export function FrontendShell() {
 
   useEffect(() => {
     if (!shellActive) return;
+    closeGraceUntil.current = performance.now() + CLOSE_GRACE_MS;
+    bMustRelease.current = true;
     const onKey = (e: KeyboardEvent) => {
       if (gamepadKeyboardOpen()) {
         if (e.key === "Escape" || e.key === "b" || e.key === "B") {
@@ -77,49 +90,60 @@ export function FrontendShell() {
         }
         return;
       }
-      if (e.key === "Escape" || e.key === "b" || e.key === "B" || e.key === "End") {
+      if (e.key === "Escape" || e.key === "b" || e.key === "B") {
         e.preventDefault();
-        close();
+        closeFromPad();
         return;
       }
       if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h") {
         e.preventDefault();
-        close();
+        closeFromPad();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [close, shellActive]);
+  }, [closeFromPad, shellActive]);
 
   // Browser preview: Gamepad API. Tauri frontend webview often gets empty pads.
   useGamepadNav({
     enabled: shellActive && !inTauri(),
-    onBack: close,
-    onStart: close,
+    onBack: closeFromPad,
+    // Start opens the panel from the main shell — never close with Start here.
     onConfirm: () => {
-      const active = document.activeElement as HTMLElement | null;
-      active?.click();
+      confirmFocused();
     },
   });
 
   // Windows: XInput bridge from Rust (second WebView Gamepad API is unreliable).
   useEffect(() => {
     if (!shellActive || !inTauri()) return;
-    padHeld.current = { a: false, b: false, start: false, dx: 0, dy: 0 };
+    padHeld.current = { a: true, b: true, dx: 0, dy: 0 };
     padRepeatAt.current = 0;
+    closeGraceUntil.current = performance.now() + CLOSE_GRACE_MS;
+    bMustRelease.current = true;
     let primed = false;
     const unlisten = listen<FrontendPad>("frontend-pad", (event) => {
       const pad = event.payload;
       const dx = pad.dx || 0;
       const dy = pad.dy || 0;
-      // First sample after open: sync held state so the Start that opened us doesn't close.
+      // Treat currently held buttons as already down so open-press can't close us.
       if (!primed) {
         primed = true;
-        padHeld.current = { a: pad.a, b: pad.b, start: pad.start, dx, dy };
+        padHeld.current = {
+          a: true,
+          b: true,
+          dx,
+          dy,
+        };
+        if (pad.b) bMustRelease.current = true;
         return;
+      }
+      if (bMustRelease.current && !pad.b) {
+        bMustRelease.current = false;
       }
       const held = padHeld.current;
       const now = performance.now();
+      const inGrace = now < closeGraceUntil.current;
 
       const roseX = dx !== 0 && dx !== held.dx;
       const roseY = dy !== 0 && dy !== held.dy;
@@ -131,20 +155,15 @@ export function FrontendShell() {
         padRepeatAt.current = now + 140;
       }
 
-      if (pad.a && !held.a) {
+      if (pad.a && !held.a && !inGrace) {
         confirmFocused();
-        const active = document.activeElement as HTMLElement | null;
-        active?.click();
       }
-      if (pad.b && !held.b) {
-        if (!closeGamepadKeyboard()) close();
-      }
-      if (pad.start && !held.start) close();
+      // Only B closes. Start is the open shortcut on the main window.
+      if (pad.b && !held.b) closeFromPad();
 
       padHeld.current = {
         a: pad.a,
         b: pad.b,
-        start: pad.start,
         dx,
         dy,
       };
@@ -152,18 +171,22 @@ export function FrontendShell() {
     return () => {
       void unlisten.then((stop) => stop());
     };
-  }, [shellActive, close]);
+  }, [shellActive, closeFromPad]);
 
   useEffect(() => {
     if (!shellActive) return;
-    document.querySelector<HTMLElement>(".frontend-shell [data-focusable]")?.focus();
+    // Prefer in-panel controls — Close is mouse-only (no data-focusable).
+    const preferred = document.querySelector<HTMLElement>(
+      ".frontend-shell-body [data-focusable]",
+    );
+    preferred?.focus();
   }, [shellActive]);
 
   return (
-    <div className="frontend-shell focus-trap">
+    <div className="frontend-shell focus-trap open">
       <header className="frontend-shell-head">
         <h1>{m.title}</h1>
-        <button type="button" className="library-tool" data-focusable onClick={close}>
+        <button type="button" className="library-tool" onClick={close}>
           {m.close}
         </button>
       </header>

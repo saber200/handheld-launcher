@@ -90,6 +90,22 @@ try {
   $msixFull = (Resolve-Path -LiteralPath $Msix).Path
   $exeDirFull = (Resolve-Path -LiteralPath $ExeDir).Path
   Write-Detail "Add-AppxPackage Path=$msixFull ExternalLocation=$exeDirFull"
+  # Sparse packages sometimes resolve CustomCapability.SCCD from ExternalLocation.
+  $sccdSrc = Join-Path (Split-Path -Parent $Msix) "CustomCapability.SCCD"
+  if (-not (Test-Path -LiteralPath $sccdSrc)) {
+    # Fall back: extract from the msix we are about to register.
+    $extract = Join-Path $env:TEMP ("fse-sccd-" + [guid]::NewGuid().ToString("n"))
+    try {
+      New-Item -ItemType Directory -Path $extract | Out-Null
+      Copy-Item -LiteralPath $msixFull -Destination (Join-Path $extract "pkg.zip")
+      Expand-Archive -LiteralPath (Join-Path $extract "pkg.zip") -DestinationPath (Join-Path $extract "out") -Force
+      $found = Get-ChildItem -Path (Join-Path $extract "out") -Recurse -Filter "CustomCapability.SCCD" | Select-Object -First 1
+      if ($found) { $sccdSrc = $found.FullName }
+    } catch {}
+  }
+  if (Test-Path -LiteralPath $sccdSrc) {
+    Copy-Item -LiteralPath $sccdSrc -Destination (Join-Path $exeDirFull "CustomCapability.SCCD") -Force
+  }
   Add-AppxPackage -Path $msixFull -ExternalLocation $exeDirFull
 } catch {
   $text = $_.Exception.Message

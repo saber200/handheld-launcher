@@ -101,6 +101,7 @@ pub fn run() {
             scan::cache_covers,
             scan::steam_library_cover,
             frontend::toggle_frontend,
+            frontend::open_frontend,
             frontend::close_frontend,
             frontend::focus_frontend,
             tdp::tdp_status,

@@ -55,6 +55,21 @@ if (Test-Path $cer) { Remove-Item $cer -Force }
 & $make.FullName pack /d $layout /p $msix /o /nv
 if ($LASTEXITCODE -ne 0) { throw "makeappx 失败 exit=$LASTEXITCODE" }
 
+# Confirm SCCD landed inside the MSIX (zip). Missing file → 0x80070002 on capability register.
+$probe = Join-Path $env:TEMP ("fse-msix-probe-" + [guid]::NewGuid().ToString("n"))
+New-Item -ItemType Directory -Path $probe | Out-Null
+try {
+  Copy-Item -LiteralPath $msix -Destination (Join-Path $probe "pkg.zip")
+  Expand-Archive -LiteralPath (Join-Path $probe "pkg.zip") -DestinationPath (Join-Path $probe "out") -Force
+  $sccdPacked = Get-ChildItem -Path (Join-Path $probe "out") -Recurse -Filter "CustomCapability.SCCD" | Select-Object -First 1
+  if (-not $sccdPacked -or $sccdPacked.Length -lt 50) {
+    throw "CustomCapability.SCCD missing from packed identity.msix (windows.capability will fail with 0x80070002)"
+  }
+  Write-Output "sccd-in-msix=$($sccdPacked.FullName) bytes=$($sccdPacked.Length)"
+} finally {
+  Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=FantasyHub" -KeyUsage DigitalSignature -FriendlyName "FantasyHub" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
 if ($cert.Subject -ne "CN=FantasyHub") {
   throw "证书主题是 $($cert.Subject)，必须是 CN=FantasyHub"

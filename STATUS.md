@@ -1,6 +1,6 @@
-# 进度对照（v0.1.23 开发中）
+# 进度对照（v0.1.28）
 
-对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准；下列含未发版改动。
+对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
 ## 已完成（壳与主流程）
 
@@ -29,10 +29,10 @@
 ### 前端浮层（Start）
 
 - 独立置顶右侧窗；启动时**预创建隐藏**（避免 Windows WebView2 在同步 IPC 里 `build()` 卡死）
-- 打开方式：软件内 Start；游戏中 Back+Start 或 Ctrl+H；关闭：Start / B / Esc / End
+- 打开方式：软件内 Start（只开不关）；游戏中 Back+Start 或 Ctrl+H；关闭：B / Esc（浮层窗）
 - 打开时主窗锁定；关掉后才能继续操作主界面
-- **手柄**：第二 WebView 的 Gamepad API 不可靠 → 前端显示时由 Rust **XInput 桥**推 `frontend-pad`（方向/A/B/Start）
-- 同一次 Start 不会再「开完立刻关」（隐藏窗不再抢输入；启用时对已按下按键做 held 播种）
+- **手柄**：第二 WebView 用 Rust **XInput 桥**；浮层须 `focus-trap open` 才能移焦；Close 按钮不进手柄焦点
+- 打开竞态：主窗不再用 Start toggle 关掉刚打开的浮层；B 须释放后再关
 
 ### TDP（Intel / OXP3 先做）
 
@@ -55,6 +55,7 @@
 | 启动时尝试自动登记 | **已做** |
 | 仓库内 `identity.msix` / `identity.cer` | **gitignore，不提交**；由 CI 生成 |
 | **GitHub Actions** 打安装包前跑 `fse/pack.ps1` | **已接入**（`build-windows.yml`）；你不需要本机 Windows |
+| SCCD 命名空间 `2018/sccd`（对齐可用 FSE 示例） | **0.1.28**；pack 校验 msix 内含 SCCD；登记时拷到 exe 旁 |
 | 对齐 OmniConsole **完整 WinUI MSIX** 形态 | **未做**（当前仍是稀疏身份包路线） |
 
 结论：**你没有 Windows 也没关系。** 推送 `v*` 标签或手动 Run `Build Windows`，Actions 会在 `windows-latest` 上生成身份包再打 NSIS。若该步失败，看 Actions 日志里 `Pack fullscreen experience identity`。完整 MSIX 仅作备选。
@@ -63,23 +64,21 @@
 
 | 页面 | 状态 |
 | --- | --- |
-| 设置 | 可用（含 FSE 入口；身份包空则登记失败） |
+| 设置 | 可用（含 FSE 入口） |
 | 游戏库 / 软件库 | 可用 |
 | 文件管理 | 可用 |
-| 前端浮层 | 可用（待掌机验证 XInput 桥与 TDP 驱动安装） |
+| 前端浮层 | **0.1.28** 修手柄开即关与焦点；待掌机验证 |
 
 ## 待完成 / 已知缺口
 
-1. **FSE**：用 CI 打一版含真实身份包的安装包，掌机上开开发人员模式后登记验证
-2. **TDP**：掌机验证驱动安装 + 调节；无 UAC / `elevated=false` 时需查清单是否进包
+1. **FSE**：掌机验证 `2018/sccd` 身份包能否登记
+2. **前端手柄**：0.1.28 修开即关；掌机验证 D-pad / A / B
 3. **OptiScaler**：版本 / hook 选型以后对表再做
 4. **扫描**：GOG、Game Pass、微软商店应用等
-5. **风扇**：明确延后（见 `FUTURE.md`）
+5. **风扇 / Game++**：明确延后（见 `FUTURE.md`）
 6. 无代码签名（SmartScreen）；无自动化测试
 
-## 近期改动备忘（未发版汇总）
+## 近期改动备忘
 
-- 前端预创建隐藏窗 + 异步显隐；封面 CDN 回退；开屏缩短
-- Start 双窗抢输入修复；前端 XInput 桥
-- TDP WinRing0 检测/安装挪到性能区；工具箱只留运行库与 OptiScaler
-- FSE 登记脚本与设置 UI 加固（仍缺真实身份包文件）
+- 0.1.28：前端手柄竞态 + `focus-trap open`；FSE SCCD → `2018/sccd`；Game++ 记入 FUTURE 延后
+- 前端预创建隐藏窗；TDP WinRing0 安装；FSE CI 打身份包
