@@ -42,14 +42,29 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/drivers | Out-Null
           $out = "src-tauri/drivers/WinRing0x64.sys"
+          # G-Helper removed the raw .sys from main; use LHM 0.9.3 (still ships WinRing0).
           $urls = @(
-            "https://cdn.jsdelivr.net/gh/seerge/g-helper@main/app/WinRing0x64.sys",
-            "https://raw.githubusercontent.com/seerge/g-helper/main/app/WinRing0x64.sys"
+            "https://cdn.jsdelivr.net/gh/LibreHardwareMonitor/LibreHardwareMonitor@0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
+            "https://raw.githubusercontent.com/LibreHardwareMonitor/LibreHardwareMonitor/0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
+            "https://github.com/seerge/g-helper/releases/download/v0.150/PluginAdvancedSettings.zip"
           )
           foreach ($u in $urls) {
             Write-Host "try $u"
-            & curl.exe -fsSL --connect-timeout 20 --max-time 120 -A FantasyHub -o $out $u
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $out) -and (Get-Item $out).Length -gt 10000) {
+            if ($u.ToLower().EndsWith(".zip")) {
+              $zip = "src-tauri/drivers/winring0-src.zip"
+              $extract = "src-tauri/drivers/winring0-extract"
+              & curl.exe -fsSL --connect-timeout 20 --max-time 180 -A FantasyHub -o $zip $u
+              if ($LASTEXITCODE -ne 0) { continue }
+              if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+              Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+              $sys = Get-ChildItem -Path $extract -Recurse -Filter "WinRing0x64.sys" | Select-Object -First 1
+              if ($sys -and $sys.Length -gt 10000) {
+                Copy-Item $sys.FullName $out -Force
+              }
+            } else {
+              & curl.exe -fsSL --connect-timeout 20 --max-time 120 -A FantasyHub -o $out $u
+            }
+            if ((Test-Path $out) -and (Get-Item $out).Length -gt 10000) {
               Write-Host "WinRing0 ready $((Get-Item $out).Length) bytes"
               exit 0
             }

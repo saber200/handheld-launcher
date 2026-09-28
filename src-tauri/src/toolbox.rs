@@ -228,13 +228,14 @@ mod windows {
     }
 
     const WINRING0_SERVICE: &str = "WinRing0_1_2_0";
-    // Prefer CDN / mirrors first — raw.githubusercontent.com often fails on CN networks
-    // with ureq ("network error encountered in the status line").
-    const WINRING0_URLS: [&str; 4] = [
-        "https://cdn.jsdelivr.net/gh/seerge/g-helper@main/app/WinRing0x64.sys",
-        "https://ghproxy.net/https://raw.githubusercontent.com/seerge/g-helper/main/app/WinRing0x64.sys",
-        "https://raw.githubusercontent.com/seerge/g-helper/main/app/WinRing0x64.sys",
-        "https://cdn.jsdelivr.net/gh/openhardwaremonitor/openhardwaremonitor@master/External/WinRing0/WinRing0x64.sys",
+    // Prefer CDN mirrors. G-Helper removed the raw .sys from main; LHM 0.9.3 still hosts it.
+    const WINRING0_URLS: [&str; 3] = [
+        "https://cdn.jsdelivr.net/gh/LibreHardwareMonitor/LibreHardwareMonitor@0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
+        "https://raw.githubusercontent.com/LibreHardwareMonitor/LibreHardwareMonitor/0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
+        "https://ghproxy.net/https://raw.githubusercontent.com/LibreHardwareMonitor/LibreHardwareMonitor/0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
+    ];
+    const WINRING0_ZIP_URLS: [&str; 1] = [
+        "https://github.com/seerge/g-helper/releases/download/v0.150/PluginAdvancedSettings.zip",
     ];
 
     pub fn tdp_driver_status() -> TdpDriverStatus {
@@ -396,6 +397,16 @@ mod windows {
                 }
             }
         }
+        for url in WINRING0_ZIP_URLS {
+            crate::logutil::write_line(&format!("toolbox: fetch winring0 zip {url}"));
+            match download_winring0_from_zip(url, dest) {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    crate::logutil::write_line(&format!("toolbox: winring0 zip failed: {err}"));
+                    last_err = err;
+                }
+            }
+        }
         Err(pick(
             &format!(
                 "无法下载 WinRing0 驱动（网络异常）：{last_err}。可换网络/开代理后重试，或稍后再试。"
@@ -404,6 +415,89 @@ mod windows {
                 "Couldn't download WinRing0 (network): {last_err}. Try another network/proxy, then retry."
             ),
         ))
+    }
+
+    fn download_winring0_from_zip(url: &str, dest: &Path) -> Result<(), String> {
+        let parent = dest.parent().ok_or_else(|| {
+            pick("驱动目录无效", "Driver folder is invalid.")
+        })?;
+        let zip_path = parent.join("winring0-src.zip");
+        let extract_dir = parent.join("winring0-extract");
+        let _ = fs::remove_dir_all(&extract_dir);
+        fs::create_dir_all(&extract_dir).map_err(|err| {
+            pick(
+                &format!("无法准备解压目录：{err}"),
+                &format!("Couldn't prepare extract folder: {err}"),
+            )
+        })?;
+        download_file(url, &zip_path)?;
+        let status = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &format!(
+                    "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+                    zip_path.to_string_lossy().replace('\'', "''"),
+                    extract_dir.to_string_lossy().replace('\'', "''")
+                ),
+            ])
+            .status()
+            .map_err(|err| format!("expand: {err}"))?;
+        if !status.success() {
+            return Err(pick("解压 WinRing0 安装包失败。", "Failed to extract WinRing0 package."));
+        }
+        let found = find_named_file(&extract_dir, "WinRing0x64.sys").ok_or_else(|| {
+            pick(
+                "安装包里找不到 WinRing0x64.sys。",
+                "Couldn't find WinRing0x64.sys in the package.",
+            )
+        })?;
+        fs::copy(&found, dest).map_err(|err| {
+            pick(
+                &format!("无法复制驱动：{err}"),
+                &format!("Couldn't copy driver: {err}"),
+            )
+        })?;
+        let _ = fs::remove_file(&zip_path);
+        let _ = fs::remove_dir_all(&extract_dir);
+        let len = dest.metadata().map(|m| m.len()).unwrap_or(0);
+        if len > 10_000 {
+            crate::logutil::write_line(&format!(
+                "toolbox: winring0 zip ok bytes={len} from {url}"
+            ));
+            Ok(())
+        } else {
+            Err(pick(
+                &format!("解压出的驱动过小（{len} 字节）。"),
+                &format!("Extracted driver looks too small ({len} bytes)."),
+            ))
+        }
+    }
+
+    fn find_named_file(root: &Path, name: &str) -> Option<PathBuf> {
+        let direct = root.join(name);
+        if direct.is_file() {
+            return Some(direct);
+        }
+        let entries = fs::read_dir(root).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(found) = find_named_file(&path, name) {
+                    return Some(found);
+                }
+            } else if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case(name))
+            {
+                return Some(path);
+            }
+        }
+        None
     }
 
     /// Prefer Windows curl.exe / PowerShell — ureq often fails on CN links to GitHub.
