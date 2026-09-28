@@ -57,9 +57,7 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
                 }
             }
             WindowEvent::Focused(true) => {
-                if frontend::frontend_visible(&app_handle) {
-                    let _ = frontend::focus_frontend(app_handle.clone());
-                } else if scan::take_fullscreen_resume() {
+                if scan::take_fullscreen_resume() {
                     startup::fill_screen(&watched);
                 }
             }

@@ -53,7 +53,7 @@ export default function App() {
 
   useEffect(() => {
     if (intro !== "play") return;
-    const timer = window.setTimeout(() => setIntro("done"), 7600);
+    const timer = window.setTimeout(() => setIntro("done"), 2400);
     return () => window.clearTimeout(timer);
   }, [intro]);
 
@@ -70,12 +70,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!frontendOpen || !inTauri()) return;
-    const steal = () => {
-      void invoke("focus_frontend").catch(() => {});
-    };
-    window.addEventListener("focus", steal);
-    return () => window.removeEventListener("focus", steal);
+    if (!frontendOpen) return;
+    document.querySelector<HTMLElement>(".frontend-preview [data-focusable]")?.focus();
   }, [frontendOpen]);
 
   const closeSettings = useCallback(() => {
@@ -93,6 +89,11 @@ export default function App() {
       return false;
     });
   }, [frontendOpen]);
+
+  const closeFrontend = useCallback(() => {
+    setFrontendOpen(false);
+    if (inTauri()) void invoke("close_frontend").catch(() => {});
+  }, []);
 
   const toggleFrontend = useCallback(() => {
     if (fileActions().blocksTabs?.()) return;
@@ -114,14 +115,17 @@ export default function App() {
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
-      if (frontendOpen && inTauri()) {
-        if (e.key === "End" || (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h")) {
+      if (frontendOpen) {
+        if (
+          e.key === "Escape" ||
+          e.key === "End" ||
+          e.key === "b" ||
+          e.key === "B" ||
+          (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h")
+        ) {
           e.preventDefault();
-          toggleFrontend();
-          return;
+          closeFrontend();
         }
-        e.preventDefault();
-        void invoke("focus_frontend").catch(() => {});
         return;
       }
       if (gamepadKeyboardOpen()) {
@@ -141,10 +145,6 @@ export default function App() {
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        if (frontendOpen) {
-          setFrontendOpen(false);
-          return;
-        }
         if (closePowerMenu()) return;
         if (fileActions().back?.()) return;
         if (libraryActions().closeDialog?.()) return;
@@ -159,10 +159,6 @@ export default function App() {
       if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h") {
         e.preventDefault();
         toggleFrontend();
-        return;
-      }
-      if (frontendOpen) {
-        e.preventDefault();
         return;
       }
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -225,10 +221,10 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [intro, shiftTab, toggleSettings, toggleFrontend, frontendOpen]);
+  }, [intro, shiftTab, toggleSettings, toggleFrontend, closeFrontend, frontendOpen]);
 
   useGamepadNav({
-    enabled: intro === "done" && !(frontendOpen && inTauri()),
+    enabled: intro === "done",
     onBumperLeft: () => {
       if (!frontendOpen) shiftTab(-1);
     },
@@ -242,10 +238,6 @@ export default function App() {
       toggleSettings();
     },
     onStart: () => {
-      if (frontendOpen && !inTauri()) {
-        setFrontendOpen(false);
-        return;
-      }
       toggleFrontend();
     },
     onFaceTop: () => {
@@ -257,8 +249,8 @@ export default function App() {
       fileActions().toggleSelect?.();
     },
     onBack: () => {
-      if (frontendOpen && !inTauri()) {
-        setFrontendOpen(false);
+      if (frontendOpen) {
+        closeFrontend();
         return;
       }
       if (closePowerMenu()) return;
@@ -277,10 +269,8 @@ export default function App() {
 
   const m = text();
   const finishIntro = useCallback(() => setIntro("done"), []);
-  const previewFrontend = frontendOpen && !inTauri();
-  // Only lock the main shell when a real frontend window is up.
-  // Keep the settings drawer interactive so Quit still works if state drifts.
-  const mainLocked = intro !== "done" || (frontendOpen && inTauri());
+  // Lock the main shell while frontend panel is open; settings stay usable.
+  const mainLocked = intro !== "done" || frontendOpen;
 
   return (
     <>
@@ -335,7 +325,7 @@ export default function App() {
     <div
       className={`drawer-root focus-trap ${settingsOpen ? "open" : ""}`}
       aria-hidden={!settingsOpen}
-      inert={intro !== "done" || undefined}
+      inert={intro !== "done" || frontendOpen || undefined}
     >
       <button
         type="button"
@@ -349,20 +339,20 @@ export default function App() {
         <SettingsPage active={settingsOpen} />
       </aside>
     </div>
-    {previewFrontend && (
+    {frontendOpen && (
       <div className="drawer-root focus-trap open frontend-preview">
         <button
           type="button"
           className="drawer-scrim"
           aria-label={m.frontend.close}
           tabIndex={-1}
-          onClick={() => setFrontendOpen(false)}
+          onClick={closeFrontend}
         />
         <aside className="drawer is-end" role="dialog" aria-label={m.frontend.title}>
           <h1>{m.frontend.title}</h1>
           <FrontendPage active />
           <div className="library-tools" style={{ marginTop: 16 }}>
-            <button type="button" className="library-tool" data-focusable onClick={() => setFrontendOpen(false)}>
+            <button type="button" className="library-tool" data-focusable onClick={closeFrontend}>
               {m.frontend.close}
             </button>
           </div>

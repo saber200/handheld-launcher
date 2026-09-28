@@ -105,7 +105,7 @@ mod windows {
         let mut watts = stored_watts();
         let mut backend = "none".to_string();
         let mut supported = false;
-        let mut message;
+        let message;
 
         if vendor != "intel" {
             message = pick(
