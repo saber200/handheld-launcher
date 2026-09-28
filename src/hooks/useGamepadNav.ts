@@ -7,6 +7,8 @@ type Options = {
   onBumperRight?: () => void;
   /** Xbox View/Back，PS Share。标准映射里都是 8 号键。 */
   onView?: () => void;
+  /** Xbox Menu/Start，PS Options。标准映射里都是 9 号键。 */
+  onStart?: () => void;
   /** Xbox LT / PS L2。 */
   onTriggerLeft?: () => void;
   /** Xbox RT / PS R2。 */
@@ -303,6 +305,7 @@ export function useGamepadNav({
   onBumperLeft,
   onBumperRight,
   onView,
+  onStart,
   onTriggerLeft,
   onTriggerRight,
   onFaceTop,
@@ -314,6 +317,7 @@ export function useGamepadNav({
   const bumpers = useRef({ l: false, r: false });
   const triggers = useRef({ l: false, r: false });
   const viewHeld = useRef(false);
+  const startHeld = useRef(false);
   const faceTopHeld = useRef(false);
   const faceLeftHeld = useRef(false);
   const confirmHeld = useRef(false);
@@ -365,10 +369,13 @@ export function useGamepadNav({
       bumpers.current = { l: lb, r: rb };
 
       // Standard Gamepad button 8: the left utility key.
-      // Xbox View/Back, PlayStation Share. Options/Menu is button 9 and does not open settings.
+      // Xbox View/Back, PlayStation Share. Menu/Start is button 9.
       const view = !!pad.buttons[8]?.pressed;
       if (view && !viewHeld.current) onView?.();
       viewHeld.current = view;
+      const start = !!pad.buttons[9]?.pressed;
+      if (start && !startHeld.current) onStart?.();
+      startHeld.current = start;
 
       const lt = !!pad.buttons[6]?.pressed;
       const rt = !!pad.buttons[7]?.pressed;
@@ -436,5 +443,5 @@ export function useGamepadNav({
       keyboard?.removeEventListener("geometrychange", onKeyboard);
       viewport?.removeEventListener("resize", onViewport);
     };
-  }, [enabled, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft]);
+  }, [enabled, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onStart, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft]);
 }

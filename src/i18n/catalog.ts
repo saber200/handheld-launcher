@@ -25,6 +25,7 @@ export type Catalog = {
     focusTools: string;
     cardMenu: string;
     confirm: string;
+    frontend: string;
   };
   settings: {
     title: string;
@@ -57,6 +58,24 @@ export type Catalog = {
     powerFailed: (detail: string) => string;
   };
   power: { menu: string; sleep: string; restart: string; shutdown: string };
+  frontend: {
+    title: string;
+    close: string;
+    hint: string;
+    powerTitle: string;
+    powerBody: string;
+    tdp: string;
+    tdpValue: (watts: number) => string;
+    tdpUnknown: string;
+    tdpPreview: string;
+    tdpFailed: (detail: string) => string;
+    fan: string;
+    fanBody: string;
+    toolsTitle: string;
+    toolsBody: string;
+    toolbox: string;
+    soon: string;
+  };
   keyboard: { label: string; backspace: string; done: string };
   library: {
     all: string;
@@ -66,6 +85,9 @@ export type Catalog = {
     deleteGroup: string;
     addGame: string;
     addApp: string;
+    addFromScan: string;
+    restoreHint: string;
+    restoreEmpty: string;
     rescan: string;
     noCards: string;
     ungrouped: string;
@@ -120,6 +142,7 @@ export type Catalog = {
     added: (name: string) => string;
     pathUpdated: (name: string) => string;
     hidden: string;
+    restored: string;
     allHidden: string;
     onlyAdded: (count: number) => string;
     alreadyInLibrary: string;
@@ -232,6 +255,7 @@ export const zh: Catalog = {
     focusTools: "方向键移到新建 / 添加",
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
+    frontend: "软件内 Start；游戏中 Back+Start 或 Ctrl+H",
   },
   settings: {
     title: "设置",
@@ -264,6 +288,24 @@ export const zh: Catalog = {
     powerFailed: (detail) => `电源操作失败：${detail}`,
   },
   power: { menu: "电源", sleep: "休眠", restart: "重启", shutdown: "关机" },
+  frontend: {
+    title: "前端",
+    close: "关闭前端",
+    hint: "掌机常用调节和工具箱会放在这里。TDP 可先试 5–40W 档位。",
+    powerTitle: "性能",
+    powerBody: "调节整机功耗上限。",
+    tdp: "TDP",
+    tdpValue: (watts) => `${watts}W`,
+    tdpUnknown: "未读取",
+    tdpPreview: "浏览器预览无法调节 TDP，请在 Windows 掌机上使用。",
+    tdpFailed: (detail) => `TDP 调节失败：${detail}`,
+    fan: "风扇",
+    fanBody: "风扇曲线稍后接入。",
+    toolsTitle: "工具箱",
+    toolsBody: "以后用来安装和补全掌机常用工具。",
+    toolbox: "工具箱",
+    soon: "即将推出",
+  },
   keyboard: { label: "数字键盘", backspace: "删除", done: "完成" },
   library: {
     all: "全部",
@@ -273,6 +315,9 @@ export const zh: Catalog = {
     deleteGroup: "删除分组",
     addGame: "添加游戏",
     addApp: "添加软件",
+    addFromScan: "从扫描添加",
+    restoreHint: "方向键选择，A 加回库里，B 返回。这里列出已从库里拿掉的扫描结果。",
+    restoreEmpty: "没有已移除的扫描项目。",
     rescan: "重新扫描",
     noCards: "暂无卡片",
     ungrouped: "未分组的卡片会显示在这里。已经分组的只出现在对应分组。",
@@ -327,6 +372,7 @@ export const zh: Catalog = {
     added: (name) => `已添加「${name}」。按 A 会直接启动这个程序。`,
     pathUpdated: (name) => `已改为直接启动「${name}」。`,
     hidden: "已从库里拿掉。磁盘上的文件还在。",
+    restored: "已加回库里。",
     allHidden: "这些项目已从库里拿掉，磁盘上的文件还在。",
     onlyAdded: (count) => `没有新的扫描结果。手动添加的有 ${count} 个。`,
     alreadyInLibrary: "这个程序已经在库里。",
@@ -440,6 +486,7 @@ export const en: Catalog = {
     focusTools: "D-pad to New / Add",
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
+    frontend: "In-app Start; in-game Back+Start or Ctrl+H",
   },
   settings: {
     title: "Settings",
@@ -472,6 +519,24 @@ export const en: Catalog = {
     powerFailed: (detail) => `Power action failed: ${detail}`,
   },
   power: { menu: "Power", sleep: "Sleep", restart: "Restart", shutdown: "Shut down" },
+  frontend: {
+    title: "Frontend",
+    close: "Close frontend",
+    hint: "Quick handheld controls live here. Try the 5–40W TDP presets first.",
+    powerTitle: "Performance",
+    powerBody: "Adjust the package power limit.",
+    tdp: "TDP",
+    tdpValue: (watts) => `${watts}W`,
+    tdpUnknown: "Unknown",
+    tdpPreview: "Browser preview can't change TDP. Use it on a Windows handheld.",
+    tdpFailed: (detail) => `Couldn't change TDP: ${detail}`,
+    fan: "Fan",
+    fanBody: "Fan curves come later.",
+    toolsTitle: "Toolbox",
+    toolsBody: "Install and patch common handheld tools here later.",
+    toolbox: "Toolbox",
+    soon: "Soon",
+  },
   keyboard: { label: "Number pad", backspace: "Delete", done: "Done" },
   library: {
     all: "All",
@@ -481,6 +546,9 @@ export const en: Catalog = {
     deleteGroup: "Delete group",
     addGame: "Add game",
     addApp: "Add app",
+    addFromScan: "Add from scan",
+    restoreHint: "D-pad to choose, A to restore, B to go back. Removed scan results show up here.",
+    restoreEmpty: "No removed scan items.",
     rescan: "Scan again",
     noCards: "Nothing here",
     ungrouped: "Cards without a group show up here. Grouped cards stay in their group.",
@@ -535,6 +603,7 @@ export const en: Catalog = {
     added: (name) => `Added “${name}”. Press A to launch it.`,
     pathUpdated: (name) => `“${name}” now launches this file.`,
     hidden: "Removed from the library. The file on disk is still there.",
+    restored: "Restored to the library.",
     allHidden: "These items were removed from the library. The files on disk are still there.",
     onlyAdded: (count) => `No new scan results. ${count} added by hand.`,
     alreadyInLibrary: "That program is already in the library.",

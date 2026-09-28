@@ -26,6 +26,9 @@ type Props<T extends Item> = {
   onUseFile: (target: FileTarget, file: PickedProgram) => string;
   onHide: (id: string) => string;
   onQuit?: (id: string) => string | Promise<string>;
+  runningIds?: Set<string>;
+  restorable?: T[];
+  onRestore?: (id: string) => string;
   onSteamCover?: (id: string, appId: string) => string | Promise<string>;
   onScan: () => void;
   scanning?: boolean;
@@ -41,6 +44,9 @@ export function LibraryShelf<T extends Item>({
   onUseFile,
   onHide,
   onQuit,
+  runningIds,
+  restorable = [],
+  onRestore,
   onSteamCover,
   onScan,
   scanning = false,
@@ -58,6 +64,7 @@ export function LibraryShelf<T extends Item>({
   const [hiding, setHiding] = useState<{ id: string; name: string } | null>(null);
   const [hint, setHint] = useState("");
   const [picking, setPicking] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [draft, setDraft] = useState("");
   const [menuCardId, setMenuCardId] = useState<string | null>(null);
   const [menuView, setMenuView] = useState<MenuView>("actions");
@@ -72,6 +79,7 @@ export function LibraryShelf<T extends Item>({
   const deletingRef = useRef(deleting);
   const hidingRef = useRef(hiding);
   const pickingRef = useRef(picking);
+  const restoringRef = useRef(restoring);
   const menuRef = useRef(menuCardId);
   const menuViewRef = useRef(menuView);
   const coverForRef = useRef(coverFor);
@@ -79,6 +87,7 @@ export function LibraryShelf<T extends Item>({
   deletingRef.current = deleting;
   hidingRef.current = hiding;
   pickingRef.current = picking;
+  restoringRef.current = restoring;
   menuRef.current = menuCardId;
   menuViewRef.current = menuView;
   coverForRef.current = coverFor;
@@ -96,11 +105,11 @@ export function LibraryShelf<T extends Item>({
     const blocked = () => document.querySelector(".drawer-root.open") !== null;
     setLibraryActions({
       cycleGroup: (dir) => {
-        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return;
         library.cycle(dir);
       },
       openCardMenu: () => {
-        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return false;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return false;
         const cardId = (document.activeElement as HTMLElement | null)
           ?.closest("[data-card-id]")
           ?.getAttribute("data-card-id");
@@ -144,10 +153,12 @@ export function LibraryShelf<T extends Item>({
           }, 0);
           return true;
         }
-        if (!namingRef.current && !deletingRef.current && !hidingRef.current && !pickingRef.current) return false;
+        if (!namingRef.current && !deletingRef.current && !hidingRef.current && !pickingRef.current && !restoringRef.current) return false;
         setNaming(false);
         setDeleting(false);
+        setHiding(null);
         setPicking(false);
+        setRestoring(false);
         setDraft("");
         return true;
       },
@@ -156,7 +167,7 @@ export function LibraryShelf<T extends Item>({
   }, [library]);
 
   useEffect(() => {
-    if (naming || deleting || hiding || picking || menuCardId || fileTarget || coverFor) return;
+    if (naming || deleting || hiding || picking || restoring || menuCardId || fileTarget || coverFor) return;
     if (focusAdd.current && addRef.current) {
       addRef.current.focus();
       focusAdd.current = false;
@@ -168,7 +179,7 @@ export function LibraryShelf<T extends Item>({
     if (id && visible.some((item) => item.id === id)) return;
     if (firstRef.current) firstRef.current.focus();
     else addRef.current?.focus();
-  }, [library.activeId, visibleKey, naming, deleting, hiding, picking, menuCardId, fileTarget, coverFor, visible]);
+  }, [library.activeId, visibleKey, naming, deleting, hiding, picking, restoring, menuCardId, fileTarget, coverFor, visible]);
 
   useEffect(() => {
     if (naming) nameRef.current?.focus();
@@ -195,6 +206,11 @@ export function LibraryShelf<T extends Item>({
     if (!picking) return;
     document.querySelector<HTMLElement>(".picker-grid [data-focusable]")?.focus();
   }, [picking]);
+
+  useEffect(() => {
+    if (!restoring) return;
+    document.querySelector<HTMLElement>(".picker-grid [data-focusable], .group-dialog [data-focusable]")?.focus();
+  }, [restoring]);
 
   useLayoutEffect(() => {
     if (!menuCardId) {
@@ -309,6 +325,16 @@ export function LibraryShelf<T extends Item>({
           >
             {kind === "games" ? text().library.addGame : text().library.addApp}
           </button>
+          {onRestore && (
+            <button
+              type="button"
+              className="library-tool"
+              data-focusable
+              onClick={() => setRestoring(true)}
+            >
+              {text().library.addFromScan}
+            </button>
+          )}
           {!customGroup && (
             <button type="button" className="library-tool scan-action" data-focusable disabled={scanning} onClick={onScan}>
               {text().library.rescan}
@@ -518,7 +544,7 @@ export function LibraryShelf<T extends Item>({
           >
             {menuView === "actions" && (
               <>
-                {kind === "games" && onQuit && (
+                {kind === "games" && onQuit && menuCardId && runningIds?.has(menuCardId) && (
                   <button
                     type="button"
                     className="library-tool"
@@ -679,6 +705,44 @@ export function LibraryShelf<T extends Item>({
                 }),
               )}
             </section>
+          </div>
+        </div>
+      )}
+      {restoring && onRestore && (
+        <div className="group-dialog focus-trap open">
+          <button
+            type="button"
+            className="drawer-scrim"
+            aria-label={text().close}
+            tabIndex={-1}
+            onClick={() => setRestoring(false)}
+          />
+          <div className="group-dialog-panel picker-panel" role="dialog" aria-label={text().library.addFromScan}>
+            <div className="picker-title">
+              <h2>{text().library.addFromScan}</h2>
+              <p>{text().library.restoreHint}</p>
+            </div>
+            {restorable.length === 0 ? (
+              <p className="group-empty">{text().library.restoreEmpty}</p>
+            ) : (
+              <section className="library-grid picker-grid" aria-label={text().library.addFromScan}>
+                {restorable.map((item) =>
+                  renderCard(item, undefined, {
+                    name: library.names[item.id] || item.name,
+                    onPick: () => {
+                      setHint(onRestore(item.id));
+                    },
+                  }),
+                )}
+              </section>
+            )}
+            {restorable.length === 0 && (
+              <div className="library-tools">
+                <button type="button" className="library-tool" data-focusable onClick={() => setRestoring(false)}>
+                  {text().close}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
 import { FilesPage } from "./pages/FilesPage";
 import { SettingsPage, closePowerMenu } from "./pages/SettingsPage";
+import { FrontendPage } from "./pages/FrontendPage";
 import { BootSplash } from "./components/BootSplash";
 import { GamepadKeyboard } from "./components/GamepadKeyboard";
 import { closeGamepadKeyboard, gamepadKeyboardOpen, moveDirectionalFocus, steerFocus, useGamepadNav } from "./hooks/useGamepadNav";
@@ -12,26 +15,31 @@ import { libraryActions } from "./library/actions";
 import { TABS, type TabId } from "./types";
 import { text, useI18n } from "./i18n";
 
+function inTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 export default function App() {
   useI18n();
   const [tab, setTab] = useState<TabId>("games");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [frontendOpen, setFrontendOpen] = useState(false);
   const [intro, setIntro] = useState<"wait" | "play" | "done">("wait");
 
   const shiftTab = useCallback((dir: -1 | 1) => {
-    if (fileActions().blocksTabs?.()) return;
+    if (frontendOpen || fileActions().blocksTabs?.()) return;
     setTab((current) => {
       const index = TABS.findIndex((item) => item.id === current);
       const next = (index + dir + TABS.length) % TABS.length;
       return TABS[next].id;
     });
-  }, []);
+  }, [frontendOpen]);
 
   useEffect(() => {
     let cancel = false;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     void (async () => {
-      if ("__TAURI_INTERNALS__" in window) {
+      if (inTauri()) {
         await getCurrentWindow().setFullscreen(true).catch(() => {});
       }
       await document.fonts.ready.catch(() => undefined);
@@ -49,6 +57,27 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [intro]);
 
+  useEffect(() => {
+    if (!inTauri()) return;
+    let cancel = false;
+    const unlisten = listen<boolean>("frontend-state", (event) => {
+      if (!cancel) setFrontendOpen(Boolean(event.payload));
+    });
+    return () => {
+      cancel = true;
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!frontendOpen || !inTauri()) return;
+    const steal = () => {
+      void invoke("focus_frontend").catch(() => {});
+    };
+    window.addEventListener("focus", steal);
+    return () => window.removeEventListener("focus", steal);
+  }, [frontendOpen]);
+
   const closeSettings = useCallback(() => {
     const active = document.activeElement as HTMLElement | null;
     if (active?.closest(".drawer-root")) active.blur();
@@ -56,17 +85,42 @@ export default function App() {
   }, []);
 
   const toggleSettings = useCallback(() => {
+    if (frontendOpen) return;
     setSettingsOpen((open) => {
       if (!open) return true;
       const active = document.activeElement as HTMLElement | null;
       if (active?.closest(".drawer-root")) active.blur();
       return false;
     });
-  }, []);
+  }, [frontendOpen]);
+
+  const toggleFrontend = useCallback(() => {
+    if (fileActions().blocksTabs?.()) return;
+    fileActions().dismiss?.();
+    libraryActions().closeDialog?.();
+    closeSettings();
+    if (!inTauri()) {
+      setFrontendOpen((open) => !open);
+      return;
+    }
+    void invoke<boolean>("toggle_frontend")
+      .then(setFrontendOpen)
+      .catch(() => {});
+  }, [closeSettings]);
 
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
+      if (frontendOpen && inTauri()) {
+        if (e.key === "End" || (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h")) {
+          e.preventDefault();
+          toggleFrontend();
+          return;
+        }
+        e.preventDefault();
+        void invoke("focus_frontend").catch(() => {});
+        return;
+      }
       if (gamepadKeyboardOpen()) {
         if (e.key === "Escape" || e.key === "b" || e.key === "B") {
           e.preventDefault();
@@ -84,10 +138,28 @@ export default function App() {
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        if (frontendOpen) {
+          setFrontendOpen(false);
+          return;
+        }
         if (closePowerMenu()) return;
         if (fileActions().back?.()) return;
         if (libraryActions().closeDialog?.()) return;
         toggleSettings();
+        return;
+      }
+      if (e.key === "End") {
+        e.preventDefault();
+        toggleFrontend();
+        return;
+      }
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h") {
+        e.preventDefault();
+        toggleFrontend();
+        return;
+      }
+      if (frontendOpen) {
+        e.preventDefault();
         return;
       }
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -150,41 +222,63 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [intro, shiftTab, toggleSettings]);
+  }, [intro, shiftTab, toggleSettings, toggleFrontend, frontendOpen]);
 
   useGamepadNav({
-    enabled: intro === "done",
-    onBumperLeft: () => shiftTab(-1),
-    onBumperRight: () => shiftTab(1),
+    enabled: intro === "done" && !(frontendOpen && inTauri()),
+    onBumperLeft: () => {
+      if (!frontendOpen) shiftTab(-1);
+    },
+    onBumperRight: () => {
+      if (!frontendOpen) shiftTab(1);
+    },
     onView: () => {
+      if (frontendOpen) return;
       fileActions().dismiss?.();
       libraryActions().closeDialog?.();
       toggleSettings();
     },
+    onStart: () => {
+      if (frontendOpen && !inTauri()) {
+        setFrontendOpen(false);
+        return;
+      }
+      toggleFrontend();
+    },
     onFaceTop: () => {
+      if (frontendOpen) return;
       fileActions().openMenu?.();
     },
     onFaceLeft: () => {
+      if (frontendOpen) return;
       fileActions().toggleSelect?.();
     },
     onBack: () => {
+      if (frontendOpen && !inTauri()) {
+        setFrontendOpen(false);
+        return;
+      }
       if (closePowerMenu()) return;
       if (fileActions().back?.()) return;
       if (libraryActions().closeDialog?.()) return;
       if (libraryActions().openCardMenu?.()) return;
       closeSettings();
     },
-    onTriggerLeft: () => libraryActions().cycleGroup?.(-1),
-    onTriggerRight: () => libraryActions().cycleGroup?.(1),
+    onTriggerLeft: () => {
+      if (!frontendOpen) libraryActions().cycleGroup?.(-1);
+    },
+    onTriggerRight: () => {
+      if (!frontendOpen) libraryActions().cycleGroup?.(1);
+    },
   });
 
   const m = text();
-
   const finishIntro = useCallback(() => setIntro("done"), []);
+  const previewFrontend = frontendOpen && !inTauri();
 
   return (
     <>
-    <div className="app-shell" inert={intro !== "done"}>
+    <div className="app-shell" inert={intro !== "done" || frontendOpen}>
       <div className="ambient" aria-hidden />
       <header className="tab-bar">
         <nav className="tab-list" role="tablist" aria-label={m.tabs.menu}>
@@ -239,6 +333,7 @@ export default function App() {
             <span>{m.hints.tabs}</span>
             <span>{m.hints.keys}</span>
             <span>{m.hints.settings}</span>
+            <span>{m.hints.frontend}</span>
             <span>{m.hints.groups}</span>
             <span>{m.hints.focusTools}</span>
             <span>{m.hints.cardMenu}</span>
@@ -247,6 +342,26 @@ export default function App() {
         )}
       </footer>
     </div>
+    {previewFrontend && (
+      <div className="drawer-root focus-trap open frontend-preview">
+        <button
+          type="button"
+          className="drawer-scrim"
+          aria-label={m.frontend.close}
+          tabIndex={-1}
+          onClick={() => setFrontendOpen(false)}
+        />
+        <aside className="drawer is-end" role="dialog" aria-label={m.frontend.title}>
+          <h1>{m.frontend.title}</h1>
+          <FrontendPage active />
+          <div className="library-tools" style={{ marginTop: 16 }}>
+            <button type="button" className="library-tool" data-focusable onClick={() => setFrontendOpen(false)}>
+              {m.frontend.close}
+            </button>
+          </div>
+        </aside>
+      </div>
+    )}
     {intro !== "done" && <BootSplash playing={intro === "play"} onDone={finishIntro} />}
     </>
   );

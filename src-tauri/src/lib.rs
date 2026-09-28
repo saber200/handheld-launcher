@@ -1,8 +1,10 @@
 mod files;
+mod frontend;
 mod i18n;
 mod media;
 mod scan;
 mod startup;
+mod tdp;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -39,7 +41,7 @@ fn reopen_main(app: tauri::AppHandle) {
 
 fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
     let watched = window.clone();
-    let app_for_destroy = app.clone();
+    let app_handle = app.clone();
     window.on_window_event(move |event| {
         match event {
             WindowEvent::CloseRequested { api, .. } => {
@@ -49,11 +51,13 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
             }
             WindowEvent::Destroyed => {
                 if !startup::quit_allowed() {
-                    reopen_main(app_for_destroy.clone());
+                    reopen_main(app_handle.clone());
                 }
             }
             WindowEvent::Focused(true) => {
-                if scan::take_fullscreen_resume() {
+                if frontend::frontend_visible(&app_handle) {
+                    let _ = frontend::focus_frontend(app_handle.clone());
+                } else if scan::take_fullscreen_resume() {
                     startup::fill_screen(&watched);
                 }
             }
@@ -93,6 +97,11 @@ pub fn run() {
             scan::quit_game,
             scan::cache_covers,
             scan::steam_library_cover,
+            frontend::toggle_frontend,
+            frontend::close_frontend,
+            frontend::focus_frontend,
+            tdp::tdp_status,
+            tdp::set_tdp,
             startup::autostart_enabled,
             startup::set_autostart,
             startup::fse_status,
@@ -121,6 +130,9 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_fullscreen(true);
                 attach_main(&window, app.handle());
+            }
+            if let Err(err) = frontend::install_hotkeys(app) {
+                eprintln!("frontend hotkeys: {err}");
             }
             Ok(())
         });

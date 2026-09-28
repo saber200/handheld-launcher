@@ -152,9 +152,140 @@ button {
   transform: translateX(0);
 }
 
+.drawer.is-end {
+  left: auto;
+  right: 0;
+  border-right: none;
+  border-left: 1px solid var(--line);
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.35);
+  transform: translateX(105%);
+}
+
+.drawer-root.open .drawer.is-end {
+  transform: translateX(0);
+}
+
 .drawer h1 {
   margin: 0 0 20px;
   font-size: 28px;
+}
+
+.frontend-shell {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 20px 16px;
+  background: rgba(12, 18, 32, 0.98);
+  border-left: 1px solid var(--line);
+  box-sizing: border-box;
+}
+
+.frontend-shell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.frontend-shell-head h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.frontend-shell-hint {
+  margin-top: auto;
+  padding-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.frontend-preview {
+  z-index: 8;
+}
+
+.frontend-section-title {
+  margin: 8px 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.frontend-lead {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.tdp-panel {
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  margin-bottom: 10px;
+}
+
+.tdp-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.tdp-head strong {
+  font-size: 18px;
+}
+
+.tdp-watts {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tdp-cpu {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.tdp-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tdp-preset {
+  padding: 12px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.tdp-preset.on {
+  color: #06241f;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.tdp-preset:disabled {
+  opacity: 0.45;
+}
+
+.tdp-status {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .settings-body {

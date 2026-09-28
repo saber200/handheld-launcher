@@ -463,10 +463,17 @@ function useLibraryExtras(kind: "games" | "apps") {
   const hide = useCallback((id: string) => {
     setExtras((prev) => ({
       ...prev,
-      added: prev.added.filter((item) => item.id !== id),
       hidden: prev.hidden.includes(id) ? prev.hidden : [...prev.hidden, id],
     }));
     return text().library.hidden;
+  }, []);
+
+  const restore = useCallback((id: string) => {
+    setExtras((prev) => ({
+      ...prev,
+      hidden: prev.hidden.filter((item) => item !== id),
+    }));
+    return text().library.restored;
   }, []);
 
   const setCover = useCallback((id: string, appId: string, coverPath?: string, coverUrl?: string) => {
@@ -483,7 +490,7 @@ function useLibraryExtras(kind: "games" | "apps") {
     }));
   }, []);
 
-  return { extras, add, setLaunchPath, hide, setCover };
+  return { extras, add, setLaunchPath, hide, restore, setCover };
 }
 
 function withPaths<T extends { id: string; launchPath?: string; installPath?: string; customPath?: boolean }>(
@@ -537,6 +544,34 @@ export function useLocalGames() {
       .filter((item) => !extra.extras.hidden.includes(item.id))
       .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   }, [extra.extras, scanned.items]);
+  const restorable = useMemo(() => {
+    const hidden = new Set(extra.extras.hidden);
+    if (hidden.size === 0) return [];
+    const base = withPaths(scanned.items, extra.extras);
+    const known = new Set(base.map((item) => item.launchPath).filter(Boolean));
+    const added = extra.extras.added
+      .filter((item) => !known.has(item.launchPath))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        cover: "",
+        launchPath: item.launchPath,
+        installPath: item.installPath,
+        customPath: true,
+      }));
+    return [...base, ...added]
+      .map((item) => {
+        const saved = extra.extras.covers[item.id];
+        if (!saved) return item;
+        const cover =
+          saved.coverPath && inTauri()
+            ? convertFileSrc(saved.coverPath)
+            : saved.coverUrl || steamLibraryCover(saved.appId);
+        return { ...item, cover };
+      })
+      .filter((item) => hidden.has(item.id))
+      .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
+  }, [extra.extras, scanned.items]);
   const addFromFile = useCallback(
     (file: PickedProgram) => {
       if (items.some((item) => item.launchPath === file.path)) return text().library.alreadyInLibrary;
@@ -572,6 +607,7 @@ export function useLocalGames() {
   );
   return {
     items,
+    restorable,
     note: scanned.scanning
       ? scanned.note
       : libraryNote(scanned.items.length, items.length, extra.extras.hidden.length, scanned.note),
@@ -584,6 +620,7 @@ export function useLocalGames() {
     addFromFile,
     setLaunchPath: extra.setLaunchPath,
     hide: extra.hide,
+    restore: extra.restore,
     setSteamCover,
   };
 }
@@ -614,6 +651,26 @@ export function useLocalApps() {
       .filter((item) => !extra.extras.hidden.includes(item.id))
       .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   }, [extra.extras, scanned.items]);
+  const restorable = useMemo(() => {
+    const hidden = new Set(extra.extras.hidden);
+    if (hidden.size === 0) return [];
+    const base = withPaths(scanned.items, extra.extras);
+    const known = new Set(base.map((item) => item.launchPath).filter(Boolean));
+    const added = extra.extras.added
+      .filter((item) => !known.has(item.launchPath))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        ...programMark(item.name),
+        icon: item.iconPath && inTauri() ? convertFileSrc(item.iconPath) : undefined,
+        launchPath: item.launchPath,
+        installPath: item.installPath,
+        customPath: true,
+      }));
+    return [...base, ...added]
+      .filter((item) => hidden.has(item.id))
+      .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
+  }, [extra.extras, scanned.items]);
   const addFromFile = useCallback(
     (file: PickedProgram) => {
       if (items.some((item) => item.launchPath === file.path)) return text().library.alreadyInLibrary;
@@ -623,6 +680,7 @@ export function useLocalApps() {
   );
   return {
     items,
+    restorable,
     note: scanned.scanning
       ? scanned.note
       : libraryNote(scanned.items.length, items.length, extra.extras.hidden.length, scanned.note),
@@ -635,5 +693,6 @@ export function useLocalApps() {
     addFromFile,
     setLaunchPath: extra.setLaunchPath,
     hide: extra.hide,
+    restore: extra.restore,
   };
 }

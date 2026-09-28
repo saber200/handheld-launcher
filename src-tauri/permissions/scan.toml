@@ -74,6 +74,31 @@ description = "Choose Chinese or English for system messages."
 commands.allow = ["set_locale"]
 
 [[permission]]
+identifier = "allow-toggle-frontend"
+description = "Open or close the floating frontend panel."
+commands.allow = ["toggle_frontend"]
+
+[[permission]]
+identifier = "allow-close-frontend"
+description = "Close the floating frontend panel."
+commands.allow = ["close_frontend"]
+
+[[permission]]
+identifier = "allow-focus-frontend"
+description = "Keep keyboard focus on the floating frontend panel."
+commands.allow = ["focus_frontend"]
+
+[[permission]]
 identifier = "allow-quit-launcher"
 description = "Exit the launcher and return to the Windows desktop."
 commands.allow = ["quit_launcher"]
+
+[[permission]]
+identifier = "allow-tdp-status"
+description = "Read current handheld TDP support and wattage."
+commands.allow = ["tdp_status"]
+
+[[permission]]
+identifier = "allow-set-tdp"
+description = "Set the handheld CPU power limit in watts."
+commands.allow = ["set_tdp"]

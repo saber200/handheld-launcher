@@ -39,6 +39,12 @@ export function GamesPage() {
           return message;
         });
       }}
+      runningIds={running}
+      restorable={library.restorable}
+      onRestore={(id) => {
+        setStatus("");
+        return library.restore(id);
+      }}
       onSteamCover={(id, appId) => {
         setStatus("");
         return library.setSteamCover(id, appId);

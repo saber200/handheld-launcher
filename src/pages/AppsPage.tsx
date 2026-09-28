@@ -23,6 +23,11 @@ export function AppsPage() {
         setStatus("");
         return library.hide(id);
       }}
+      restorable={library.restorable}
+      onRestore={(id) => {
+        setStatus("");
+        return library.restore(id);
+      }}
       scanning={library.scanning}
       onScan={() => setStatus(library.rescan())}
       renderCard={(app, cardRef, options) => (

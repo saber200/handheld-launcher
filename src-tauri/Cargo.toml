@@ -1,6 +1,6 @@
 [package]
 name = "handheld-launcher"
-version = "0.1.15"
+version = "0.1.16"
 description = "Windows handheld frontend launcher shell"
 authors = ["you"]
 edition = "2021"
@@ -19,6 +19,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-single-instance = "2"
 
+[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
+tauri-plugin-global-shortcut = "2"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "gif", "bmp"] }
@@ -26,10 +29,13 @@ ureq = "2"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_Storage_FileSystem",
   "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_IO",
   "Win32_System_Power",
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Input_XboxController",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
