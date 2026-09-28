@@ -5,6 +5,7 @@ mod media;
 mod scan;
 mod startup;
 mod tdp;
+mod toolbox;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -102,6 +103,10 @@ pub fn run() {
             frontend::focus_frontend,
             tdp::tdp_status,
             tdp::set_tdp,
+            toolbox::toolbox_runtimes,
+            toolbox::toolbox_install_runtime,
+            toolbox::toolbox_optiscaler_installed,
+            toolbox::toolbox_install_optiscaler,
             startup::autostart_enabled,
             startup::set_autostart,
             startup::fse_status,

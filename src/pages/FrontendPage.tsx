@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { text } from "../i18n";
+import { ToolboxPanel } from "./ToolboxPanel";
 
 type Props = { active: boolean };
 
@@ -21,6 +22,8 @@ function inTauri(): boolean {
 }
 
 const FALLBACK_PRESETS = [5, 10, 15, 25, 35, 40];
+const FALLBACK_MIN = 5;
+const FALLBACK_MAX = 40;
 
 export function FrontendPage({ active }: Props) {
   const firstRef = useRef<HTMLButtonElement>(null);
@@ -28,6 +31,8 @@ export function FrontendPage({ active }: Props) {
   const [tdp, setTdp] = useState<TdpInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [draft, setDraft] = useState<number | null>(null);
+  const [toolboxOpen, setToolboxOpen] = useState(false);
 
   useEffect(() => {
     if (!active) return;
@@ -43,20 +48,26 @@ export function FrontendPage({ active }: Props) {
     void invoke<TdpInfo>("tdp_status")
       .then((info) => {
         setTdp(info);
+        setDraft(info.watts);
         setStatus(info.message);
       })
       .catch((err) => setStatus(text().frontend.tdpFailed(String(err))));
   }, [active]);
 
   const applyTdp = async (watts: number) => {
+    const minW = tdp?.minW ?? FALLBACK_MIN;
+    const maxW = tdp?.maxW ?? FALLBACK_MAX;
+    const next = Math.min(maxW, Math.max(minW, Math.round(watts)));
+    setDraft(next);
     if (!inTauri()) {
       setStatus(m.tdpPreview);
       return;
     }
     setBusy(true);
     try {
-      const info = await invoke<TdpInfo>("set_tdp", { watts });
+      const info = await invoke<TdpInfo>("set_tdp", { watts: next });
       setTdp(info);
+      setDraft(info.watts ?? next);
       setStatus(info.message);
     } catch (err) {
       setStatus(m.tdpFailed(String(err)));
@@ -66,7 +77,10 @@ export function FrontendPage({ active }: Props) {
   };
 
   const presets = tdp?.presets?.length ? tdp.presets : FALLBACK_PRESETS;
+  const minW = tdp?.minW ?? FALLBACK_MIN;
+  const maxW = tdp?.maxW ?? FALLBACK_MAX;
   const current = tdp?.watts ?? null;
+  const display = draft ?? current ?? minW;
 
   return (
     <div className="settings-body">
@@ -76,9 +90,7 @@ export function FrontendPage({ active }: Props) {
         <div className="tdp-panel">
           <div className="tdp-head">
             <strong>{m.tdp}</strong>
-            <span className="tdp-watts">
-              {current != null ? m.tdpValue(current) : m.tdpUnknown}
-            </span>
+            <span className="tdp-watts">{m.tdpValue(display)}</span>
           </div>
           {tdp?.cpuName ? <p className="tdp-cpu">{tdp.cpuName}</p> : null}
           <div className="tdp-presets" role="group" aria-label={m.tdp}>
@@ -87,7 +99,7 @@ export function FrontendPage({ active }: Props) {
                 key={watts}
                 ref={index === 0 ? firstRef : undefined}
                 type="button"
-                className={`tdp-preset${current === watts ? " on" : ""}`}
+                className={`tdp-preset${display === watts ? " on" : ""}`}
                 data-focusable
                 disabled={busy}
                 onClick={() => void applyTdp(watts)}
@@ -96,6 +108,26 @@ export function FrontendPage({ active }: Props) {
               </button>
             ))}
           </div>
+          <label className="tdp-slider-row">
+            <span className="tdp-slider-label">{m.tdpSlider}</span>
+            <input
+              type="range"
+              className="tdp-slider"
+              min={minW}
+              max={maxW}
+              step={1}
+              value={display}
+              data-focusable
+              disabled={busy}
+              aria-label={m.tdpSlider}
+              onInput={(e) => setDraft(Number(e.currentTarget.value))}
+              onChange={(e) => void applyTdp(Number(e.currentTarget.value))}
+            />
+            <span className="tdp-slider-ends">
+              <span>{minW}W</span>
+              <span>{maxW}W</span>
+            </span>
+          </label>
           {status ? <p className="tdp-status">{status}</p> : null}
         </div>
         <button type="button" className="setting-row" data-focusable disabled>
@@ -103,18 +135,26 @@ export function FrontendPage({ active }: Props) {
             <strong>{m.fan}</strong>
             <small>{m.fanBody}</small>
           </span>
-          <span className="switch">{m.soon}</span>
+          <span className="switch">{m.later}</span>
         </button>
       </section>
       <section className="settings-list">
         <h2 className="frontend-section-title">{m.toolsTitle}</h2>
-        <button type="button" className="setting-row" data-focusable disabled>
+        <button
+          type="button"
+          className="setting-row"
+          data-focusable
+          onClick={() => setToolboxOpen((open) => !open)}
+        >
           <span>
             <strong>{m.toolbox}</strong>
             <small>{m.toolsBody}</small>
           </span>
-          <span className="switch">{m.soon}</span>
+          <span className={`switch${toolboxOpen ? " on" : ""}`}>
+            {toolboxOpen ? m.toolboxHide : m.toolboxShow}
+          </span>
         </button>
+        {toolboxOpen ? <ToolboxPanel active={active && toolboxOpen} /> : null}
       </section>
     </div>
   );

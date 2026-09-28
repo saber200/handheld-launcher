@@ -67,6 +67,7 @@ export type Catalog = {
     tdp: string;
     tdpValue: (watts: number) => string;
     tdpUnknown: string;
+    tdpSlider: string;
     tdpPreview: string;
     tdpFailed: (detail: string) => string;
     fan: string;
@@ -74,6 +75,26 @@ export type Catalog = {
     toolsTitle: string;
     toolsBody: string;
     toolbox: string;
+    toolboxShow: string;
+    toolboxHide: string;
+    toolboxPreview: string;
+    toolboxFailed: (detail: string) => string;
+    toolboxInstall: string;
+    toolboxReinstall: string;
+    toolboxWorking: string;
+    toolboxInstalling: string;
+    runtimesTitle: string;
+    runtimesBody: string;
+    runtimesEmpty: string;
+    optiscalerTitle: string;
+    optiscalerBody: string;
+    optiscalerPick: string;
+    optiscalerInstall: string;
+    optiscalerInstalling: string;
+    optiscalerInstalled: string;
+    optiscalerHint: string;
+    optiscalerNoGame: string;
+    later: string;
     soon: string;
   };
   keyboard: { label: string; backspace: string; done: string };
@@ -297,13 +318,34 @@ export const zh: Catalog = {
     tdp: "TDP",
     tdpValue: (watts) => `${watts}W`,
     tdpUnknown: "未读取",
+    tdpSlider: "自定义瓦数",
     tdpPreview: "浏览器预览无法调节 TDP，请在 Windows 掌机上使用。",
     tdpFailed: (detail) => `TDP 调节失败：${detail}`,
     fan: "风扇",
-    fanBody: "风扇曲线稍后接入。",
+    fanBody: "风扇协议较复杂，先不做，记在 FUTURE 里以后再接。",
     toolsTitle: "工具箱",
-    toolsBody: "以后用来安装和补全掌机常用工具。",
+    toolsBody: "运行库补齐、OptiScaler 一键安装等。",
     toolbox: "工具箱",
+    toolboxShow: "展开",
+    toolboxHide: "收起",
+    toolboxPreview: "浏览器预览无法安装运行库或 OptiScaler。",
+    toolboxFailed: (detail) => `工具箱操作失败：${detail}`,
+    toolboxInstall: "安装",
+    toolboxReinstall: "重装",
+    toolboxWorking: "…",
+    toolboxInstalling: "正在下载并安装，请稍候…",
+    runtimesTitle: "游戏运行库",
+    runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
+    runtimesEmpty: "暂时没有可安装的运行库项。",
+    optiscalerTitle: "OptiScaler",
+    optiscalerBody: "针对库里的某个游戏，一键装到游戏目录（官方 GitHub 包，默认 dxgi.dll）。",
+    optiscalerPick: "选择游戏",
+    optiscalerInstall: "一键安装 OptiScaler",
+    optiscalerInstalling: "正在下载并安装 OptiScaler…",
+    optiscalerInstalled: "该游戏目录已检测到 OptiScaler，可再次覆盖安装。",
+    optiscalerHint: "安装到所选游戏主程序所在目录。",
+    optiscalerNoGame: "游戏库里还没有可安装的游戏，先在主界面添加或扫描。",
+    later: "以后再说",
     soon: "即将推出",
   },
   keyboard: { label: "数字键盘", backspace: "删除", done: "完成" },
@@ -528,13 +570,34 @@ export const en: Catalog = {
     tdp: "TDP",
     tdpValue: (watts) => `${watts}W`,
     tdpUnknown: "Unknown",
+    tdpSlider: "Custom watts",
     tdpPreview: "Browser preview can't change TDP. Use it on a Windows handheld.",
     tdpFailed: (detail) => `Couldn't change TDP: ${detail}`,
     fan: "Fan",
-    fanBody: "Fan curves come later.",
+    fanBody: "Fan control is deferred — protocols vary a lot by handheld.",
     toolsTitle: "Toolbox",
-    toolsBody: "Install and patch common handheld tools here later.",
+    toolsBody: "Redistributables, one-click OptiScaler, and more.",
     toolbox: "Toolbox",
+    toolboxShow: "Open",
+    toolboxHide: "Hide",
+    toolboxPreview: "Browser preview can't install runtimes or OptiScaler.",
+    toolboxFailed: (detail) => `Toolbox action failed: ${detail}`,
+    toolboxInstall: "Install",
+    toolboxReinstall: "Reinstall",
+    toolboxWorking: "…",
+    toolboxInstalling: "Downloading and installing…",
+    runtimesTitle: "Game runtimes",
+    runtimesBody: "Official Microsoft redistributables first; more packages later.",
+    runtimesEmpty: "No runtime packages available yet.",
+    optiscalerTitle: "OptiScaler",
+    optiscalerBody: "One-click install into a library game folder from the official GitHub release (dxgi.dll).",
+    optiscalerPick: "Choose game",
+    optiscalerInstall: "Install OptiScaler",
+    optiscalerInstalling: "Downloading and installing OptiScaler…",
+    optiscalerInstalled: "OptiScaler already detected; you can overwrite it.",
+    optiscalerHint: "Installs next to the selected game executable.",
+    optiscalerNoGame: "No games in the library yet. Add or scan some on the main screen.",
+    later: "Later",
     soon: "Soon",
   },
   keyboard: { label: "Number pad", backspace: "Delete", done: "Done" },

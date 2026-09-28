@@ -102,3 +102,23 @@ commands.allow = ["tdp_status"]
 identifier = "allow-set-tdp"
 description = "Set the handheld CPU power limit in watts."
 commands.allow = ["set_tdp"]
+
+[[permission]]
+identifier = "allow-toolbox-runtimes"
+description = "List game redistributable packages for the toolbox."
+commands.allow = ["toolbox_runtimes"]
+
+[[permission]]
+identifier = "allow-toolbox-install-runtime"
+description = "Download and install a redistributable from the toolbox."
+commands.allow = ["toolbox_install_runtime"]
+
+[[permission]]
+identifier = "allow-toolbox-optiscaler-installed"
+description = "Check whether OptiScaler is already installed for a game."
+commands.allow = ["toolbox_optiscaler_installed"]
+
+[[permission]]
+identifier = "allow-toolbox-install-optiscaler"
+description = "Download and install OptiScaler into a game folder."
+commands.allow = ["toolbox_install_optiscaler"]
