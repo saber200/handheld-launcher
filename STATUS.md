@@ -1,4 +1,4 @@
-# 进度对照（v0.1.32）
+# 进度对照（v0.1.33）
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
@@ -81,6 +81,8 @@
 
 ## 近期改动备忘
 
+- 0.1.33：FSE 下 Start「卡死」→ 日志显示第二窗已 shown 但被全屏挡住；软件内 Start 改为内联抽屉
+- 0.1.32：rebuild after schedule_focus AppHandle clone fix
 - 0.1.31：FSE 下按 Start 卡死 → 去掉乐观 inert/焦点互抢；打开前端改为后台调度、不堵 IPC
 - 0.1.30：设为 FSE 主应用后开屏闪退 → 启动自动登记不再 `Remove-AppxPackage`（会杀掉本进程）
 - 0.1.29：FSE 主应用开机找不到 exe → 二进制改为 `FantasyHub.exe`，并给旧安装写别名拷贝
