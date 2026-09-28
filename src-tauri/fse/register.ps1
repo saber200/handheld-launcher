@@ -41,6 +41,17 @@ if (-not (Test-Path -LiteralPath $exePath)) {
   Fail "NO_EXE" "Missing launcher exe: $exePath"
 }
 
+# AppxManifest Executable is FantasyHub.exe (productName). Older builds shipped
+# handheld-launcher.exe — FSE boot then fails with "Windows cannot find ... FantasyHub.exe".
+$manifestExe = "FantasyHub.exe"
+$aliasPath = Join-Path $ExeDir $manifestExe
+if ($ExeName -ne $manifestExe) {
+  Copy-Item -LiteralPath $exePath -Destination $aliasPath -Force
+  Write-Detail "FSE alias: copied $exePath -> $aliasPath"
+} elseif (-not (Test-Path -LiteralPath $aliasPath)) {
+  Fail "NO_EXE" "Missing FantasyHub.exe for FSE ExternalLocation: $aliasPath"
+}
+
 if (-not (Test-Path -LiteralPath $Msix) -or -not (Test-Path -LiteralPath $Cer)) {
   Fail "EMPTY_PAYLOAD" "Missing identity files. Msix=$Msix Cer=$Cer"
 }

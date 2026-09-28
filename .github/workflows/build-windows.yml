@@ -85,7 +85,7 @@ jobs:
             Windows 安装包。掌机直接下载安装即可，无需开发环境。
 
             - 安装包：`*.exe`（NSIS）
-            - 也可在 Artifacts 中下载未安装的 `handheld-launcher.exe`
+            - 也可在 Artifacts 中下载未安装的 `FantasyHub.exe`
           releaseDraft: false
           prerelease: ${{ github.ref_type != 'tag' }}
 
@@ -94,5 +94,5 @@ jobs:
         with:
           name: handheld-launcher-windows
           path: |
-            src-tauri/target/release/handheld-launcher.exe
+            src-tauri/target/release/FantasyHub.exe
             src-tauri/target/release/bundle/nsis/*.exe

@@ -261,8 +261,36 @@ mod windows {
 
     pub fn schedule_fse_registration(resource_dir: Option<std::path::PathBuf>) {
         std::thread::spawn(move || {
+            ensure_fse_launch_alias();
             let _ = register_fse(resource_dir.as_deref());
         });
+    }
+
+    /// Sparse FSE ExternalLocation launches `FantasyHub.exe` from the install dir.
+    /// Older builds only shipped `handheld-launcher.exe` — copy/refresh the alias.
+    fn ensure_fse_launch_alias() {
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let Some(dir) = exe.parent() else {
+            return;
+        };
+        let name = exe
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if name.eq_ignore_ascii_case("FantasyHub.exe") {
+            return;
+        }
+        let alias = dir.join("FantasyHub.exe");
+        match std::fs::copy(&exe, &alias) {
+            Ok(_) => crate::logutil::write_line(&format!(
+                "fse alias: {} -> {}",
+                exe.display(),
+                alias.display()
+            )),
+            Err(err) => crate::logutil::write_line(&format!("fse alias copy failed: {err}")),
+        }
     }
 
     pub fn fse_status() -> String {
@@ -291,6 +319,7 @@ mod windows {
     }
 
     fn register_fse_inner(resource_dir: Option<&std::path::Path>) -> Result<String, String> {
+        ensure_fse_launch_alias();
         let (msix, cer) = fse_payload(resource_dir)?;
         let exe = std::env::current_exe().map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
         let exe_dir = exe.parent().ok_or_else(|| pick("无法登记：找不到安装目录", "Couldn't register: install folder not found"))?;

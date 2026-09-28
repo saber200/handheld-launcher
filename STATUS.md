@@ -1,4 +1,4 @@
-# 进度对照（v0.1.28）
+# 进度对照（v0.1.29）
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
@@ -56,6 +56,7 @@
 | 仓库内 `identity.msix` / `identity.cer` | **gitignore，不提交**；由 CI 生成 |
 | **GitHub Actions** 打安装包前跑 `fse/pack.ps1` | **已接入**（`build-windows.yml`）；你不需要本机 Windows |
 | SCCD 命名空间 `2018/sccd`（对齐可用 FSE 示例） | **0.1.28**；pack 校验 msix 内含 SCCD；登记时拷到 exe 旁 |
+| FSE 启动 exe 名与安装文件一致（`FantasyHub.exe`） | **0.1.29**；旧版只有 `handheld-launcher.exe` 会导致开机找不到文件 |
 | 对齐 OmniConsole **完整 WinUI MSIX** 形态 | **未做**（当前仍是稀疏身份包路线） |
 
 结论：**你没有 Windows 也没关系。** 推送 `v*` 标签或手动 Run `Build Windows`，Actions 会在 `windows-latest` 上生成身份包再打 NSIS。若该步失败，看 Actions 日志里 `Pack fullscreen experience identity`。完整 MSIX 仅作备选。
@@ -71,7 +72,7 @@
 
 ## 待完成 / 已知缺口
 
-1. **FSE**：掌机验证 `2018/sccd` 身份包能否登记
+1. **FSE**：已被识别为主应用（0.1.28+）；0.1.29 修开机找不到 `FantasyHub.exe`
 2. **前端手柄**：0.1.28 修开即关；掌机验证 D-pad / A / B
 3. **OptiScaler**：版本 / hook 选型以后对表再做
 4. **扫描**：GOG、Game Pass、微软商店应用等
@@ -80,5 +81,6 @@
 
 ## 近期改动备忘
 
+- 0.1.29：FSE 主应用开机找不到 exe → 二进制改为 `FantasyHub.exe`，并给旧安装写别名拷贝
 - 0.1.28：前端手柄竞态 + `focus-trap open`；FSE SCCD → `2018/sccd`；Game++ 记入 FUTURE 延后
 - 前端预创建隐藏窗；TDP WinRing0 安装；FSE CI 打身份包

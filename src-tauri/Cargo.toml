@@ -1,9 +1,13 @@
 [package]
 name = "handheld-launcher"
-version = "0.1.27"
+version = "0.1.29"
 description = "Windows handheld frontend launcher shell"
 authors = ["you"]
 edition = "2021"
+
+[[bin]]
+name = "FantasyHub"
+path = "src/main.rs"
 
 [lib]
 name = "handheld_launcher_lib"

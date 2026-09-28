@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FantasyHub",
-  "version": "0.1.28",
+  "mainBinaryName": "FantasyHub",
+  "version": "0.1.29",
   "identifier": "com.handheld.launcher",
   "build": {
     "beforeDevCommand": "npm run dev",
