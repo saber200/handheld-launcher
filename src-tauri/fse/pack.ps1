@@ -11,8 +11,12 @@ New-Item -ItemType Directory -Path (Join-Path $layout "Assets") | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $layout "Public") | Out-Null
 Copy-Item (Join-Path $root "Assets\*") (Join-Path $layout "Assets")
 Copy-Item (Join-Path $root "Public\*") (Join-Path $layout "Public")
-Copy-Item (Join-Path $root "CustomCapability.SCCD") $layout
-
+# SCCD must sit at package root with this exact name for windows.capability registration.
+Copy-Item (Join-Path $root "CustomCapability.SCCD") (Join-Path $layout "CustomCapability.SCCD")
+if (-not (Test-Path (Join-Path $layout "CustomCapability.SCCD"))) {
+  throw "CustomCapability.SCCD missing from pack layout"
+}
+Write-Output "sccd=$((Get-Item (Join-Path $layout 'CustomCapability.SCCD')).Length) bytes"
 $manifest = Get-Content (Join-Path $root "AppxManifest.xml") -Raw -Encoding UTF8
 $manifest = [regex]::Replace($manifest, '(<Identity[^>]*\bVersion=")[^"]+(")', "`${1}$version`${2}")
 $manifest = [regex]::Replace($manifest, 'Executable="[^"]+"', "Executable=`"$exeName`"")

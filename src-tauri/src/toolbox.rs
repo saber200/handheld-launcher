@@ -307,19 +307,15 @@ mod windows {
 
         // Recreate service so a stale/broken registration can be fixed.
         crate::logutil::write_line("toolbox: sc stop/delete WinRing0_1_2_0");
-        let _ = run_sc(&["stop", WINRING0_SERVICE]);
-        let _ = run_sc(&["delete", WINRING0_SERVICE]);
-        // sc.exe requires a space after '=' inside each option token.
-        let bin = format!("binPath= \"{}\"", sys_path.display());
-        crate::logutil::write_line(&format!("toolbox: sc create {bin}"));
-        run_sc(&[
-            "create",
-            WINRING0_SERVICE,
-            "type= kernel",
-            "start= demand",
-            &bin,
-        ])
-        .map_err(|err| {
+        let _ = run_sc_line(&format!("sc stop {WINRING0_SERVICE}"));
+        let _ = run_sc_line(&format!("sc delete {WINRING0_SERVICE}"));
+        // One cmdline via cmd.exe — piping sc.exe directly often exits 0xC0000142.
+        let create = format!(
+            "sc create {WINRING0_SERVICE} type= kernel start= demand binPath= {}",
+            sys_path.display()
+        );
+        crate::logutil::write_line(&format!("toolbox: {create}"));
+        run_sc_line(&create).map_err(|err| {
             crate::logutil::write_line(&format!("toolbox: sc create failed: {err}"));
             pick(
                 &format!("注册驱动服务失败：{err}"),
@@ -327,7 +323,7 @@ mod windows {
             )
         })?;
         crate::logutil::write_line("toolbox: sc start WinRing0_1_2_0");
-        run_sc(&["start", WINRING0_SERVICE]).map_err(|err| {
+        run_sc_line(&format!("sc start {WINRING0_SERVICE}")).map_err(|err| {
             crate::logutil::write_line(&format!("toolbox: sc start failed: {err}"));
             pick(
                 &format!(
@@ -574,9 +570,12 @@ mod windows {
         }
     }
 
-    fn run_sc(args: &[&str]) -> Result<(), String> {
-        let output = Command::new("sc")
-            .args(args)
+    fn run_sc_line(cmdline: &str) -> Result<(), String> {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let output = Command::new("cmd.exe")
+            .args(["/C", cmdline])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|err| {
                 pick(

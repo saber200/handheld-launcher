@@ -412,8 +412,8 @@ mod windows {
                 "Couldn't trust the package certificate. Run FantasyHub as admin and register again.",
             ),
             "ADD_FAIL" => pick(
-                "系统拒绝了全屏体验包。详情已写入日志（不一定是开发者模式问题）。",
-                "Windows rejected the fullscreen package. Details are in the log (not always Developer Mode).",
+                "系统拒绝了全屏体验包。详情已写入日志（常见原因：能力描述文件 SCCD、证书或系统版本）。",
+                "Windows rejected the fullscreen package. Details are in the log (often SCCD, certificate, or OS version).",
             ),
             "SCRIPT_FAIL" => pick(
                 "登记脚本无法运行（PowerShell 解析失败）。请安装新版本后再试，并把日志发给开发者。",
