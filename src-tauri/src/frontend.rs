@@ -10,10 +10,13 @@ const FRONTEND_WIDTH: f64 = 440.0;
 
 #[tauri::command]
 pub fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
+    crate::logutil::write_line("toggle_frontend enter");
     if let Some(window) = app.get_webview_window(FRONTEND_LABEL) {
         let visible = window.is_visible().unwrap_or(false);
+        crate::logutil::write_line(&format!("frontend exists visible={visible}"));
         if visible {
             dismiss(&app, &window);
+            crate::logutil::write_line("toggle_frontend -> false (dismissed)");
             return Ok(false);
         }
         place(&window, &app);
@@ -21,9 +24,11 @@ pub fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
         let _ = window.set_focus();
         let _ = window.set_always_on_top(true);
         emit_state(&app, true);
+        crate::logutil::write_line("toggle_frontend -> true (reshow)");
         return Ok(true);
     }
     create(&app)?;
+    crate::logutil::write_line("toggle_frontend -> true (created)");
     Ok(true)
 }
 
@@ -74,11 +79,7 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
                         return;
                     }
                     if shortcut.matches(Modifiers::CONTROL, Code::KeyH) {
-                        crate::logutil::write_line("hotkey Control+H");
-                        match toggle_frontend(app.clone()) {
-                            Ok(open) => crate::logutil::write_line(&format!("toggle_frontend -> {open}")),
-                            Err(err) => crate::logutil::write_line(&format!("toggle_frontend error: {err}")),
-                        }
+                        schedule_toggle(app, "hotkey Control+H");
                     }
                 })
                 .build(),
@@ -90,15 +91,28 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+/// Window create/show must run on the UI thread. Chord/hotkey callbacks do not.
+fn schedule_toggle(app: &AppHandle, reason: &str) {
+    crate::logutil::write_line(&format!("schedule_toggle ({reason})"));
+    let app = app.clone();
+    let reason = reason.to_string();
+    if let Err(err) = app.clone().run_on_main_thread(move || {
+        crate::logutil::write_line(&format!("toggle on main ({reason})"));
+        match toggle_frontend(app) {
+            Ok(open) => crate::logutil::write_line(&format!("toggle_frontend done -> {open}")),
+            Err(err) => crate::logutil::write_line(&format!("toggle_frontend error: {err}")),
+        }
+    }) {
+        crate::logutil::write_line(&format!("run_on_main_thread failed: {err}"));
+    }
+}
+
 fn create(app: &AppHandle) -> Result<(), String> {
     let title = pick("前端", "Frontend");
-    // Packaged builds often drop hash fragments on WebviewUrl::App.
-    // Mark the shell with a query param and an init script before the bundle runs.
-    let window = WebviewWindowBuilder::new(
-        app,
-        FRONTEND_LABEL,
-        WebviewUrl::App("index.html?shell=frontend".into()),
-    )
+    crate::logutil::write_line("frontend create begin");
+    // Do not put shell=? or #fragment on WebviewUrl::App — packaged WebView2 can hang or drop them.
+    // Mark the shell with an init script before the page bundle runs.
+    let window = WebviewWindowBuilder::new(app, FRONTEND_LABEL, WebviewUrl::App("index.html".into()))
         .title(title)
         .inner_size(FRONTEND_WIDTH, 800.0)
         .decorations(false)
@@ -107,7 +121,12 @@ fn create(app: &AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .focused(true)
         .visible(false)
-        .initialization_script("window.__FANTASYHUB_FRONTEND__ = true;")
+        .initialization_script(
+            r#"
+            window.__FANTASYHUB_FRONTEND__ = true;
+            try { sessionStorage.setItem("fantasyhub-shell", "frontend"); } catch (e) {}
+            "#,
+        )
         .build()
         .map_err(|err| {
             let msg = pick(
@@ -117,7 +136,9 @@ fn create(app: &AppHandle) -> Result<(), String> {
             crate::logutil::write_line(&msg);
             msg
         })?;
+    crate::logutil::write_line("frontend window built");
     place(&window, app);
+    crate::logutil::write_line("frontend window placed");
     attach(&window, app);
     let _ = window.show();
     let _ = window.set_focus();
@@ -176,6 +197,7 @@ fn place(window: &WebviewWindow, app: &AppHandle) {
         })
         .or_else(|| app.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else {
+        crate::logutil::write_line("frontend place: no monitor");
         return;
     };
     let screen = monitor.size();
@@ -187,6 +209,9 @@ fn place(window: &WebviewWindow, app: &AppHandle) {
     let height = screen.height;
     let x = origin.x + screen.width.saturating_sub(width) as i32;
     let y = origin.y;
+    crate::logutil::write_line(&format!(
+        "frontend place x={x} y={y} w={width} h={height} scale={scale}"
+    ));
     let _ = window.set_size(tauri::Size::Physical(PhysicalSize { width, height }));
     let _ = window.set_position(tauri::Position::Physical(PhysicalPosition { x, y }));
 }
@@ -200,6 +225,7 @@ fn start_chord_watch(app: AppHandle) {
     if CHORD_WATCHING.swap(true, Ordering::SeqCst) {
         return;
     }
+    crate::logutil::write_line("chord watch started");
     std::thread::spawn(move || {
         use windows_sys::Win32::UI::Input::XboxController::{
             XInputGetState, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_START, XINPUT_STATE,
@@ -226,11 +252,14 @@ fn start_chord_watch(app: AppHandle) {
                     break;
                 }
             }
-            if pressed && !held && !software_focused(&app) {
-                crate::logutil::write_line("chord Back+Start");
-                match toggle_frontend(app.clone()) {
-                    Ok(open) => crate::logutil::write_line(&format!("toggle_frontend -> {open}")),
-                    Err(err) => crate::logutil::write_line(&format!("toggle_frontend error: {err}")),
+            if pressed && !held {
+                let focused = software_focused(&app);
+                if focused {
+                    // In-app Start is handled by the frontend gamepad hook.
+                    crate::logutil::write_line("chord Back+Start ignored (app focused)");
+                } else {
+                    crate::logutil::write_line("chord Back+Start");
+                    schedule_toggle(&app, "chord Back+Start");
                 }
             }
             held = pressed;
