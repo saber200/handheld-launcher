@@ -110,7 +110,11 @@ export function SettingsPage({ active }: Props) {
       window.close();
       return;
     }
-    await invoke("quit_launcher");
+    try {
+      await invoke("quit_launcher");
+    } catch (e) {
+      setMessage(String(e));
+    }
   };
 
   const runPower = async (action: "sleep" | "restart" | "shutdown") => {

@@ -110,7 +110,7 @@ button {
 }
 
 .drawer-root {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 5;
   pointer-events: none;
@@ -272,7 +272,6 @@ button {
 }
 
 .tdp-preset.on {
-  color: #06241f;
   background: var(--accent);
   border-color: transparent;
 }

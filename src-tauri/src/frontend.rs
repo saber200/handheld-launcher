@@ -74,11 +74,16 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
                         return;
                     }
                     if shortcut.matches(Modifiers::CONTROL, Code::KeyH) {
-                        let _ = toggle_frontend(app.clone());
+                        crate::logutil::write_line("hotkey Control+H");
+                        match toggle_frontend(app.clone()) {
+                            Ok(open) => crate::logutil::write_line(&format!("toggle_frontend -> {open}")),
+                            Err(err) => crate::logutil::write_line(&format!("toggle_frontend error: {err}")),
+                        }
                     }
                 })
                 .build(),
         )?;
+        crate::logutil::write_line("global shortcut Control+H registered");
     }
     #[cfg(windows)]
     start_chord_watch(app.handle().clone());
@@ -87,8 +92,13 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 
 fn create(app: &AppHandle) -> Result<(), String> {
     let title = pick("前端", "Frontend");
-    let url = WebviewUrl::App("index.html#frontend".into());
-    let window = WebviewWindowBuilder::new(app, FRONTEND_LABEL, url)
+    // Packaged builds often drop hash fragments on WebviewUrl::App.
+    // Mark the shell with a query param and an init script before the bundle runs.
+    let window = WebviewWindowBuilder::new(
+        app,
+        FRONTEND_LABEL,
+        WebviewUrl::App("index.html?shell=frontend".into()),
+    )
         .title(title)
         .inner_size(FRONTEND_WIDTH, 800.0)
         .decorations(false)
@@ -97,12 +107,15 @@ fn create(app: &AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .focused(true)
         .visible(false)
+        .initialization_script("window.__FANTASYHUB_FRONTEND__ = true;")
         .build()
         .map_err(|err| {
-            pick(
+            let msg = pick(
                 &format!("无法打开前端：{err}"),
                 &format!("Couldn't open frontend: {err}"),
-            )
+            );
+            crate::logutil::write_line(&msg);
+            msg
         })?;
     place(&window, app);
     attach(&window, app);
@@ -110,6 +123,7 @@ fn create(app: &AppHandle) -> Result<(), String> {
     let _ = window.set_focus();
     let _ = window.set_always_on_top(true);
     emit_state(app, true);
+    crate::logutil::write_line("frontend window opened");
     Ok(())
 }
 
@@ -213,7 +227,11 @@ fn start_chord_watch(app: AppHandle) {
                 }
             }
             if pressed && !held && !software_focused(&app) {
-                let _ = toggle_frontend(app.clone());
+                crate::logutil::write_line("chord Back+Start");
+                match toggle_frontend(app.clone()) {
+                    Ok(open) => crate::logutil::write_line(&format!("toggle_frontend -> {open}")),
+                    Err(err) => crate::logutil::write_line(&format!("toggle_frontend error: {err}")),
+                }
             }
             held = pressed;
             std::thread::sleep(Duration::from_millis(40));

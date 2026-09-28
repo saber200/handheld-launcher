@@ -105,7 +105,10 @@ export default function App() {
     }
     void invoke<boolean>("toggle_frontend")
       .then(setFrontendOpen)
-      .catch(() => {});
+      .catch((err) => {
+        setFrontendOpen(false);
+        console.error("toggle_frontend", err);
+      });
   }, [closeSettings]);
 
   useEffect(() => {
@@ -275,10 +278,13 @@ export default function App() {
   const m = text();
   const finishIntro = useCallback(() => setIntro("done"), []);
   const previewFrontend = frontendOpen && !inTauri();
+  // Only lock the main shell when a real frontend window is up.
+  // Keep the settings drawer interactive so Quit still works if state drifts.
+  const mainLocked = intro !== "done" || (frontendOpen && inTauri());
 
   return (
     <>
-    <div className="app-shell" inert={intro !== "done" || frontendOpen}>
+    <div className="app-shell" inert={mainLocked || undefined}>
       <div className="ambient" aria-hidden />
       <header className="tab-bar">
         <nav className="tab-list" role="tablist" aria-label={m.tabs.menu}>
@@ -300,22 +306,6 @@ export default function App() {
         {tab === "games" && <GamesPage />}
         {tab === "apps" && <AppsPage />}
         {tab === "files" && <FilesPage />}
-      </div>
-      <div
-        className={`drawer-root focus-trap ${settingsOpen ? "open" : ""}`}
-        aria-hidden={!settingsOpen}
-      >
-        <button
-          type="button"
-          className="drawer-scrim"
-          aria-label={m.settings.close}
-          tabIndex={-1}
-          onClick={closeSettings}
-        />
-        <aside className="drawer" role="dialog" aria-label={m.settings.title}>
-          <h1>{m.settings.title}</h1>
-          <SettingsPage active={settingsOpen} />
-        </aside>
       </div>
       <GamepadKeyboard />
       <footer className="shell-hint">
@@ -341,6 +331,23 @@ export default function App() {
           </>
         )}
       </footer>
+    </div>
+    <div
+      className={`drawer-root focus-trap ${settingsOpen ? "open" : ""}`}
+      aria-hidden={!settingsOpen}
+      inert={intro !== "done" || undefined}
+    >
+      <button
+        type="button"
+        className="drawer-scrim"
+        aria-label={m.settings.close}
+        tabIndex={-1}
+        onClick={closeSettings}
+      />
+      <aside className="drawer" role="dialog" aria-label={m.settings.title}>
+        <h1>{m.settings.title}</h1>
+        <SettingsPage active={settingsOpen} />
+      </aside>
     </div>
     {previewFrontend && (
       <div className="drawer-root focus-trap open frontend-preview">

@@ -52,7 +52,10 @@ pub fn set_tdp(watts: u32) -> Result<TdpInfo, String> {
     let watts = watts.clamp(MIN_W, MAX_W);
     #[cfg(windows)]
     {
-        return windows::set_watts(watts);
+        return windows::set_watts(watts).map_err(|err| {
+            crate::logutil::write_line(&format!("set_tdp({watts}) failed: {err}"));
+            err
+        });
     }
     #[cfg(not(windows))]
     {

@@ -1,6 +1,7 @@
 mod files;
 mod frontend;
 mod i18n;
+mod logutil;
 mod media;
 mod scan;
 mod startup;
@@ -78,6 +79,7 @@ fn reveal_running_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    logutil::init();
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
     {
@@ -130,6 +132,7 @@ pub fn run() {
         ])
         .setup(|app| {
             startup::prepare();
+            logutil::write_line(&format!("log file: {}", logutil::path_for_user()));
             let resources = app.path().resource_dir().ok();
             startup::schedule_fse_registration(resources);
             if let Some(window) = app.get_webview_window("main") {
@@ -137,7 +140,7 @@ pub fn run() {
                 attach_main(&window, app.handle());
             }
             if let Err(err) = frontend::install_hotkeys(app) {
-                eprintln!("frontend hotkeys: {err}");
+                logutil::write_line(&format!("frontend hotkeys: {err}"));
             }
             Ok(())
         });

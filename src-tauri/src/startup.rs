@@ -20,8 +20,18 @@ pub fn request_quit() {
 
 #[tauri::command]
 pub fn quit_launcher(app: tauri::AppHandle) {
+    use tauri::Manager;
     request_quit();
+    crate::logutil::write_line("quit_launcher");
+    for (_, window) in app.webview_windows() {
+        let _ = window.destroy();
+    }
     app.exit(0);
+    // If ExitRequested is still prevented somehow, force the process down.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        std::process::exit(0);
+    });
 }
 
 #[tauri::command]
