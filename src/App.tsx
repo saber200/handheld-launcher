@@ -71,12 +71,8 @@ export default function App() {
 
   useEffect(() => {
     if (!frontendOpen) return;
-    if (inTauri()) return;
     document.querySelector<HTMLElement>(".frontend-preview [data-focusable]")?.focus();
   }, [frontendOpen]);
-
-  // Do NOT steal focus back to the frontend window on every main-window focus.
-  // Under FSE home that focus fight freezes the UI before the panel paints.
 
   const closeSettings = useCallback(() => {
     const active = document.activeElement as HTMLElement | null;
@@ -104,39 +100,27 @@ export default function App() {
     fileActions().dismiss?.();
     libraryActions().closeDialog?.();
     closeSettings();
-    if (!inTauri()) {
-      setFrontendOpen((open) => !open);
+    if (frontendOpen) {
+      closeFrontend();
       return;
     }
-    // Rust returns before the window is shown; frontend-state sets the real flag.
-    void invoke("toggle_frontend").catch((err) => {
-      setFrontendOpen(false);
-      console.error("toggle_frontend", err);
-    });
-  }, [closeSettings]);
+    setFrontendOpen(true);
+  }, [closeSettings, closeFrontend, frontendOpen]);
 
-  /** Start opens only. Closing is B/Esc on the frontend window (or chord toggle). */
+  /** Start opens an in-app drawer. A second WebView is invisible under FSE exclusive fullscreen. */
   const openFrontend = useCallback(() => {
     if (frontendOpen) return;
     if (fileActions().blocksTabs?.()) return;
     fileActions().dismiss?.();
     libraryActions().closeDialog?.();
     closeSettings();
-    if (!inTauri()) {
-      setFrontendOpen(true);
-      return;
-    }
-    // Do not setFrontendOpen(true) here — that inert-locks main before the panel exists.
-    void invoke("open_frontend").catch((err) => {
-      setFrontendOpen(false);
-      console.error("open_frontend", err);
-    });
+    setFrontendOpen(true);
   }, [closeSettings, frontendOpen]);
 
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
-      if (frontendOpen && inTauri()) {
+      if (frontendOpen) {
         if (
           e.key === "Escape" ||
           e.key === "End" ||
@@ -148,20 +132,12 @@ export default function App() {
           closeFrontend();
           return;
         }
-        // Don't call focus_frontend on every key — FSE home focus fights freeze the app.
-        e.preventDefault();
-        return;
-      }
-      if (frontendOpen && !inTauri()) {
-        if (
-          e.key === "Escape" ||
-          e.key === "End" ||
-          e.key === "b" ||
-          e.key === "B" ||
-          (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h")
-        ) {
+        if (e.key === "ArrowLeft") moveDirectionalFocus(-1, 0);
+        if (e.key === "ArrowRight") moveDirectionalFocus(1, 0);
+        if (e.key === "ArrowUp") moveDirectionalFocus(0, -1);
+        if (e.key === "ArrowDown") moveDirectionalFocus(0, 1);
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
           e.preventDefault();
-          closeFrontend();
         }
         return;
       }
@@ -261,7 +237,7 @@ export default function App() {
   }, [intro, shiftTab, toggleSettings, toggleFrontend, closeFrontend, frontendOpen]);
 
   useGamepadNav({
-    enabled: intro === "done" && !(frontendOpen && inTauri()),
+    enabled: intro === "done",
     onBumperLeft: () => {
       if (!frontendOpen) shiftTab(-1);
     },
@@ -275,10 +251,7 @@ export default function App() {
       toggleSettings();
     },
     onStart: () => {
-      if (frontendOpen) {
-        if (!inTauri()) closeFrontend();
-        return;
-      }
+      if (frontendOpen) return;
       // Back+Start is handled by the Rust chord watcher — don't also open here.
       const pads = navigator.getGamepads?.() ?? [];
       const pad = pads.find(Boolean);
@@ -294,9 +267,8 @@ export default function App() {
       fileActions().toggleSelect?.();
     },
     onBack: () => {
-      // Tauri: frontend window owns B-to-close. Browser preview closes here.
       if (frontendOpen) {
-        if (!inTauri()) closeFrontend();
+        closeFrontend();
         return;
       }
       if (closePowerMenu()) return;
@@ -315,8 +287,9 @@ export default function App() {
 
   const m = text();
   const finishIntro = useCallback(() => setIntro("done"), []);
-  const previewFrontend = frontendOpen && !inTauri();
-  // Floating frontend window: lock main shell. Browser preview uses the same flag.
+  // Always use the in-app drawer for Start. Second WebView stays for in-game chord overlay only.
+  const previewFrontend = frontendOpen;
+  // Lock the library shell behind the drawer; the drawer itself stays interactive.
   const mainLocked = intro !== "done" || frontendOpen;
 
   return (
@@ -372,7 +345,7 @@ export default function App() {
     <div
       className={`drawer-root focus-trap ${settingsOpen ? "open" : ""}`}
       aria-hidden={!settingsOpen}
-      inert={intro !== "done" || (frontendOpen && inTauri()) || undefined}
+      inert={intro !== "done" || undefined}
     >
       <button
         type="button"

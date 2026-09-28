@@ -48,14 +48,32 @@ pub fn preload(app: &AppHandle) {
 #[tauri::command]
 pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
     let next = !FRONTEND_OPEN.load(Ordering::SeqCst);
+    // When FantasyHub itself is focused, prefer the in-app drawer (JS listens to frontend-state).
+    // A second WebView is often invisible under FSE exclusive fullscreen.
+    if next && window_focused(&app, "main") {
+        crate::logutil::write_line("toggle_frontend inline (main focused)");
+        FRONTEND_OPEN.store(false, Ordering::SeqCst);
+        let _ = app.emit("frontend-state", true);
+        return Ok(true);
+    }
+    if !next {
+        crate::logutil::write_line("toggle_frontend schedule -> false");
+        schedule_set_open(app, false, "toggle_frontend");
+        return Ok(false);
+    }
     crate::logutil::write_line(&format!("toggle_frontend schedule -> {next}"));
-    // Return immediately so the main WebView IPC cannot deadlock waiting on show/focus.
     schedule_set_open(app, next, "toggle_frontend");
     Ok(next)
 }
 
 #[tauri::command]
 pub async fn open_frontend(app: tauri::AppHandle) -> Result<(), String> {
+    if window_focused(&app, "main") {
+        crate::logutil::write_line("open_frontend inline (main focused)");
+        FRONTEND_OPEN.store(false, Ordering::SeqCst);
+        let _ = app.emit("frontend-state", true);
+        return Ok(());
+    }
     if FRONTEND_OPEN.load(Ordering::SeqCst) {
         crate::logutil::write_line("open_frontend (already open)");
         schedule_focus(app);
