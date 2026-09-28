@@ -2,7 +2,10 @@ param(
   [Parameter(Mandatory = $true)][string]$Msix,
   [Parameter(Mandatory = $true)][string]$Cer,
   [Parameter(Mandatory = $true)][string]$ExeDir,
-  [Parameter(Mandatory = $true)][string]$ExeName
+  [Parameter(Mandatory = $true)][string]$ExeName,
+  # Startup auto-register must NOT remove the package — Remove-AppxPackage kills
+  # FantasyHub mid-splash when it is already the FSE home app.
+  [switch]$Force
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -74,7 +77,22 @@ if ($devMode -ne 1) {
 $installed = Get-AppxPackage -Name "com.handheld.launcher" -ErrorAction SilentlyContinue | Select-Object -First 1
 $prev = ""
 if (Test-Path -LiteralPath $marker) { $prev = (Get-Content -LiteralPath $marker -Raw).Trim() }
-if ($installed -and $prev -eq $exePath) {
+
+function Paths-Equal([string]$a, [string]$b) {
+  if ([string]::IsNullOrWhiteSpace($a) -or [string]::IsNullOrWhiteSpace($b)) { return $false }
+  return ($a.TrimEnd('\') -ieq $b.TrimEnd('\'))
+}
+
+# Package already present: never Remove-AppxPackage unless -Force (settings re-register).
+# Auto startup used to remove+readd when the marker path differed (e.g. handheld-launcher.exe
+# vs FantasyHub.exe) and Windows terminated this process during the boot splash.
+if ($installed -and -not $Force) {
+  Set-Content -LiteralPath $marker -Value $exePath -Encoding ascii
+  Write-Detail "Already registered (skip remove). Package=$($installed.PackageFullName) Exe=$exePath Prev=$prev"
+  Write-Output "OK"
+  exit 0
+}
+if ($installed -and $Force -and (Paths-Equal $prev $exePath)) {
   Write-Detail "Already registered. Package=$($installed.PackageFullName) Exe=$exePath"
   Write-Output "OK"
   exit 0

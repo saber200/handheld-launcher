@@ -115,7 +115,8 @@ pub fn register_fse(app: tauri::AppHandle) -> String {
     #[cfg(windows)]
     {
         let dir = app.path().resource_dir().ok();
-        return windows::register_fse(dir.as_deref());
+        // Settings button: allow remove+readd. Startup auto path uses force=false.
+        return windows::register_fse(dir.as_deref(), true);
     }
     #[cfg(not(windows))]
     {
@@ -261,8 +262,10 @@ mod windows {
 
     pub fn schedule_fse_registration(resource_dir: Option<std::path::PathBuf>) {
         std::thread::spawn(move || {
+            // Delay so splash isn't racing package remove/re-add on slow disks.
+            std::thread::sleep(std::time::Duration::from_secs(2));
             ensure_fse_launch_alias();
-            let _ = register_fse(resource_dir.as_deref());
+            let _ = register_fse(resource_dir.as_deref(), false);
         });
     }
 
@@ -300,8 +303,8 @@ mod windows {
             .unwrap_or_else(|| pick("还没有登记到全屏体验。", "Not registered for fullscreen experience yet.").into())
     }
 
-    pub fn register_fse(resource_dir: Option<&std::path::Path>) -> String {
-        let result = match register_fse_inner(resource_dir) {
+    pub fn register_fse(resource_dir: Option<&std::path::Path>, force: bool) -> String {
+        let result = match register_fse_inner(resource_dir, force) {
             Ok(text) => text,
             Err(text) => text,
         };
@@ -318,7 +321,7 @@ mod windows {
         result
     }
 
-    fn register_fse_inner(resource_dir: Option<&std::path::Path>) -> Result<String, String> {
+    fn register_fse_inner(resource_dir: Option<&std::path::Path>, force: bool) -> Result<String, String> {
         ensure_fse_launch_alias();
         let (msix, cer) = fse_payload(resource_dir)?;
         let exe = std::env::current_exe().map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
@@ -340,26 +343,31 @@ mod windows {
         let cer_arg = for_powershell_path(&cer);
         let exe_dir_arg = for_powershell_path(exe_dir);
         crate::logutil::write_line(&format!(
-            "fse register begin msix={msix_arg} cer={cer_arg} exe={}",
+            "fse register begin force={force} msix={msix_arg} cer={cer_arg} exe={}",
             for_powershell_path(&exe)
         ));
-        let output = hidden(&mut Command::new("powershell.exe"))
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-            ])
-            .arg(&script)
-            .arg("-Msix")
-            .arg(&msix_arg)
-            .arg("-Cer")
-            .arg(&cer_arg)
-            .arg("-ExeDir")
-            .arg(&exe_dir_arg)
-            .arg("-ExeName")
-            .arg(exe_name)
+        let mut command = Command::new("powershell.exe");
+        let cmd = hidden(&mut command);
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(&script)
+        .arg("-Msix")
+        .arg(&msix_arg)
+        .arg("-Cer")
+        .arg(&cer_arg)
+        .arg("-ExeDir")
+        .arg(&exe_dir_arg)
+        .arg("-ExeName")
+        .arg(exe_name);
+        if force {
+            cmd.arg("-Force");
+        }
+        let output = cmd
             .output()
             .map_err(|err| pick(&format!("无法登记：{err}"), &format!("Couldn't register: {err}")))?;
         let token = ps_token(&output.stdout);

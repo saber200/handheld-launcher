@@ -1,4 +1,4 @@
-# 进度对照（v0.1.29）
+# 进度对照（v0.1.30）
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
@@ -81,6 +81,7 @@
 
 ## 近期改动备忘
 
+- 0.1.30：设为 FSE 主应用后开屏闪退 → 启动自动登记不再 `Remove-AppxPackage`（会杀掉本进程）
 - 0.1.29：FSE 主应用开机找不到 exe → 二进制改为 `FantasyHub.exe`，并给旧安装写别名拷贝
 - 0.1.28：前端手柄竞态 + `focus-trap open`；FSE SCCD → `2018/sccd`；Game++ 记入 FUTURE 延后
 - 前端预创建隐藏窗；TDP WinRing0 安装；FSE CI 打身份包
