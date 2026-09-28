@@ -134,7 +134,7 @@ fn schedule_set_open(app: AppHandle, open: bool, reason: &str) {
 }
 
 fn schedule_focus(app: AppHandle) {
-    let _ = app.run_on_main_thread(move || {
+    let _ = app.clone().run_on_main_thread(move || {
         let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
             return;
         };
