@@ -58,8 +58,24 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
             }
             WindowEvent::Focused(true) => {
                 // Do NOT focus_frontend here — under FSE that focus fight freezes the UI.
-                if !frontend::frontend_visible(&app_handle) && scan::take_fullscreen_resume() {
+                if frontend::frontend_visible(&app_handle) {
+                    // Overlay is up — keep the FSE shell tucked so it cannot cover the float.
+                    if scan::away_session_active() {
+                        scan::rehide_shell_if_away(&app_handle);
+                    }
+                    return;
+                }
+                // Launch path hides the shell. FSE often force-focuses us right away —
+                // re-hide during the suppress window so the game keeps the foreground.
+                if scan::away_session_active() {
+                    if scan::away_suppress_active() {
+                        scan::rehide_shell_if_away(&app_handle);
+                        return;
+                    }
+                    // Suppress expired and user is back on the shell — restore fullscreen.
+                    scan::clear_away_session();
                     startup::fill_screen(&watched);
+                    return;
                 }
             }
             _ => {}
@@ -71,9 +87,11 @@ fn reveal_running_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
+    scan::clear_away_session();
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
+    startup::fill_screen(&window);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

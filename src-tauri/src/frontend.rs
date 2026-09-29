@@ -55,8 +55,8 @@ pub fn preload(app: &AppHandle) {
 
 #[tauri::command]
 pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
-    // Main shell owns the in-app drawer via JS. Float only when FantasyHub is not focused.
-    if window_focused(&app, "main") {
+    // Main shell owns the in-app drawer via JS. Float only when FantasyHub is not foreground.
+    if shell_is_foreground(&app) {
         crate::logutil::write_line("toggle_frontend ignored (main owns drawer)");
         return Ok(false);
     }
@@ -68,8 +68,8 @@ pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn open_frontend(app: tauri::AppHandle) -> Result<(), String> {
-    if window_focused(&app, "main") {
-        crate::logutil::write_line("open_frontend inline (main focused)");
+    if shell_is_foreground(&app) {
+        crate::logutil::write_line("open_frontend inline (main foreground)");
         // Never open the second WebView over FSE home — it ducks fullscreen and freezes.
         FRONTEND_OPEN.store(false, Ordering::SeqCst);
         emit_state(&app, true, "inline");
@@ -121,7 +121,7 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
                     if shortcut.matches(Modifiers::CONTROL, Code::KeyH) {
                         // Main shell already toggles the in-app drawer on Ctrl+H.
                         // Outside main, toggle the floating overlay.
-                        if window_focused(app, "main") {
+                        if shell_is_foreground(app) {
                             return;
                         }
                         schedule_set_open(
@@ -167,7 +167,11 @@ fn schedule_focus(app: AppHandle) {
         if FRONTEND_OPEN.load(Ordering::SeqCst) {
             let _ = window.set_always_on_top(true);
             #[cfg(windows)]
-            force_topmost(&window);
+            {
+                force_topmost(&window);
+                steal_foreground(&window);
+                force_topmost(&window);
+            }
             let _ = window.set_focus();
         }
     });
@@ -240,6 +244,8 @@ fn show(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
         return Err(pick("前端窗口还没准备好", "Frontend window is not ready yet."));
     };
+    // ONEX-style: release FSE exclusive shell before the overlay can sit above other apps.
+    yield_shell_for_overlay(app);
     crate::logutil::write_line("frontend show: place");
     place(&window, app);
     crate::logutil::write_line("frontend show: show()");
@@ -249,7 +255,11 @@ fn show(app: &AppHandle) -> Result<(), String> {
     force_topmost(&window);
     let _ = window.set_focus();
     #[cfg(windows)]
-    force_topmost(&window);
+    {
+        force_topmost(&window);
+        steal_foreground(&window);
+        force_topmost(&window);
+    }
     FRONTEND_OPEN.store(true, Ordering::SeqCst);
     crate::logutil::write_line("frontend shown");
     Ok(())
@@ -265,17 +275,38 @@ fn hide(app: &AppHandle) {
     focus_main_if_idle(app);
 }
 
+/// Hide + leave fullscreen so FSE stops owning the display; overlay can then TOPMOST over games.
+fn yield_shell_for_overlay(app: &AppHandle) {
+    #[cfg(windows)]
+    {
+        crate::scan::begin_away_session(app);
+        crate::logutil::write_line("frontend: yielded shell for overlay");
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+    }
+}
+
 #[cfg(windows)]
 fn force_topmost(window: &WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+        GetAncestor, GetWindowLongW, SetWindowLongW, SetWindowPos, GA_ROOT, GWL_EXSTYLE,
+        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_EX_TOPMOST,
     };
     let Ok(hwnd) = window.hwnd() else {
         return;
     };
     unsafe {
+        let mut hwnd = hwnd.0 as _;
+        let root = GetAncestor(hwnd, GA_ROOT);
+        if !root.is_null() {
+            hwnd = root;
+        }
+        let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_TOPMOST as i32);
         SetWindowPos(
-            hwnd.0 as _,
+            hwnd,
             HWND_TOPMOST,
             0,
             0,
@@ -283,6 +314,51 @@ fn force_topmost(window: &WebviewWindow) {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
         );
+    }
+}
+
+#[cfg(windows)]
+fn steal_foreground(window: &WebviewWindow) {
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        keybd_event, SetActiveWindow, KEYEVENTF_KEYUP, VK_MENU,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        AllowSetForegroundWindow, BringWindowToTop, GetAncestor, GetForegroundWindow,
+        GetWindowThreadProcessId, SetForegroundWindow, ASFW_ANY, GA_ROOT,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        let mut hwnd = hwnd.0 as _;
+        let root = GetAncestor(hwnd, GA_ROOT);
+        if !root.is_null() {
+            hwnd = root;
+        }
+        AllowSetForegroundWindow(ASFW_ANY);
+        keybd_event(VK_MENU as u8, 0, 0, 0);
+        keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
+        let foreground = GetForegroundWindow();
+        let foreground_thread = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+        let target_thread = GetWindowThreadProcessId(hwnd, std::ptr::null_mut());
+        let current = GetCurrentThreadId();
+        let attach_fg = foreground_thread != 0
+            && foreground_thread != current
+            && AttachThreadInput(current, foreground_thread, 1) != 0;
+        let attach_tg = target_thread != 0
+            && target_thread != current
+            && target_thread != foreground_thread
+            && AttachThreadInput(current, target_thread, 1) != 0;
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+        SetActiveWindow(hwnd);
+        if attach_tg {
+            AttachThreadInput(current, target_thread, 0);
+        }
+        if attach_fg {
+            AttachThreadInput(current, foreground_thread, 0);
+        }
     }
 }
 
@@ -311,6 +387,9 @@ fn attach(window: &WebviewWindow, app: &AppHandle) {
 }
 
 fn focus_main_if_idle(app: &AppHandle) {
+    if crate::scan::away_session_active() {
+        return;
+    }
     let Some(main) = app.get_webview_window("main") else {
         return;
     };
@@ -321,6 +400,54 @@ fn focus_main_if_idle(app: &AppHandle) {
     }
 }
 
+/// True when the library shell (not the float overlay) owns the foreground.
+fn shell_is_foreground(app: &AppHandle) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, GetForegroundWindow, IsChild, GA_ROOT,
+        };
+        let Some(main) = app.get_webview_window("main") else {
+            return false;
+        };
+        if !main.is_visible().unwrap_or(false) || main.is_minimized().unwrap_or(false) {
+            return false;
+        }
+        let Ok(main_raw) = main.hwnd() else {
+            return window_focused(app, "main");
+        };
+        unsafe {
+            let fg = GetForegroundWindow();
+            if fg.is_null() {
+                return false;
+            }
+            // Float overlay owns input — not the shell drawer.
+            if let Some(front) = app.get_webview_window(FRONTEND_LABEL) {
+                if let Ok(front_raw) = front.hwnd() {
+                    let mut front_hwnd = front_raw.0 as _;
+                    let root = GetAncestor(front_hwnd, GA_ROOT);
+                    if !root.is_null() {
+                        front_hwnd = root;
+                    }
+                    if fg == front_hwnd || IsChild(front_hwnd, fg) != 0 {
+                        return false;
+                    }
+                }
+            }
+            let mut main_hwnd = main_raw.0 as _;
+            let root = GetAncestor(main_hwnd, GA_ROOT);
+            if !root.is_null() {
+                main_hwnd = root;
+            }
+            fg == main_hwnd || IsChild(main_hwnd, fg) != 0
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        window_focused(app, "main")
+    }
+}
+
 fn window_focused(app: &AppHandle, label: &str) -> bool {
     app.get_webview_window(label)
         .and_then(|window| window.is_focused().ok())
@@ -328,10 +455,11 @@ fn window_focused(app: &AppHandle, label: &str) -> bool {
 }
 
 fn place(window: &WebviewWindow, app: &AppHandle) {
-    // Prefer the main window's monitor. Asking a hidden frontend window for
-    // current_monitor() has hung under FSE home / exclusive fullscreen.
+    // Prefer the main window's monitor when it is visible. Asking a hidden window
+    // for current_monitor() has hung under FSE home / exclusive fullscreen.
     let monitor = app
         .get_webview_window("main")
+        .filter(|main| main.is_visible().unwrap_or(false))
         .and_then(|main| main.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else {
@@ -426,11 +554,11 @@ fn start_chord_watch(app: AppHandle) {
                 }
             }
             if pressed && !held {
-                // Only ignore while the library shell is focused (Start opens the
+                // Only ignore while the library shell is foreground (Start opens the
                 // in-app drawer there). When a game is up — or the floating
                 // frontend itself is focused — Back+Start toggles the overlay.
-                if window_focused(&app, "main") {
-                    crate::logutil::write_line("chord Back+Start ignored (main focused)");
+                if shell_is_foreground(&app) {
+                    crate::logutil::write_line("chord Back+Start ignored (main foreground)");
                 } else {
                     crate::logutil::write_line("chord Back+Start");
                     schedule_set_open(

@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 
 use crate::i18n::pick;
 
-/// Set after a launch leaves fullscreen. A later focus restores it once.
-pub static RESUME_FULLSCREEN: AtomicBool = AtomicBool::new(false);
-static RESUME_NOT_BEFORE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Shell is tucked (hidden) so a game / other app can keep focus under FSE.
+static AWAY_SESSION: AtomicBool = AtomicBool::new(false);
+/// While set, FSE may force-focus us — re-hide instead of filling the screen.
+static AWAY_SUPPRESS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static RECENT_LAUNCHES: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
 
 fn unix_ms() -> u64 {
@@ -20,15 +21,58 @@ fn unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn take_fullscreen_resume() -> bool {
-    if !RESUME_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed) {
-        return false;
+pub fn away_session_active() -> bool {
+    AWAY_SESSION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn away_suppress_active() -> bool {
+    unix_ms() < AWAY_SUPPRESS_UNTIL.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn clear_away_session() {
+    AWAY_SESSION.store(false, std::sync::atomic::Ordering::Relaxed);
+    AWAY_SUPPRESS_UNTIL.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Leave exclusive fullscreen and hide — never minimize under FSE (it snaps back and steals focus).
+#[cfg(windows)]
+pub fn begin_away_session(app: &tauri::AppHandle) {
+    leave_fullscreen(app);
+    if let Some(window) = launcher_window(app) {
+        let _ = window.hide();
     }
-    if unix_ms() < RESUME_NOT_BEFORE.load(std::sync::atomic::Ordering::Relaxed) {
-        return false;
+    AWAY_SESSION.store(true, std::sync::atomic::Ordering::Relaxed);
+    AWAY_SUPPRESS_UNTIL.store(
+        unix_ms().saturating_add(3000),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    crate::logutil::write_line("away session: hide shell (no minimize)");
+}
+
+#[cfg(windows)]
+pub fn restore_shell(app: &tauri::AppHandle) {
+    clear_away_session();
+    if let Some(window) = launcher_window(app) {
+        crate::startup::fill_screen(&window);
     }
-    RESUME_FULLSCREEN.store(false, std::sync::atomic::Ordering::Relaxed);
-    true
+}
+
+/// FSE forced focus during launch suppress — tuck again so the game keeps the foreground.
+pub fn rehide_shell_if_away(app: &tauri::AppHandle) {
+    #[cfg(windows)]
+    {
+        if !away_session_active() {
+            return;
+        }
+        if let Some(window) = launcher_window(app) {
+            let _ = window.hide();
+            crate::logutil::write_line("away session: re-hide after FSE focus");
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -157,28 +201,19 @@ pub fn launch_item(
                 GamePresence::Absent if launched_recently(&id) => return Ok("running".into()),
                 GamePresence::Absent => {}
                 GamePresence::Focused | GamePresence::Running => {
-                    leave_fullscreen(&app);
-                    if let Some(window) = launcher_window(&app) {
-                        let _ = window.minimize();
-                    }
+                    begin_away_session(&app);
                     let switched = windows::reveal_game(&id, &launch_path, &install_path);
-                    arm_fullscreen_resume();
                     return Ok(if switched { "focused".into() } else { "running".into() });
                 }
             }
         }
-        // Tuck the launcher first — otherwise FSE / fullscreen keeps focus and
-        // the game (or Back+Start frontend) never reaches the screen.
-        leave_fullscreen(&app);
-        if let Some(window) = launcher_window(&app) {
-            let _ = window.minimize();
-        }
+        // Hide (not minimize) — FSE restores minimized windows and steals focus back.
+        begin_away_session(&app);
         if let Err(err) = windows::launch(&id, &launch_path, &install_path) {
-            restore_fullscreen(&app);
+            restore_shell(&app);
             return Err(err);
         }
         remember_launch(&id);
-        arm_fullscreen_resume();
         return Ok("launched".into());
     }
     #[cfg(not(windows))]
@@ -199,19 +234,6 @@ fn leave_fullscreen(app: &tauri::AppHandle) {
     if let Some(window) = launcher_window(app) {
         let _ = window.set_fullscreen(false);
     }
-}
-
-#[cfg(windows)]
-fn restore_fullscreen(app: &tauri::AppHandle) {
-    if let Some(window) = launcher_window(app) {
-        crate::startup::fill_screen(&window);
-    }
-}
-
-#[cfg(windows)]
-fn arm_fullscreen_resume() {
-    RESUME_NOT_BEFORE.store(unix_ms().saturating_add(1200), std::sync::atomic::Ordering::Relaxed);
-    RESUME_FULLSCREEN.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Steam and Epic ids become launcher URLs. Anything else is started from its exe.
