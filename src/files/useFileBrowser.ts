@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
+import { playSfx } from "../audio/sfx";
 import { currentLocale, text, useI18n } from "../i18n";
 
 export type FileEntry = {
@@ -335,6 +336,7 @@ export function useFileBrowser() {
       }
       setTree(next);
       if (clip.mode === "move") setClip(null);
+      playSfx("paste");
       setNote(
         clip.items.length === 1
           ? clip.mode === "copy"
@@ -366,6 +368,7 @@ export function useFileBrowser() {
     }
     setPendingFocus(clip.items.find((item) => done.includes(item.path))?.name ?? "");
     const t = text().files;
+    if (done.length > 0 && !failure) playSfx("paste");
     setNote(
       failure
         ? done.length > 0

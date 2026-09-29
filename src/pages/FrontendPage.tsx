@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { playSfx, playSwitch, startLoadingSfx, stopLoadingSfx } from "../audio/sfx";
 import { text } from "../i18n";
 import { ToolboxPanel } from "./ToolboxPanel";
 
@@ -87,12 +88,15 @@ export function FrontendPage({ active }: Props) {
     setDriverBusy(true);
     const already = Boolean(driver?.installed);
     setStatus(already ? m.tdpDriverStarting : m.tdpDriverInstalling);
+    startLoadingSfx();
     try {
       const next = await invoke<TdpDriverStatus>("toolbox_install_tdp_driver");
       setDriver(next);
       setStatus(next.message);
+      stopLoadingSfx(next.ready);
       if (next.ready) refreshTdp();
     } catch (err) {
+      stopLoadingSfx(false);
       setStatus(m.toolboxFailed(String(err)));
       refreshDriver();
     } finally {
@@ -105,6 +109,7 @@ export function FrontendPage({ active }: Props) {
     const maxW = tdp?.maxW ?? FALLBACK_MAX;
     const next = Math.min(maxW, Math.max(minW, Math.round(watts)));
     setDraft(next);
+    playSfx("click");
     if (!inTauri()) {
       return;
     }
@@ -114,6 +119,7 @@ export function FrontendPage({ active }: Props) {
       setTdp(info);
       setDraft(info.watts ?? next);
       setStatus(info.message);
+      playSfx("done");
     } catch (err) {
       setStatus(m.tdpFailed(String(err)));
     } finally {
@@ -231,7 +237,12 @@ export function FrontendPage({ active }: Props) {
           type="button"
           className="setting-row"
           data-focusable
-          onClick={() => setToolboxOpen((open) => !open)}
+          onClick={() => {
+            setToolboxOpen((open) => {
+              playSwitch(!open);
+              return !open;
+            });
+          }}
         >
           <span>
             <strong>{m.toolbox}</strong>

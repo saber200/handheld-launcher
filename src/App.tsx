@@ -14,6 +14,7 @@ import { fileActions } from "./files/actions";
 import { libraryActions } from "./library/actions";
 import { TABS, type TabId } from "./types";
 import { text, useI18n } from "./i18n";
+import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -31,9 +32,14 @@ export default function App() {
     setTab((current) => {
       const index = TABS.findIndex((item) => item.id === current);
       const next = (index + dir + TABS.length) % TABS.length;
+      playSfx("tab");
       return TABS[next].id;
     });
   }, [frontendOpen]);
+
+  useEffect(() => {
+    preloadSfx();
+  }, []);
 
   useEffect(() => {
     let cancel = false;
@@ -61,7 +67,13 @@ export default function App() {
     if (!inTauri()) return;
     let cancel = false;
     const unlisten = listen<boolean>("frontend-state", (event) => {
-      if (!cancel) setFrontendOpen(Boolean(event.payload));
+      if (cancel) return;
+      const open = Boolean(event.payload);
+      setFrontendOpen((was) => {
+        if (open && !was) playSwitch(true);
+        if (!open && was) playSwitch(false);
+        return open;
+      });
     });
     return () => {
       cancel = true;
@@ -77,21 +89,29 @@ export default function App() {
   const closeSettings = useCallback(() => {
     const active = document.activeElement as HTMLElement | null;
     if (active?.closest(".drawer-root")) active.blur();
-    setSettingsOpen(false);
+    setSettingsOpen((open) => {
+      if (open) playSwitch(false);
+      return false;
+    });
   }, []);
 
   const toggleSettings = useCallback(() => {
     if (frontendOpen) return;
     setSettingsOpen((open) => {
-      if (!open) return true;
+      if (!open) {
+        playSwitch(true);
+        return true;
+      }
       const active = document.activeElement as HTMLElement | null;
       if (active?.closest(".drawer-root")) active.blur();
+      playSwitch(false);
       return false;
     });
   }, [frontendOpen]);
 
   const closeFrontend = useCallback(() => {
     setFrontendOpen(false);
+    playSwitch(false);
     if (inTauri()) void invoke("close_frontend").catch(() => {});
   }, []);
 
@@ -124,6 +144,7 @@ export default function App() {
     closeSettings();
     if (!inTauri()) {
       setFrontendOpen(true);
+      playSwitch(true);
       return;
     }
     // Do not setFrontendOpen(true) here — that inert-locks main before the panel exists.
@@ -342,7 +363,11 @@ export default function App() {
               role="tab"
               aria-selected={tab === item.id}
               className="tab"
-              onClick={() => setTab(item.id)}
+              onClick={() => {
+                if (item.id === tab) return;
+                playSfx("tab");
+                setTab(item.id);
+              }}
             >
               {m.tabs[item.id]}
             </button>

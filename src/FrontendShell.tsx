@@ -11,6 +11,7 @@ import {
   useGamepadNav,
 } from "./hooks/useGamepadNav";
 import { text, useI18n } from "./i18n";
+import { preloadSfx } from "./audio/sfx";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -51,6 +52,10 @@ export function FrontendShell() {
     if (bMustRelease.current) return;
     close();
   }, [close]);
+
+  useEffect(() => {
+    preloadSfx();
+  }, []);
 
   useEffect(() => {
     if (!inTauri()) {

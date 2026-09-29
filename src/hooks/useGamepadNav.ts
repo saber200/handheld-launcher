@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { playSfx } from "../audio/sfx";
 
 type Options = {
   onBack?: () => void;
@@ -197,7 +198,10 @@ export function confirmFocused() {
     return;
   }
   const el = document.activeElement as HTMLElement | null;
-  if (el && visibleFocusables().includes(el)) el.click();
+  if (el && visibleFocusables().includes(el)) {
+    playSfx("click");
+    el.click();
+  }
 }
 
 /** Leave the on-screen keyboard and return focus to a button. */
@@ -211,6 +215,15 @@ export function leaveTextEntry(): boolean {
   return true;
 }
 
+function focusWithSfx(el: HTMLElement | null | undefined) {
+  if (!el) return;
+  const before = document.activeElement;
+  el.focus();
+  if (document.activeElement === el && document.activeElement !== before) {
+    playSfx("click");
+  }
+}
+
 export function moveDirectionalFocus(dx: number, dy: number) {
   const nodes = visibleFocusables();
   if (nodes.length === 0) return;
@@ -218,7 +231,7 @@ export function moveDirectionalFocus(dx: number, dy: number) {
   const active = document.activeElement as HTMLElement | null;
   const index = nodes.findIndex((node) => node === active);
   if (index < 0) {
-    nodes[0]?.focus();
+    focusWithSfx(nodes[0]);
     return;
   }
 
@@ -230,10 +243,10 @@ export function moveDirectionalFocus(dx: number, dy: number) {
   if (dx !== 0) {
     const next = local + dx;
     if (next < 0 || next >= pool.length) {
-      if (!trapped && !here) pool[(next + pool.length) % pool.length]?.focus();
+      if (!trapped && !here) focusWithSfx(pool[(next + pool.length) % pool.length]);
       return;
     }
-    pool[next]?.focus();
+    focusWithSfx(pool[next]);
     return;
   }
 
@@ -267,19 +280,19 @@ export function moveDirectionalFocus(dx: number, dy: number) {
     }),
   );
   if (sameZone) {
-    sameZone.focus();
+    focusWithSfx(sameZone);
     return;
   }
 
   if (here) {
     const other = nearest(nodes.filter((node) => focusZone(node) !== here));
-    other?.focus();
+    focusWithSfx(other);
     return;
   }
 
   if (!trapped) {
     const next = index + dy;
-    nodes[(next + nodes.length) % nodes.length]?.focus();
+    focusWithSfx(nodes[(next + nodes.length) % nodes.length]);
   }
 }
 

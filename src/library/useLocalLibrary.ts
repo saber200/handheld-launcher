@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { playSfx, startLoadingSfx, stopLoadingSfx } from "../audio/sfx";
 import { PREVIEW_APPS, type AppEntry } from "../data/previewApps";
 import { PREVIEW_GAMES, type GameEntry } from "../data/previewGames";
 import { parentPath } from "../files/useFileBrowser";
@@ -63,6 +64,7 @@ export async function launchLibraryItem(item: {
       installPath: item.installPath ?? "",
       switchIfRunning: item.switchIfRunning ?? false,
     });
+    playSfx("done");
     if (outcome === "focused") return text().library.switched(item.name);
     if (outcome === "running") return text().library.alreadyRunning(item.name);
     return text().library.launched(item.name);
@@ -200,6 +202,7 @@ function useScanned<TRaw, T extends { name: string }>(
   const run = useCallback(
     (cancel: { current: boolean }) => {
       setScanning(true);
+      startLoadingSfx();
       setError("");
       invoke<TRaw[]>(command)
         .then((rows) => finish(rows, cancel))
@@ -207,7 +210,10 @@ function useScanned<TRaw, T extends { name: string }>(
           if (!cancel.current) setError(formatError(err));
         })
         .finally(() => {
-          if (!cancel.current) setScanning(false);
+          if (!cancel.current) {
+            setScanning(false);
+            stopLoadingSfx(true);
+          }
         });
     },
     [command, finish],

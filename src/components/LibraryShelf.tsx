@@ -4,6 +4,7 @@ import { setLibraryActions } from "../library/actions";
 import { useLibraryGroups } from "../library/useLibraryGroups";
 import type { PickedProgram } from "../library/useLocalLibrary";
 import { text } from "../i18n";
+import { playSfx } from "../audio/sfx";
 
 type Item = { id: string; name: string };
 
@@ -107,6 +108,7 @@ export function LibraryShelf<T extends Item>({
       cycleGroup: (dir) => {
         if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return;
         library.cycle(dir);
+        playSfx("click");
       },
       openCardMenu: () => {
         if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return false;
@@ -262,7 +264,11 @@ export function LibraryShelf<T extends Item>({
               aria-selected={library.activeId === "all"}
               className={library.activeId === "all" ? "group-chip is-current" : "group-chip"}
               data-focusable
-              onClick={() => library.setActive("all")}
+              onClick={() => {
+                if (library.activeId === "all") return;
+                playSfx("click");
+                library.setActive("all");
+              }}
             >
               {text().library.all}
             </button>
@@ -274,7 +280,11 @@ export function LibraryShelf<T extends Item>({
                 aria-selected={library.activeId === group.id}
                 className={library.activeId === group.id ? "group-chip is-current" : "group-chip"}
                 data-focusable
-                onClick={() => library.setActive(group.id)}
+                onClick={() => {
+                  if (library.activeId === group.id) return;
+                  playSfx("click");
+                  library.setActive(group.id);
+                }}
               >
                 {group.name}
               </button>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { text, useI18n } from "../i18n";
+import { playSwitch } from "../audio/sfx";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -71,6 +72,7 @@ export function SettingsPage({ active }: Props) {
       await invoke("set_autostart", { enabled: !autostart });
       const on = await invoke<boolean>("autostart_enabled");
       setAutostart(on);
+      playSwitch(on);
       setMessage(
         on
           ? text().settings.autostartOn
@@ -176,7 +178,11 @@ export function SettingsPage({ active }: Props) {
               type="button"
               className={locale === "zh" ? "switch on" : "switch"}
               data-focusable
-              onClick={() => setLocale("zh")}
+              onClick={() => {
+                if (locale === "zh") return;
+                playSwitch(true);
+                setLocale("zh");
+              }}
             >
               中文
             </button>
@@ -184,7 +190,11 @@ export function SettingsPage({ active }: Props) {
               type="button"
               className={locale === "en" ? "switch on" : "switch"}
               data-focusable
-              onClick={() => setLocale("en")}
+              onClick={() => {
+                if (locale === "en") return;
+                playSwitch(true);
+                setLocale("en");
+              }}
             >
               English
             </button>
@@ -302,7 +312,12 @@ export function SettingsPage({ active }: Props) {
             data-focusable
             aria-label={text().power.menu}
             aria-expanded={powerOpen}
-            onClick={() => setPowerOpen((open) => !open)}
+            onClick={() => {
+              setPowerOpen((open) => {
+                playSwitch(!open);
+                return !open;
+              });
+            }}
           >
             ⏻
           </button>
