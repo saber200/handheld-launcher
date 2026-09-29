@@ -20,11 +20,26 @@ function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+type FrontendSurface = "none" | "inline" | "float";
+
+type FrontendStatePayload = boolean | { open: boolean; surface?: string };
+
+function parseFrontendState(payload: FrontendStatePayload): { open: boolean; surface: FrontendSurface } {
+  if (typeof payload === "boolean") {
+    return { open: payload, surface: payload ? "float" : "none" };
+  }
+  const open = Boolean(payload.open);
+  const raw = payload.surface ?? (open ? "inline" : "none");
+  const surface: FrontendSurface = raw === "float" ? "float" : open ? "inline" : "none";
+  return { open, surface };
+}
+
 export default function App() {
   useI18n();
   const [tab, setTab] = useState<TabId>("games");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [frontendOpen, setFrontendOpen] = useState(false);
+  const [frontendSurface, setFrontendSurface] = useState<FrontendSurface>("none");
   const [intro, setIntro] = useState<"wait" | "play" | "done">("wait");
 
   const shiftTab = useCallback((dir: -1 | 1) => {
@@ -66,13 +81,14 @@ export default function App() {
   useEffect(() => {
     if (!inTauri()) return;
     let cancel = false;
-    const unlisten = listen<boolean>("frontend-state", (event) => {
+    const unlisten = listen<FrontendStatePayload>("frontend-state", (event) => {
       if (cancel) return;
-      const open = Boolean(event.payload);
+      const next = parseFrontendState(event.payload);
+      setFrontendSurface(next.surface);
       setFrontendOpen((was) => {
-        if (open && !was) playSwitch(true);
-        if (!open && was) playSwitch(false);
-        return open;
+        if (next.open && !was) playSwitch(true);
+        if (!next.open && was) playSwitch(false);
+        return next.open;
       });
     });
     return () => {
@@ -82,9 +98,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!frontendOpen || inTauri()) return;
+    if (!frontendOpen || frontendSurface === "float") return;
     document.querySelector<HTMLElement>(".frontend-preview [data-focusable]")?.focus();
-  }, [frontendOpen]);
+  }, [frontendOpen, frontendSurface]);
 
   const closeSettings = useCallback(() => {
     const active = document.activeElement as HTMLElement | null;
@@ -111,6 +127,7 @@ export default function App() {
 
   const closeFrontend = useCallback(() => {
     setFrontendOpen(false);
+    setFrontendSurface("none");
     playSwitch(false);
     if (inTauri()) void invoke("close_frontend").catch(() => {});
   }, []);
@@ -120,22 +137,24 @@ export default function App() {
     fileActions().dismiss?.();
     libraryActions().closeDialog?.();
     closeSettings();
-    if (!inTauri()) {
-      setFrontendOpen((open) => !open);
-      return;
-    }
     if (frontendOpen) {
       closeFrontend();
       return;
     }
-    // Floating window; frontend-state sets the real open flag.
+    if (!inTauri()) {
+      setFrontendOpen(true);
+      setFrontendSurface("inline");
+      playSwitch(true);
+      return;
+    }
     void invoke("open_frontend").catch((err) => {
       setFrontendOpen(false);
+      setFrontendSurface("none");
       console.error("open_frontend", err);
     });
   }, [closeSettings, closeFrontend, frontendOpen]);
 
-  /** Start opens the independent always-on-top frontend window (covers other apps). */
+  /** Start: in-app drawer when focused (FSE-safe). Float is for in-game Back+Start only. */
   const openFrontend = useCallback(() => {
     if (frontendOpen) return;
     if (fileActions().blocksTabs?.()) return;
@@ -144,12 +163,13 @@ export default function App() {
     closeSettings();
     if (!inTauri()) {
       setFrontendOpen(true);
+      setFrontendSurface("inline");
       playSwitch(true);
       return;
     }
-    // Do not setFrontendOpen(true) here — that inert-locks main before the panel exists.
     void invoke("open_frontend").catch((err) => {
       setFrontendOpen(false);
+      setFrontendSurface("none");
       console.error("open_frontend", err);
     });
   }, [closeSettings, frontendOpen]);
@@ -157,7 +177,7 @@ export default function App() {
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
-      if (frontendOpen && inTauri()) {
+      if (frontendOpen) {
         if (
           e.key === "Escape" ||
           e.key === "End" ||
@@ -169,20 +189,8 @@ export default function App() {
           closeFrontend();
           return;
         }
-        // Don't steal focus back to the float on every key — FSE focus fights freeze the app.
-        e.preventDefault();
-        return;
-      }
-      if (frontendOpen && !inTauri()) {
-        if (
-          e.key === "Escape" ||
-          e.key === "End" ||
-          e.key === "b" ||
-          e.key === "B" ||
-          (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h")
-        ) {
+        if (frontendSurface === "float") {
           e.preventDefault();
-          closeFrontend();
           return;
         }
         if (e.key === "ArrowLeft") moveDirectionalFocus(-1, 0);
@@ -287,11 +295,13 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [intro, shiftTab, toggleSettings, toggleFrontend, closeFrontend, frontendOpen]);
+  }, [intro, shiftTab, toggleSettings, toggleFrontend, closeFrontend, frontendOpen, frontendSurface]);
+
+  const floatFrontend = frontendOpen && frontendSurface === "float";
 
   useGamepadNav({
-    // Tauri: floating frontend owns pad input via XInput bridge.
-    enabled: intro === "done" && !(frontendOpen && inTauri()),
+    // Float window owns pad via XInput. Inline drawer stays on the main shell.
+    enabled: intro === "done" && !floatFrontend,
     onBumperLeft: () => {
       if (!frontendOpen) shiftTab(-1);
     },
@@ -310,7 +320,7 @@ export default function App() {
       const pad = pads.find(Boolean);
       if (pad?.buttons[8]?.pressed) return;
       if (frontendOpen) {
-        if (!inTauri()) closeFrontend();
+        closeFrontend();
         return;
       }
       openFrontend();
@@ -324,9 +334,8 @@ export default function App() {
       fileActions().toggleSelect?.();
     },
     onBack: () => {
-      // Tauri: frontend window owns B-to-close. Browser preview closes here.
       if (frontendOpen) {
-        if (!inTauri()) closeFrontend();
+        closeFrontend();
         return;
       }
       if (closePowerMenu()) return;
@@ -345,9 +354,8 @@ export default function App() {
 
   const m = text();
   const finishIntro = useCallback(() => setIntro("done"), []);
-  // Browser-only preview drawer. Desktop uses the independent always-on-top WebView.
-  const previewFrontend = frontendOpen && !inTauri();
-  // Floating frontend open: lock main shell.
+  // Inline drawer on main (FSE-safe). Float surface is a separate always-on-top WebView.
+  const previewFrontend = frontendOpen && frontendSurface !== "float";
   const mainLocked = intro !== "done" || frontendOpen;
 
   return (

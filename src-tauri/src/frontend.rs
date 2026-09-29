@@ -13,8 +13,14 @@ const FRONTEND_WIDTH: f64 = 440.0;
 
 static FRONTEND_OPEN: AtomicBool = AtomicBool::new(false);
 static PRELOAD_STARTED: AtomicBool = AtomicBool::new(false);
-/// Main left exclusive fullscreen so the floating overlay can paint above it.
-static DUCKED_MAIN: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontendStateEvent {
+    open: bool,
+    /// "inline" = in-app drawer on main; "float" = always-on-top overlay window.
+    surface: &'static str,
+}
 
 #[derive(Clone, Copy, Serialize)]
 struct FrontendPad {
@@ -49,29 +55,44 @@ pub fn preload(app: &AppHandle) {
 
 #[tauri::command]
 pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
+    // Main shell owns the in-app drawer via JS. Float only when FantasyHub is not focused.
+    if window_focused(&app, "main") {
+        crate::logutil::write_line("toggle_frontend ignored (main owns drawer)");
+        return Ok(false);
+    }
     let next = !FRONTEND_OPEN.load(Ordering::SeqCst);
-    crate::logutil::write_line(&format!("toggle_frontend schedule -> {next}"));
-    // Always the independent always-on-top WebView so it can cover other apps.
+    crate::logutil::write_line(&format!("toggle_frontend float -> {next}"));
     schedule_set_open(app, next, "toggle_frontend");
     Ok(next)
 }
 
 #[tauri::command]
 pub async fn open_frontend(app: tauri::AppHandle) -> Result<(), String> {
+    if window_focused(&app, "main") {
+        crate::logutil::write_line("open_frontend inline (main focused)");
+        // Never open the second WebView over FSE home — it ducks fullscreen and freezes.
+        FRONTEND_OPEN.store(false, Ordering::SeqCst);
+        emit_state(&app, true, "inline");
+        return Ok(());
+    }
     if FRONTEND_OPEN.load(Ordering::SeqCst) {
         crate::logutil::write_line("open_frontend (already open)");
         schedule_focus(app);
         return Ok(());
     }
-    crate::logutil::write_line("open_frontend schedule");
+    crate::logutil::write_line("open_frontend float schedule");
     schedule_set_open(app, true, "open_frontend");
     Ok(())
 }
 
 #[tauri::command]
 pub async fn close_frontend(app: tauri::AppHandle) -> Result<(), String> {
-    crate::logutil::write_line("close_frontend schedule");
-    schedule_set_open(app, false, "close_frontend");
+    crate::logutil::write_line("close_frontend");
+    if FRONTEND_OPEN.load(Ordering::SeqCst) {
+        schedule_set_open(app, false, "close_frontend");
+    } else {
+        emit_state(&app, false, "none");
+    }
     Ok(())
 }
 
@@ -123,8 +144,6 @@ fn schedule_set_open(app: AppHandle, open: bool, reason: &str) {
     let reason = reason.to_string();
     std::thread::spawn(move || {
         crate::logutil::write_line(&format!("frontend set_open begin ({reason}) open={open}"));
-        // Run off the IPC/async worker and do NOT block the UI thread waiting.
-        // If show() stalls under FSE, the main window must stay responsive.
         match set_open_direct(&app, open) {
             Ok(()) => {
                 crate::logutil::write_line(&format!("frontend set_open ok ({reason}) open={open}"))
@@ -132,7 +151,7 @@ fn schedule_set_open(app: AppHandle, open: bool, reason: &str) {
             Err(err) => {
                 if open {
                     FRONTEND_OPEN.store(false, Ordering::SeqCst);
-                    let _ = app.emit("frontend-state", false);
+                    emit_state(&app, false, "none");
                 }
                 crate::logutil::write_line(&format!("frontend set_open err ({reason}): {err}"));
             }
@@ -154,16 +173,24 @@ fn schedule_focus(app: AppHandle) {
     });
 }
 
+fn emit_state(app: &AppHandle, open: bool, surface: &'static str) {
+    let _ = app.emit(
+        "frontend-state",
+        FrontendStateEvent { open, surface },
+    );
+}
+
 fn set_open_direct(app: &AppHandle, open: bool) -> Result<(), String> {
     if open {
         FRONTEND_OPEN.store(true, Ordering::SeqCst);
         ensure_created(app)?;
         show(app)?;
+        emit_state(app, true, "float");
     } else {
         hide(app);
         FRONTEND_OPEN.store(false, Ordering::SeqCst);
+        emit_state(app, false, "none");
     }
-    let _ = app.emit("frontend-state", open);
     Ok(())
 }
 
@@ -213,8 +240,6 @@ fn show(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
         return Err(pick("前端窗口还没准备好", "Frontend window is not ready yet."));
     };
-    // Exclusive fullscreen on main covers sibling windows even with always_on_top.
-    duck_main_for_overlay(app);
     crate::logutil::write_line("frontend show: place");
     place(&window, app);
     crate::logutil::write_line("frontend show: show()");
@@ -223,7 +248,8 @@ fn show(app: &AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     force_topmost(&window);
     let _ = window.set_focus();
-    let _ = window.emit("frontend-state", true);
+    #[cfg(windows)]
+    force_topmost(&window);
     FRONTEND_OPEN.store(true, Ordering::SeqCst);
     crate::logutil::write_line("frontend shown");
     Ok(())
@@ -232,41 +258,11 @@ fn show(app: &AppHandle) -> Result<(), String> {
 fn hide(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(FRONTEND_LABEL) {
         let _ = window.hide();
-        let _ = window.emit("frontend-state", false);
         crate::logutil::write_line("frontend hidden");
     }
-    restore_ducked_main(app);
+    // Do not steal focus back to main — that covers the game after Back+Start close.
+    // Only reclaim when the launcher is already the interactive surface.
     focus_main_if_idle(app);
-}
-
-/// Leave main exclusive fullscreen so a second topmost window can appear above it.
-fn duck_main_for_overlay(app: &AppHandle) {
-    let Some(main) = app.get_webview_window("main") else {
-        return;
-    };
-    if main.is_minimized().unwrap_or(false) {
-        return;
-    }
-    if !main.is_fullscreen().unwrap_or(false) {
-        return;
-    }
-    let _ = main.set_fullscreen(false);
-    DUCKED_MAIN.store(true, Ordering::SeqCst);
-    crate::logutil::write_line("frontend: ducked main fullscreen for overlay");
-}
-
-fn restore_ducked_main(app: &AppHandle) {
-    if !DUCKED_MAIN.swap(false, Ordering::SeqCst) {
-        return;
-    }
-    let Some(main) = app.get_webview_window("main") else {
-        return;
-    };
-    if main.is_minimized().unwrap_or(false) || !main.is_visible().unwrap_or(false) {
-        return;
-    }
-    crate::logutil::write_line("frontend: restore main fullscreen after overlay");
-    crate::startup::fill_screen(&main);
 }
 
 #[cfg(windows)]
@@ -300,13 +296,13 @@ fn attach(window: &WebviewWindow, app: &AppHandle) {
                 if let Some(window) = app.get_webview_window(FRONTEND_LABEL) {
                     let _ = window.hide();
                 }
-                let _ = app.emit("frontend-state", false);
+                emit_state(&app, false, "none");
                 focus_main_if_idle(&app);
             }
             WindowEvent::Destroyed => {
                 FRONTEND_OPEN.store(false, Ordering::SeqCst);
                 PRELOAD_STARTED.store(false, Ordering::SeqCst);
-                let _ = app.emit("frontend-state", false);
+                emit_state(&app, false, "none");
                 focus_main_if_idle(&app);
             }
             _ => {}

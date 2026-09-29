@@ -57,9 +57,8 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
                 }
             }
             WindowEvent::Focused(true) => {
-                if frontend::frontend_visible(&app_handle) {
-                    let _ = frontend::focus_frontend(app_handle.clone());
-                } else if scan::take_fullscreen_resume() {
+                // Do NOT focus_frontend here — under FSE that focus fight freezes the UI.
+                if !frontend::frontend_visible(&app_handle) && scan::take_fullscreen_resume() {
                     startup::fill_screen(&watched);
                 }
             }
