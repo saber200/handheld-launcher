@@ -22,7 +22,6 @@ export function SettingsPage({ active }: Props) {
   const [autostart, setAutostart] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [fse, setFse] = useState("");
   const [isTauri, setIsTauri] = useState(false);
   const [powerOpen, setPowerOpen] = useState(false);
   const sleepRef = useRef<HTMLButtonElement>(null);
@@ -34,9 +33,6 @@ export function SettingsPage({ active }: Props) {
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage(text().settings.autostartReadFailed));
-    void invoke<string>("fse_status")
-      .then(setFse)
-      .catch(() => setFse(text().settings.fsePreview));
   }, []);
 
   useEffect(() => {
@@ -98,19 +94,6 @@ export function SettingsPage({ active }: Props) {
     }
   };
 
-  const openDesktop = async () => {
-    if (!isTauri) {
-      setMessage(text().settings.desktopPreview);
-      return;
-    }
-    try {
-      await invoke("open_desktop");
-      setMessage(text().settings.desktopDone);
-    } catch (e) {
-      setMessage(text().settings.desktopFailed(String(e)));
-    }
-  };
-
   const registerFse = async () => {
     if (!isTauri) {
       setMessage(text().settings.fsePreview);
@@ -119,7 +102,6 @@ export function SettingsPage({ active }: Props) {
     setBusy(true);
     try {
       const status = await invoke<string>("register_fse");
-      setFse(status);
       setMessage(status);
     } catch (e) {
       setMessage(String(e));
@@ -232,21 +214,6 @@ export function SettingsPage({ active }: Props) {
           <span className="chev">▣</span>
         </button>
 
-        {/* <button type="button" className="setting-row" data-focusable onClick={() => void openDesktop()}>
-          <span>
-            <strong>{m.desktop}</strong>
-            <small>{m.desktopHint}</small>
-          </span>
-          <span className="chev">⌂</span>
-        </button> */}
-
-        {/* <div className="setting-row">
-          <span>
-            <strong>{m.fse}</strong>
-            <small>{fse || m.fseHint}</small>
-          </span>
-        </div> */}
-
         <button
           type="button"
           className="setting-row"
@@ -287,6 +254,8 @@ export function SettingsPage({ active }: Props) {
           <span className="chev">⏻</span>
         </button>
       </section>
+
+      {message && <p className="status-msg">{message}</p>}
 
       <div className="settings-foot">
         <p className="about-line">{text().about}</p>
