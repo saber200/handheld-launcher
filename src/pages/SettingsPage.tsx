@@ -232,20 +232,20 @@ export function SettingsPage({ active }: Props) {
           <span className="chev">▣</span>
         </button>
 
-        <button type="button" className="setting-row" data-focusable onClick={() => void openDesktop()}>
+        {/* <button type="button" className="setting-row" data-focusable onClick={() => void openDesktop()}>
           <span>
             <strong>{m.desktop}</strong>
             <small>{m.desktopHint}</small>
           </span>
           <span className="chev">⌂</span>
-        </button>
+        </button> */}
 
-        <div className="setting-row">
+        {/* <div className="setting-row">
           <span>
             <strong>{m.fse}</strong>
             <small>{fse || m.fseHint}</small>
           </span>
-        </div>
+        </div> */}
 
         <button
           type="button"
@@ -287,8 +287,6 @@ export function SettingsPage({ active }: Props) {
           <span className="chev">⏻</span>
         </button>
       </section>
-
-      {message && <p className="status-msg">{message}</p>}
 
       <div className="settings-foot">
         <p className="about-line">{text().about}</p>

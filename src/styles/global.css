@@ -1002,7 +1002,10 @@ img.app-icon {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 112px;
+  min-width: 140px;
+  border-radius: 12px;
+  padding: 10px;
+  background-color: rgb(28 39 59 / 98%);
 }
 
 .power-option,

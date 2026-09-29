@@ -168,6 +168,7 @@ fn schedule_focus(app: AppHandle) {
             let _ = window.set_always_on_top(true);
             #[cfg(windows)]
             {
+                detach_owner(&window);
                 force_topmost(&window);
                 steal_foreground(&window);
                 force_topmost(&window);
@@ -235,6 +236,11 @@ fn create_hidden(app: &AppHandle) -> Result<(), String> {
         })?;
     place(&window, app);
     attach(&window, app);
+    #[cfg(windows)]
+    {
+        detach_owner(&window);
+        force_topmost(&window);
+    }
     let _ = window.hide();
     crate::logutil::write_line("frontend window built (hidden)");
     Ok(())
@@ -244,22 +250,25 @@ fn show(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
         return Err(pick("前端窗口还没准备好", "Frontend window is not ready yet."));
     };
-    // ONEX-style: release FSE exclusive shell before the overlay can sit above other apps.
-    yield_shell_for_overlay(app);
+    // Game Bar style: never hide/minimize main. Float as an unowned TOPMOST overlay.
     crate::logutil::write_line("frontend show: place");
     place(&window, app);
+    #[cfg(windows)]
+    {
+        detach_owner(&window);
+        force_topmost(&window);
+    }
     crate::logutil::write_line("frontend show: show()");
     let _ = window.show();
     let _ = window.set_always_on_top(true);
     #[cfg(windows)]
-    force_topmost(&window);
-    let _ = window.set_focus();
-    #[cfg(windows)]
     {
+        detach_owner(&window);
         force_topmost(&window);
         steal_foreground(&window);
         force_topmost(&window);
     }
+    let _ = window.set_focus();
     FRONTEND_OPEN.store(true, Ordering::SeqCst);
     crate::logutil::write_line("frontend shown");
     Ok(())
@@ -275,16 +284,22 @@ fn hide(app: &AppHandle) {
     focus_main_if_idle(app);
 }
 
-/// Hide + leave fullscreen so FSE stops owning the display; overlay can then TOPMOST over games.
-fn yield_shell_for_overlay(app: &AppHandle) {
-    #[cfg(windows)]
-    {
-        crate::scan::begin_away_session(app);
-        crate::logutil::write_line("frontend: yielded shell for overlay");
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = app;
+/// Clear GW_OWNER so the overlay is not tied to main (owned popups cannot float like Game Bar).
+#[cfg(windows)]
+fn detach_owner(window: &WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetAncestor, SetWindowLongPtrW, GA_ROOT, GWLP_HWNDPARENT,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        let mut hwnd = hwnd.0 as _;
+        let root = GetAncestor(hwnd, GA_ROOT);
+        if !root.is_null() {
+            hwnd = root;
+        }
+        SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, 0);
     }
 }
 
@@ -292,7 +307,7 @@ fn yield_shell_for_overlay(app: &AppHandle) {
 fn force_topmost(window: &WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetAncestor, GetWindowLongW, SetWindowLongW, SetWindowPos, GA_ROOT, GWL_EXSTYLE,
-        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_EX_TOPMOST,
+        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
     };
     let Ok(hwnd) = window.hwnd() else {
         return;
@@ -304,7 +319,11 @@ fn force_topmost(window: &WebviewWindow) {
             hwnd = root;
         }
         let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
-        SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_TOPMOST as i32);
+        SetWindowLongW(
+            hwnd,
+            GWL_EXSTYLE,
+            ex | WS_EX_TOPMOST as i32 | WS_EX_TOOLWINDOW as i32,
+        );
         SetWindowPos(
             hwnd,
             HWND_TOPMOST,
@@ -402,6 +421,10 @@ fn focus_main_if_idle(app: &AppHandle) {
 
 /// True when the library shell (not the float overlay) owns the foreground.
 fn shell_is_foreground(app: &AppHandle) -> bool {
+    // Prefer Tauri focus — reliable while the user is in the library UI.
+    if window_focused(app, "main") {
+        return true;
+    }
     #[cfg(windows)]
     {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -414,7 +437,7 @@ fn shell_is_foreground(app: &AppHandle) -> bool {
             return false;
         }
         let Ok(main_raw) = main.hwnd() else {
-            return window_focused(app, "main");
+            return false;
         };
         unsafe {
             let fg = GetForegroundWindow();
@@ -444,7 +467,7 @@ fn shell_is_foreground(app: &AppHandle) -> bool {
     }
     #[cfg(not(windows))]
     {
-        window_focused(app, "main")
+        false
     }
 }
 

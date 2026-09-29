@@ -58,11 +58,8 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
             }
             WindowEvent::Focused(true) => {
                 // Do NOT focus_frontend here — under FSE that focus fight freezes the UI.
+                // Overlay must not hide or fight the main window (Game Bar style).
                 if frontend::frontend_visible(&app_handle) {
-                    // Overlay is up — keep the FSE shell tucked so it cannot cover the float.
-                    if scan::away_session_active() {
-                        scan::rehide_shell_if_away(&app_handle);
-                    }
                     return;
                 }
                 // Launch path hides the shell. FSE often force-focuses us right away —
