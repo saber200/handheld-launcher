@@ -293,7 +293,7 @@ export const zh: Catalog = {
     focusTools: "方向键移到新建 / 添加",
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
-    frontend: "软件内 Start 开/关；游戏中 Back+Start 或 Ctrl+H",
+    frontend: "Start 开/关浮层；游戏中也可用 Back+Start 或 Ctrl+H",
   },
   settings: {
     title: "设置",
@@ -563,7 +563,7 @@ export const en: Catalog = {
     focusTools: "D-pad to New / Add",
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
-    frontend: "In-app Start toggles; in-game Back+Start or Ctrl+H",
+    frontend: "Start toggles overlay; in-game also Back+Start or Ctrl+H",
   },
   settings: {
     title: "Settings",

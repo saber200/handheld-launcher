@@ -350,7 +350,12 @@ export function LibraryShelf<T extends Item>({
             : text().library.ungrouped}
         </p>
       ) : visible.length === 0 ? null : (
-        <section className="library-grid" data-focus-zone="library-grid" aria-label={label}>
+        <section
+          key={library.activeId}
+          className="library-grid motion-stagger"
+          data-focus-zone="library-grid"
+          aria-label={label}
+        >
           {visible.map((item, index) =>
             renderCard(item, index === 0 ? firstRef : undefined, {
               name: library.names[item.id] || item.name,

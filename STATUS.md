@@ -1,4 +1,4 @@
-# 进度对照（v0.1.34）
+# 进度对照（v0.1.35）
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
@@ -29,10 +29,11 @@
 ### 前端浮层（Start）
 
 - 独立置顶右侧窗；启动时**预创建隐藏**（避免 Windows WebView2 在同步 IPC 里 `build()` 卡死）
-- 打开方式：软件内 Start 开/关；游戏中 Back+Start 或 Ctrl+H；关闭：B / Esc / Start（浮层窗用 B 或和弦）
+- 独立置顶右侧窗（可盖住其他应用）；FSE 下打开时先退出主窗独占全屏，再用 Win32 TOPMOST
+- 打开方式：Start 开/关；游戏中也可用 Back+Start 或 Ctrl+H；关闭：B / Esc / Start
 - 打开时主窗锁定；关掉后才能继续操作主界面
 - **手柄**：第二 WebView 用 Rust **XInput 桥**；浮层须 `focus-trap open` 才能移焦；Close 按钮不进手柄焦点
-- 打开竞态：主窗不再用 Start toggle 关掉刚打开的浮层；B 须释放后再关
+- 打开竞态：开按未松时不关；B / Start 须释放后再关
 
 ### TDP（Intel / OXP3 先做）
 
@@ -81,6 +82,7 @@
 
 ## 近期改动备忘
 
+- 0.1.35：前端改回独立置顶浮窗（FSE 下先让出主窗全屏 + TOPMOST）；全站克制交互动效（Tab/列表错落/抽屉菜单）
 - 0.1.34：Start 可关抽屉；启动先最小化让游戏获焦；游戏中 Back+Start 可开关浮层；TDP 驱动重启后可直接启动服务
 - 0.1.33：FSE 下 Start「卡死」→ 日志显示第二窗已 shown 但被全屏挡住；软件内 Start 改为内联抽屉
 - 0.1.32：rebuild after schedule_focus AppHandle clone fix

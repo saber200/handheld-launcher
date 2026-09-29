@@ -70,7 +70,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!frontendOpen) return;
+    if (!frontendOpen || inTauri()) return;
     document.querySelector<HTMLElement>(".frontend-preview [data-focusable]")?.focus();
   }, [frontendOpen]);
 
@@ -100,27 +100,59 @@ export default function App() {
     fileActions().dismiss?.();
     libraryActions().closeDialog?.();
     closeSettings();
+    if (!inTauri()) {
+      setFrontendOpen((open) => !open);
+      return;
+    }
     if (frontendOpen) {
       closeFrontend();
       return;
     }
-    setFrontendOpen(true);
+    // Floating window; frontend-state sets the real open flag.
+    void invoke("open_frontend").catch((err) => {
+      setFrontendOpen(false);
+      console.error("open_frontend", err);
+    });
   }, [closeSettings, closeFrontend, frontendOpen]);
 
-  /** Start toggles the in-app drawer. Floating WebView is for in-game Back+Start only. */
+  /** Start opens the independent always-on-top frontend window (covers other apps). */
   const openFrontend = useCallback(() => {
     if (frontendOpen) return;
     if (fileActions().blocksTabs?.()) return;
     fileActions().dismiss?.();
     libraryActions().closeDialog?.();
     closeSettings();
-    setFrontendOpen(true);
+    if (!inTauri()) {
+      setFrontendOpen(true);
+      return;
+    }
+    // Do not setFrontendOpen(true) here — that inert-locks main before the panel exists.
+    void invoke("open_frontend").catch((err) => {
+      setFrontendOpen(false);
+      console.error("open_frontend", err);
+    });
   }, [closeSettings, frontendOpen]);
 
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
-      if (frontendOpen) {
+      if (frontendOpen && inTauri()) {
+        if (
+          e.key === "Escape" ||
+          e.key === "End" ||
+          e.key === "b" ||
+          e.key === "B" ||
+          (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h")
+        ) {
+          e.preventDefault();
+          closeFrontend();
+          return;
+        }
+        // Don't steal focus back to the float on every key — FSE focus fights freeze the app.
+        e.preventDefault();
+        return;
+      }
+      if (frontendOpen && !inTauri()) {
         if (
           e.key === "Escape" ||
           e.key === "End" ||
@@ -237,7 +269,8 @@ export default function App() {
   }, [intro, shiftTab, toggleSettings, toggleFrontend, closeFrontend, frontendOpen]);
 
   useGamepadNav({
-    enabled: intro === "done",
+    // Tauri: floating frontend owns pad input via XInput bridge.
+    enabled: intro === "done" && !(frontendOpen && inTauri()),
     onBumperLeft: () => {
       if (!frontendOpen) shiftTab(-1);
     },
@@ -251,12 +284,12 @@ export default function App() {
       toggleSettings();
     },
     onStart: () => {
-      // Back+Start is handled by the Rust chord watcher — don't also toggle here.
+      // Back+Start is handled by the Rust chord watcher — don't also open here.
       const pads = navigator.getGamepads?.() ?? [];
       const pad = pads.find(Boolean);
       if (pad?.buttons[8]?.pressed) return;
       if (frontendOpen) {
-        closeFrontend();
+        if (!inTauri()) closeFrontend();
         return;
       }
       openFrontend();
@@ -270,8 +303,9 @@ export default function App() {
       fileActions().toggleSelect?.();
     },
     onBack: () => {
+      // Tauri: frontend window owns B-to-close. Browser preview closes here.
       if (frontendOpen) {
-        closeFrontend();
+        if (!inTauri()) closeFrontend();
         return;
       }
       if (closePowerMenu()) return;
@@ -290,9 +324,9 @@ export default function App() {
 
   const m = text();
   const finishIntro = useCallback(() => setIntro("done"), []);
-  // Always use the in-app drawer for Start. Second WebView stays for in-game chord overlay only.
-  const previewFrontend = frontendOpen;
-  // Lock the library shell behind the drawer; the drawer itself stays interactive.
+  // Browser-only preview drawer. Desktop uses the independent always-on-top WebView.
+  const previewFrontend = frontendOpen && !inTauri();
+  // Floating frontend open: lock main shell.
   const mainLocked = intro !== "done" || frontendOpen;
 
   return (
@@ -316,12 +350,14 @@ export default function App() {
         </nav>
       </header>
       <div className="tab-panel" role="tabpanel">
-        {tab === "games" && <GamesPage />}
-        {tab === "apps" && <AppsPage />}
-        {tab === "files" && <FilesPage />}
+        <div key={tab} className="tab-panel-view">
+          {tab === "games" && <GamesPage />}
+          {tab === "apps" && <AppsPage />}
+          {tab === "files" && <FilesPage />}
+        </div>
       </div>
       <GamepadKeyboard />
-      <footer className="shell-hint">
+      <footer key={tab} className="shell-hint">
         {tab === "files" ? (
           <>
             <span>{m.hints.filesNav}</span>

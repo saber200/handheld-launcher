@@ -32,7 +32,7 @@ export function FrontendShell() {
   const m = text().frontend;
   // Hidden preload window still runs JS; only handle input while shown.
   const [shellActive, setShellActive] = useState(!inTauri());
-  const padHeld = useRef({ a: false, b: false, dx: 0, dy: 0 });
+  const padHeld = useRef({ a: false, b: false, start: false, dx: 0, dy: 0 });
   const padRepeatAt = useRef(0);
   const closeGraceUntil = useRef(0);
   const bMustRelease = useRef(false);
@@ -108,16 +108,16 @@ export function FrontendShell() {
   useGamepadNav({
     enabled: shellActive && !inTauri(),
     onBack: closeFromPad,
-    // Start opens the panel from the main shell — never close with Start here.
     onConfirm: () => {
       confirmFocused();
     },
+    onStart: closeFromPad,
   });
 
   // Windows: XInput bridge from Rust (second WebView Gamepad API is unreliable).
   useEffect(() => {
     if (!shellActive || !inTauri()) return;
-    padHeld.current = { a: true, b: true, dx: 0, dy: 0 };
+    padHeld.current = { a: true, b: true, start: true, dx: 0, dy: 0 };
     padRepeatAt.current = 0;
     closeGraceUntil.current = performance.now() + CLOSE_GRACE_MS;
     bMustRelease.current = true;
@@ -132,6 +132,7 @@ export function FrontendShell() {
         padHeld.current = {
           a: true,
           b: true,
+          start: true,
           dx,
           dy,
         };
@@ -158,12 +159,14 @@ export function FrontendShell() {
       if (pad.a && !held.a && !inGrace) {
         confirmFocused();
       }
-      // Only B closes. Start is the open shortcut on the main window.
+      // B or Start closes after the open-press is released.
       if (pad.b && !held.b) closeFromPad();
+      if (pad.start && !held.start && !inGrace) closeFromPad();
 
       padHeld.current = {
         a: pad.a,
         b: pad.b,
+        start: pad.start,
         dx,
         dy,
       };

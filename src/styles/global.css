@@ -9,6 +9,14 @@
   --accent-2: #5b8cff;
   --danger: #ff6b7a;
   --radius: 18px;
+  /* Quiet motion: short, soft easing — presence without noise */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 140ms;
+  --dur-ui: 220ms;
+  --dur-page: 360ms;
+  --dur-item: 400ms;
+  --stagger: 16ms;
   font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei",
     sans-serif;
   font-synthesis: none;
@@ -88,6 +96,10 @@ button {
   color: var(--muted);
   font-size: 16px;
   font-weight: 650;
+  transition:
+    color var(--dur-ui) var(--ease-soft),
+    background-color var(--dur-ui) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .tab[aria-selected="true"] {
@@ -95,11 +107,20 @@ button {
   background: var(--accent);
 }
 
+.tab:active {
+  transform: scale(0.97);
+}
+
 .tab-panel {
   position: relative;
   z-index: 1;
   flex: 1;
   min-height: 0;
+}
+
+.tab-panel-view {
+  height: 100%;
+  animation: rise-in var(--dur-page) var(--ease-out) both;
 }
 
 .page {
@@ -125,7 +146,7 @@ button {
   inset: 0;
   background: rgba(4, 8, 16, 0.55);
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--dur-ui) var(--ease-soft);
 }
 
 .drawer-root.open .drawer-scrim {
@@ -145,7 +166,7 @@ button {
   border-right: 1px solid var(--line);
   box-shadow: 16px 0 48px rgba(0, 0, 0, 0.35);
   transform: translateX(-105%);
-  transition: transform 0.22s ease;
+  transition: transform var(--dur-page) var(--ease-out);
 }
 
 .drawer-root.open .drawer {
@@ -191,6 +212,7 @@ button {
   background: rgba(12, 18, 32, 0.98);
   border-left: 1px solid var(--line);
   box-sizing: border-box;
+  animation: slide-in-end var(--dur-page) var(--ease-out) both;
 }
 
 .frontend-shell-head {
@@ -293,6 +315,11 @@ button {
   color: inherit;
   font-size: 16px;
   font-weight: 600;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .tdp-preset.on {
@@ -430,6 +457,16 @@ button {
   padding: 0 24px 20px;
   color: var(--muted);
   font-size: 13px;
+  animation: fade-in var(--dur-ui) var(--ease-soft) both;
+}
+
+[data-focusable] {
+  transition:
+    border-color var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 [data-focusable]:focus {
@@ -516,6 +553,16 @@ button {
   border: 1px solid rgba(61, 214, 198, 0.4);
   color: var(--accent);
   background: rgba(61, 214, 198, 0.08);
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-soft);
+}
+
+.library-tool:active {
+  transform: scale(0.97);
 }
 
 .library-tool:focus {
@@ -549,6 +596,7 @@ button {
   border: 1px solid var(--line);
   background: rgba(8, 14, 24, 0.94);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  animation: soft-pop var(--dur-ui) var(--ease-out) both;
 }
 
 .card-menu .library-tool,
@@ -586,6 +634,7 @@ button {
   border: 1px solid var(--line);
   background: rgba(12, 18, 32, 0.98);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  animation: soft-pop var(--dur-page) var(--ease-out) both;
 }
 
 .group-create-panel {
@@ -625,7 +674,8 @@ button {
   align-content: start;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 2px;
+  /* Room for focus ring so it doesn't cover the note above */
+  padding: 4px 2px 2px;
 }
 
 .library-card {
@@ -638,6 +688,32 @@ button {
   text-align: left;
   scroll-margin: 12px;
 }
+
+.motion-stagger > * {
+  animation: rise-in var(--dur-item) var(--ease-out) both;
+}
+
+.motion-stagger > *:nth-child(1) { animation-delay: calc(var(--stagger) * 0); }
+.motion-stagger > *:nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+.motion-stagger > *:nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.motion-stagger > *:nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.motion-stagger > *:nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+.motion-stagger > *:nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
+.motion-stagger > *:nth-child(7) { animation-delay: calc(var(--stagger) * 6); }
+.motion-stagger > *:nth-child(8) { animation-delay: calc(var(--stagger) * 7); }
+.motion-stagger > *:nth-child(9) { animation-delay: calc(var(--stagger) * 8); }
+.motion-stagger > *:nth-child(10) { animation-delay: calc(var(--stagger) * 9); }
+.motion-stagger > *:nth-child(11) { animation-delay: calc(var(--stagger) * 10); }
+.motion-stagger > *:nth-child(12) { animation-delay: calc(var(--stagger) * 11); }
+.motion-stagger > *:nth-child(13) { animation-delay: calc(var(--stagger) * 12); }
+.motion-stagger > *:nth-child(14) { animation-delay: calc(var(--stagger) * 13); }
+.motion-stagger > *:nth-child(15) { animation-delay: calc(var(--stagger) * 14); }
+.motion-stagger > *:nth-child(16) { animation-delay: calc(var(--stagger) * 15); }
+.motion-stagger > *:nth-child(17) { animation-delay: calc(var(--stagger) * 16); }
+.motion-stagger > *:nth-child(18) { animation-delay: calc(var(--stagger) * 17); }
+.motion-stagger > *:nth-child(19) { animation-delay: calc(var(--stagger) * 18); }
+.motion-stagger > *:nth-child(20) { animation-delay: calc(var(--stagger) * 19); }
+.motion-stagger > *:nth-child(n + 21) { animation-delay: calc(var(--stagger) * 20); }
 
 .library-card.is-picked .game-cover,
 .library-card.is-picked .app-icon {
@@ -667,6 +743,10 @@ button {
   border-radius: 14px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
+  transition:
+    transform var(--dur-ui) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft);
 }
 
 .library-card.is-running .game-cover,
@@ -726,6 +806,10 @@ button {
   color: #f3f6fb;
   font-size: 28px;
   font-weight: 700;
+  transition:
+    transform var(--dur-ui) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft);
 }
 
 img.app-icon {
@@ -780,7 +864,26 @@ img.app-icon {
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
+  transition:
+    border-color var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
+
+.drawer-root.open .settings-list > .setting-row {
+  animation: rise-in var(--dur-item) var(--ease-out) both;
+}
+
+.drawer-root.open .settings-list > .setting-row:nth-child(1) { animation-delay: calc(var(--stagger) * 0); }
+.drawer-root.open .settings-list > .setting-row:nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+.drawer-root.open .settings-list > .setting-row:nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.drawer-root.open .settings-list > .setting-row:nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.drawer-root.open .settings-list > .setting-row:nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+.drawer-root.open .settings-list > .setting-row:nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
+.drawer-root.open .settings-list > .setting-row:nth-child(7) { animation-delay: calc(var(--stagger) * 6); }
+.drawer-root.open .settings-list > .setting-row:nth-child(8) { animation-delay: calc(var(--stagger) * 7); }
+.drawer-root.open .settings-list > .setting-row:nth-child(n + 9) { animation-delay: calc(var(--stagger) * 8); }
 
 .setting-row strong {
   display: block;
@@ -803,6 +906,10 @@ img.app-icon {
   border-radius: 999px;
   border: 1px solid var(--line);
   color: var(--muted);
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
 }
 
 .switch.on {
@@ -945,6 +1052,11 @@ img.app-icon {
   background: rgba(255, 255, 255, 0.03);
   text-align: left;
   scroll-margin: 12px;
+  transition:
+    border-color var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .file-row:focus {
@@ -1055,6 +1167,11 @@ img.app-icon {
   border: 1px solid var(--line);
   color: var(--muted);
   background: rgba(255, 255, 255, 0.04);
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .file-view.is-current {
@@ -1090,11 +1207,16 @@ img.app-icon {
   background: rgba(255, 255, 255, 0.04);
   font-size: 14px;
   font-weight: 700;
+  transition:
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .file-check.on {
   background: var(--accent);
   border-color: transparent;
+  transform: scale(1.05);
 }
 
 .file-tile-wrap .file-check {
@@ -1126,6 +1248,10 @@ img.app-icon {
   color: var(--muted);
   font-size: 28px;
   font-weight: 700;
+  transition:
+    transform var(--dur-ui) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft);
 }
 
 .file-tile-face.is-dir {
@@ -1143,6 +1269,7 @@ img.app-icon {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent);
 }
+
 
 .file-row.is-picked {
   border-color: var(--accent);
@@ -1179,6 +1306,11 @@ img.app-icon {
   border: 1px solid var(--line);
   color: var(--muted);
   background: rgba(255, 255, 255, 0.04);
+  transition:
+    color var(--dur-ui) var(--ease-soft),
+    background-color var(--dur-ui) var(--ease-soft),
+    border-color var(--dur-ui) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .group-chip.is-current {
@@ -1202,6 +1334,7 @@ img.app-icon {
   border: 1px solid var(--line);
   border-bottom: none;
   border-radius: 16px 16px 0 0;
+  animation: slide-in-up var(--dur-page) var(--ease-out) both;
 }
 
 .gamepad-keyboard-row {
@@ -1217,6 +1350,14 @@ img.app-icon {
   border-radius: 10px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.06);
+  transition:
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.gamepad-key:active {
+  transform: scale(0.96);
 }
 
 .boot-splash {
@@ -1287,5 +1428,97 @@ img.app-icon {
   to {
     opacity: 1;
     filter: blur(0);
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes soft-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes slide-in-end {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-up {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-panel-view,
+  .shell-hint,
+  .frontend-shell,
+  .motion-stagger > *,
+  .drawer-root.open .settings-list > .setting-row,
+  .card-menu,
+  .group-dialog-panel,
+  .gamepad-keyboard {
+    animation: none !important;
+  }
+
+  .tab,
+  .library-tool,
+  .group-chip,
+  .file-view,
+  .file-row,
+  .file-check,
+  .file-tile-face,
+  .game-cover,
+  .app-icon,
+  .setting-row,
+  .switch,
+  .tdp-preset,
+  .gamepad-key,
+  [data-focusable],
+  .drawer,
+  .drawer-scrim {
+    transition: none !important;
+  }
+
+  .file-check.on,
+  .tab:active,
+  .library-tool:active,
+  .gamepad-key:active {
+    transform: none;
   }
 }

@@ -13,6 +13,8 @@ const FRONTEND_WIDTH: f64 = 440.0;
 
 static FRONTEND_OPEN: AtomicBool = AtomicBool::new(false);
 static PRELOAD_STARTED: AtomicBool = AtomicBool::new(false);
+/// Main left exclusive fullscreen so the floating overlay can paint above it.
+static DUCKED_MAIN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Serialize)]
 struct FrontendPad {
@@ -48,32 +50,14 @@ pub fn preload(app: &AppHandle) {
 #[tauri::command]
 pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
     let next = !FRONTEND_OPEN.load(Ordering::SeqCst);
-    // When FantasyHub itself is focused, prefer the in-app drawer (JS listens to frontend-state).
-    // A second WebView is often invisible under FSE exclusive fullscreen.
-    if next && window_focused(&app, "main") {
-        crate::logutil::write_line("toggle_frontend inline (main focused)");
-        FRONTEND_OPEN.store(false, Ordering::SeqCst);
-        let _ = app.emit("frontend-state", true);
-        return Ok(true);
-    }
-    if !next {
-        crate::logutil::write_line("toggle_frontend schedule -> false");
-        schedule_set_open(app, false, "toggle_frontend");
-        return Ok(false);
-    }
     crate::logutil::write_line(&format!("toggle_frontend schedule -> {next}"));
+    // Always the independent always-on-top WebView so it can cover other apps.
     schedule_set_open(app, next, "toggle_frontend");
     Ok(next)
 }
 
 #[tauri::command]
 pub async fn open_frontend(app: tauri::AppHandle) -> Result<(), String> {
-    if window_focused(&app, "main") {
-        crate::logutil::write_line("open_frontend inline (main focused)");
-        FRONTEND_OPEN.store(false, Ordering::SeqCst);
-        let _ = app.emit("frontend-state", true);
-        return Ok(());
-    }
     if FRONTEND_OPEN.load(Ordering::SeqCst) {
         crate::logutil::write_line("open_frontend (already open)");
         schedule_focus(app);
@@ -163,6 +147,8 @@ fn schedule_focus(app: AppHandle) {
         };
         if FRONTEND_OPEN.load(Ordering::SeqCst) {
             let _ = window.set_always_on_top(true);
+            #[cfg(windows)]
+            force_topmost(&window);
             let _ = window.set_focus();
         }
     });
@@ -227,11 +213,15 @@ fn show(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(FRONTEND_LABEL) else {
         return Err(pick("前端窗口还没准备好", "Frontend window is not ready yet."));
     };
+    // Exclusive fullscreen on main covers sibling windows even with always_on_top.
+    duck_main_for_overlay(app);
     crate::logutil::write_line("frontend show: place");
     place(&window, app);
     crate::logutil::write_line("frontend show: show()");
     let _ = window.show();
     let _ = window.set_always_on_top(true);
+    #[cfg(windows)]
+    force_topmost(&window);
     let _ = window.set_focus();
     let _ = window.emit("frontend-state", true);
     FRONTEND_OPEN.store(true, Ordering::SeqCst);
@@ -245,7 +235,59 @@ fn hide(app: &AppHandle) {
         let _ = window.emit("frontend-state", false);
         crate::logutil::write_line("frontend hidden");
     }
+    restore_ducked_main(app);
     focus_main_if_idle(app);
+}
+
+/// Leave main exclusive fullscreen so a second topmost window can appear above it.
+fn duck_main_for_overlay(app: &AppHandle) {
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    if main.is_minimized().unwrap_or(false) {
+        return;
+    }
+    if !main.is_fullscreen().unwrap_or(false) {
+        return;
+    }
+    let _ = main.set_fullscreen(false);
+    DUCKED_MAIN.store(true, Ordering::SeqCst);
+    crate::logutil::write_line("frontend: ducked main fullscreen for overlay");
+}
+
+fn restore_ducked_main(app: &AppHandle) {
+    if !DUCKED_MAIN.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    if main.is_minimized().unwrap_or(false) || !main.is_visible().unwrap_or(false) {
+        return;
+    }
+    crate::logutil::write_line("frontend: restore main fullscreen after overlay");
+    crate::startup::fill_screen(&main);
+}
+
+#[cfg(windows)]
+fn force_topmost(window: &WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        SetWindowPos(
+            hwnd.0 as _,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+        );
+    }
 }
 
 fn attach(window: &WebviewWindow, app: &AppHandle) {

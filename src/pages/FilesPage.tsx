@@ -326,7 +326,10 @@ export function FilesPage() {
         <p className="group-empty">{text().files.emptyHint}</p>
       ) : (
         <div
-          className={layout === "grid" ? "library-grid file-grid" : "file-list"}
+          key={`${files.pathLabel}-${layout}`}
+          className={
+            layout === "grid" ? "library-grid file-grid motion-stagger" : "file-list motion-stagger"
+          }
           data-focus-zone="files-list"
           ref={listRef}
         >
