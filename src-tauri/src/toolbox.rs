@@ -73,6 +73,8 @@ pub fn toolbox_install_optiscaler(app: tauri::AppHandle, launch_path: String) ->
 pub struct TdpDriverStatus {
     pub ready: bool,
     pub elevated: bool,
+    /// Sys file / service already on disk — may only need a start after reboot.
+    pub installed: bool,
     pub message: String,
 }
 
@@ -87,6 +89,7 @@ pub fn toolbox_tdp_driver_status() -> TdpDriverStatus {
         TdpDriverStatus {
             ready: false,
             elevated: false,
+            installed: false,
             message: pick(
                 "TDP 驱动只能在 Windows 上安装。",
                 "The TDP driver can only be installed on Windows.",
@@ -240,11 +243,27 @@ mod windows {
 
     pub fn tdp_driver_status() -> TdpDriverStatus {
         let elevated = is_elevated();
-        let ready = crate::tdp::winring0_ready();
+        let installed = winring0_present();
+        let mut ready = crate::tdp::winring0_ready();
+        // After reboot the service is often Stopped (was demand-start). Start it
+        // instead of asking the user to "install" again.
+        if !ready && elevated && installed {
+            crate::logutil::write_line("toolbox: winring0 installed but not open; starting service");
+            match ensure_winring0_running() {
+                Ok(()) => crate::logutil::write_line("toolbox: winring0 service start attempted"),
+                Err(err) => crate::logutil::write_line(&format!("toolbox: winring0 start: {err}")),
+            }
+            ready = crate::tdp::winring0_ready();
+        }
         let message = if ready {
             pick(
                 "TDP 驱动可用，可以调节功耗。",
                 "TDP driver is ready; power limits can be changed.",
+            )
+        } else if installed && elevated {
+            pick(
+                "驱动文件已在，但服务没起来。可点下方启动；若仍失败再重新安装。",
+                "Driver files are present, but the service isn't running. Tap Start below; reinstall only if that fails.",
             )
         } else if !elevated {
             pick(
@@ -260,6 +279,7 @@ mod windows {
         TdpDriverStatus {
             ready,
             elevated,
+            installed,
             message,
         }
     }
@@ -273,8 +293,20 @@ mod windows {
             ));
         }
 
-        if crate::tdp::winring0_ready() {
-            crate::logutil::write_line("toolbox: winring0 already ready; reinstalling");
+        // Already on disk from a previous boot — just start, don't wipe the service.
+        if winring0_present() {
+            crate::logutil::write_line("toolbox: winring0 already on disk; ensuring service");
+            let _ = ensure_winring0_running();
+            if crate::tdp::winring0_ready() {
+                crate::logutil::write_line("toolbox: winring0 start ok (no reinstall)");
+                let mut status = tdp_driver_status();
+                status.message = pick(
+                    "TDP 驱动已启动。现在可以在上方调节功耗。",
+                    "TDP driver started. You can change power limits above.",
+                );
+                return Ok(status);
+            }
+            crate::logutil::write_line("toolbox: start failed; falling through to reinstall");
         }
 
         let driver_dir = driver_dir()?;
@@ -309,9 +341,9 @@ mod windows {
         crate::logutil::write_line("toolbox: sc stop/delete WinRing0_1_2_0");
         let _ = run_sc_line(&format!("sc stop {WINRING0_SERVICE}"));
         let _ = run_sc_line(&format!("sc delete {WINRING0_SERVICE}"));
-        // One cmdline via cmd.exe — piping sc.exe directly often exits 0xC0000142.
+        // auto: survive reboot so the frontend doesn't ask to "install" every cold boot.
         let create = format!(
-            "sc create {WINRING0_SERVICE} type= kernel start= demand binPath= {}",
+            "sc create {WINRING0_SERVICE} type= kernel start= auto binPath= {}",
             sys_path.display()
         );
         crate::logutil::write_line(&format!("toolbox: {create}"));
@@ -353,6 +385,45 @@ mod windows {
         );
         let _ = app;
         Ok(status)
+    }
+
+    fn winring0_present() -> bool {
+        driver_dir()
+            .ok()
+            .map(|dir| {
+                let sys = dir.join("WinRing0x64.sys");
+                sys.is_file() && sys.metadata().map(|m| m.len()).unwrap_or(0) > 10_000
+            })
+            .unwrap_or(false)
+    }
+
+    /// Start existing service; also flip to auto so the next reboot is quieter.
+    fn ensure_winring0_running() -> Result<(), String> {
+        let _ = run_sc_line(&format!("sc config {WINRING0_SERVICE} start= auto"));
+        match run_sc_line(&format!("sc start {WINRING0_SERVICE}")) {
+            Ok(()) => {}
+            Err(err) => {
+                // Already running is fine — sc start returns non-zero then.
+                let lower = err.to_ascii_lowercase();
+                if !(lower.contains("1056")
+                    || lower.contains("already")
+                    || lower.contains("正在运行")
+                    || lower.contains("已启动"))
+                {
+                    // Still sleep/check; device may come up from a racing start.
+                    crate::logutil::write_line(&format!("toolbox: sc start note: {err}"));
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if crate::tdp::winring0_ready() {
+            Ok(())
+        } else {
+            Err(pick(
+                "无法打开 WinRing0 设备。",
+                "Couldn't open the WinRing0 device.",
+            ))
+        }
     }
 
     fn is_elevated() -> bool {

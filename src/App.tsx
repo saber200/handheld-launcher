@@ -107,7 +107,7 @@ export default function App() {
     setFrontendOpen(true);
   }, [closeSettings, closeFrontend, frontendOpen]);
 
-  /** Start opens an in-app drawer. A second WebView is invisible under FSE exclusive fullscreen. */
+  /** Start toggles the in-app drawer. Floating WebView is for in-game Back+Start only. */
   const openFrontend = useCallback(() => {
     if (frontendOpen) return;
     if (fileActions().blocksTabs?.()) return;
@@ -251,11 +251,14 @@ export default function App() {
       toggleSettings();
     },
     onStart: () => {
-      if (frontendOpen) return;
-      // Back+Start is handled by the Rust chord watcher — don't also open here.
+      // Back+Start is handled by the Rust chord watcher — don't also toggle here.
       const pads = navigator.getGamepads?.() ?? [];
       const pad = pads.find(Boolean);
       if (pad?.buttons[8]?.pressed) return;
+      if (frontendOpen) {
+        closeFrontend();
+        return;
+      }
       openFrontend();
     },
     onFaceTop: () => {

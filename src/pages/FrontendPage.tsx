@@ -20,6 +20,7 @@ type TdpInfo = {
 type TdpDriverStatus = {
   ready: boolean;
   elevated: boolean;
+  installed?: boolean;
   message: string;
 };
 
@@ -44,7 +45,7 @@ export function FrontendPage({ active }: Props) {
 
   const refreshDriver = () => {
     if (!inTauri()) {
-      setDriver({ ready: true, elevated: true, message: m.tdpPreview });
+      setDriver({ ready: true, elevated: true, installed: true, message: m.tdpPreview });
       return;
     }
     void invoke<TdpDriverStatus>("toolbox_tdp_driver_status")
@@ -84,7 +85,8 @@ export function FrontendPage({ active }: Props) {
       return;
     }
     setDriverBusy(true);
-    setStatus(m.tdpDriverInstalling);
+    const already = Boolean(driver?.installed);
+    setStatus(already ? m.tdpDriverStarting : m.tdpDriverInstalling);
     try {
       const next = await invoke<TdpDriverStatus>("toolbox_install_tdp_driver");
       setDriver(next);
@@ -155,13 +157,23 @@ export function FrontendPage({ active }: Props) {
                 style={{ marginTop: "10px" }}
               >
                 <span>
-                  <strong>{m.tdpDriverInstall}</strong>
+                  <strong>
+                    {driver?.installed ? m.tdpDriverStart : m.tdpDriverInstall}
+                  </strong>
                   <small>
-                    {driver && !driver.elevated ? m.tdpDriverNeedAdmin : m.tdpDriverInstall}
+                    {driver && !driver.elevated
+                      ? m.tdpDriverNeedAdmin
+                      : driver?.installed
+                        ? m.tdpDriverStart
+                        : m.tdpDriverInstall}
                   </small>
                 </span>
                 <span className="switch">
-                  {driverBusy ? m.toolboxWorking : m.toolboxInstall}
+                  {driverBusy
+                    ? m.toolboxWorking
+                    : driver?.installed
+                      ? m.tdpDriverStart
+                      : m.toolboxInstall}
                 </span>
               </button>
             </>

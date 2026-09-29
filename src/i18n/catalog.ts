@@ -94,10 +94,12 @@ export type Catalog = {
     tdpDriverTitle: string;
     tdpDriverBody: string;
     tdpDriverInstall: string;
+    tdpDriverStart: string;
     tdpDriverReinstall: string;
     tdpDriverReady: string;
     tdpDriverNeedAdmin: string;
     tdpDriverInstalling: string;
+    tdpDriverStarting: string;
     runtimesTitle: string;
     runtimesBody: string;
     runtimesEmpty: string;
@@ -291,7 +293,7 @@ export const zh: Catalog = {
     focusTools: "方向键移到新建 / 添加",
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
-    frontend: "软件内 Start；游戏中 Back+Start 或 Ctrl+H",
+    frontend: "软件内 Start 开/关；游戏中 Back+Start 或 Ctrl+H",
   },
   settings: {
     title: "设置",
@@ -361,10 +363,12 @@ export const zh: Catalog = {
     tdpDriverBody:
       "调节 TDP 需要内核驱动。可一键下载并安装；需管理员权限。若安全中心提示风险，属已知情况，允许后即可用。",
     tdpDriverInstall: "安装 TDP 驱动",
+    tdpDriverStart: "启动 TDP 驱动",
     tdpDriverReinstall: "重新安装",
     tdpDriverReady: "驱动已就绪",
     tdpDriverNeedAdmin: "当前不是管理员，安装会失败；请确认启动时有 UAC。",
     tdpDriverInstalling: "正在下载并安装 TDP 驱动…",
+    tdpDriverStarting: "正在启动已安装的 TDP 驱动…",
     runtimesTitle: "游戏运行库",
     runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
     runtimesEmpty: "暂时没有可安装的运行库项。",
@@ -559,7 +563,7 @@ export const en: Catalog = {
     focusTools: "D-pad to New / Add",
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
-    frontend: "In-app Start; in-game Back+Start or Ctrl+H",
+    frontend: "In-app Start toggles; in-game Back+Start or Ctrl+H",
   },
   settings: {
     title: "Settings",
@@ -629,10 +633,12 @@ export const en: Catalog = {
     tdpDriverBody:
       "TDP control needs a kernel driver. One-click download and install; admin required. Defender may warn — that's expected; allow it to continue.",
     tdpDriverInstall: "Install TDP driver",
+    tdpDriverStart: "Start TDP driver",
     tdpDriverReinstall: "Reinstall",
     tdpDriverReady: "Driver ready",
     tdpDriverNeedAdmin: "Not elevated — install will fail. Confirm UAC on launch.",
     tdpDriverInstalling: "Downloading and installing TDP driver…",
+    tdpDriverStarting: "Starting the installed TDP driver…",
     runtimesTitle: "Game runtimes",
     runtimesBody: "Official Microsoft redistributables first; more packages later.",
     runtimesEmpty: "No runtime packages available yet.",

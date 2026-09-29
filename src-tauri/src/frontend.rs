@@ -101,10 +101,6 @@ pub fn frontend_visible(_app: &AppHandle) -> bool {
     FRONTEND_OPEN.load(Ordering::SeqCst)
 }
 
-pub fn software_focused(app: &AppHandle) -> bool {
-    window_focused(app, "main") || window_focused(app, FRONTEND_LABEL)
-}
-
 pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(desktop)]
     {
@@ -118,7 +114,16 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
                         return;
                     }
                     if shortcut.matches(Modifiers::CONTROL, Code::KeyH) {
-                        schedule_set_open(app.clone(), !FRONTEND_OPEN.load(Ordering::SeqCst), "hotkey Control+H");
+                        // Main shell already toggles the in-app drawer on Ctrl+H.
+                        // Outside main, toggle the floating overlay.
+                        if window_focused(app, "main") {
+                            return;
+                        }
+                        schedule_set_open(
+                            app.clone(),
+                            !FRONTEND_OPEN.load(Ordering::SeqCst),
+                            "hotkey Control+H",
+                        );
                     }
                 })
                 .build(),
@@ -383,8 +388,11 @@ fn start_chord_watch(app: AppHandle) {
                 }
             }
             if pressed && !held {
-                if software_focused(&app) {
-                    crate::logutil::write_line("chord Back+Start ignored (app focused)");
+                // Only ignore while the library shell is focused (Start opens the
+                // in-app drawer there). When a game is up — or the floating
+                // frontend itself is focused — Back+Start toggles the overlay.
+                if window_focused(&app, "main") {
+                    crate::logutil::write_line("chord Back+Start ignored (main focused)");
                 } else {
                     crate::logutil::write_line("chord Back+Start");
                     schedule_set_open(

@@ -167,7 +167,12 @@ pub fn launch_item(
                 }
             }
         }
+        // Tuck the launcher first — otherwise FSE / fullscreen keeps focus and
+        // the game (or Back+Start frontend) never reaches the screen.
         leave_fullscreen(&app);
+        if let Some(window) = launcher_window(&app) {
+            let _ = window.minimize();
+        }
         if let Err(err) = windows::launch(&id, &launch_path, &install_path) {
             restore_fullscreen(&app);
             return Err(err);
