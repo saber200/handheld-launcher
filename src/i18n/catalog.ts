@@ -98,14 +98,6 @@ export type Catalog = {
     runtimesTitle: string;
     runtimesBody: string;
     runtimesEmpty: string;
-    optiscalerTitle: string;
-    optiscalerBody: string;
-    optiscalerPick: string;
-    optiscalerInstall: string;
-    optiscalerInstalling: string;
-    optiscalerInstalled: string;
-    optiscalerHint: string;
-    optiscalerNoGame: string;
     backToLauncher: string;
     backToLauncherHint: string;
     later: string;
@@ -146,6 +138,11 @@ export type Catalog = {
     changePath: string;
     steamMenu: string;
     installMods: string;
+    installModsBusy: string;
+    installModsPreview: string;
+    installModsNoPath: string;
+    installModsResult: (name: string, detail: string) => string;
+    installModsFailed: (name: string, detail: string) => string;
     remove: string;
     leaveGroup: string;
     currentGroup: string;
@@ -346,7 +343,7 @@ export const zh: Catalog = {
     tdpFailed: (detail) => `TDP 调节失败：${detail}`,
     fan: "风扇",
     fanBody: "风扇协议较复杂，先不做，记在 FUTURE 里以后再接。",
-    toolboxPreview: "浏览器预览无法安装运行库或 OptiScaler。",
+    toolboxPreview: "浏览器预览无法安装运行库，请在 Windows 掌机上使用。",
     toolboxFailed: (detail) => `工具箱操作失败：${detail}`,
     toolboxInstall: "安装",
     toolboxReinstall: "重装",
@@ -365,14 +362,6 @@ export const zh: Catalog = {
     runtimesTitle: "游戏运行库",
     runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
     runtimesEmpty: "暂时没有可安装的运行库项。",
-    optiscalerTitle: "OptiScaler",
-    optiscalerBody: "针对库里的某个游戏，一键装到游戏目录（官方 GitHub 最新包，默认 dxgi.dll；版本选择以后再对）。",
-    optiscalerPick: "选择游戏",
-    optiscalerInstall: "一键安装 OptiScaler",
-    optiscalerInstalling: "正在下载并安装 OptiScaler…",
-    optiscalerInstalled: "该游戏目录已检测到 OptiScaler，可再次覆盖安装。",
-    optiscalerHint: "安装到所选游戏主程序所在目录。",
-    optiscalerNoGame: "游戏库里还没有可安装的游戏，先在主界面添加或扫描。",
     backToLauncher: "回到启动器",
     backToLauncherHint: "游戏继续在后台跑，启动器会重新铺满屏幕",
     later: "展开",
@@ -413,6 +402,11 @@ export const zh: Catalog = {
     changePath: "修改路径",
     steamMenu: "添加ID获取封面",
     installMods: "安装 Mod / 工具",
+    installModsBusy: "正在下载并安装 OptiScaler…",
+    installModsPreview: "浏览器预览无法安装 OptiScaler，请在 Windows 掌机上使用。",
+    installModsNoPath: "这个游戏还没有启动路径，先在卡片菜单里设置路径。",
+    installModsResult: (name, detail) => `${name}：${detail}`,
+    installModsFailed: (name, detail) => `为 ${name} 安装 OptiScaler 失败：${detail}`,
     remove: "从库中移除",
     quitGame: "退出游戏",
     leaveGroup: "移出分组",
@@ -614,7 +608,7 @@ export const en: Catalog = {
     tdpFailed: (detail) => `Couldn't change TDP: ${detail}`,
     fan: "Fan",
     fanBody: "Fan control is deferred — protocols vary a lot by handheld.",
-    toolboxPreview: "Browser preview can't install runtimes or OptiScaler.",
+    toolboxPreview: "Browser preview can't install runtimes; use the Windows app.",
     toolboxFailed: (detail) => `Toolbox action failed: ${detail}`,
     toolboxInstall: "Install",
     toolboxReinstall: "Reinstall",
@@ -633,14 +627,6 @@ export const en: Catalog = {
     runtimesTitle: "Game runtimes",
     runtimesBody: "Official Microsoft redistributables first; more packages later.",
     runtimesEmpty: "No runtime packages available yet.",
-    optiscalerTitle: "OptiScaler",
-    optiscalerBody: "One-click install into a library game folder from the latest official GitHub release (dxgi.dll; version picker later).",
-    optiscalerPick: "Choose game",
-    optiscalerInstall: "Install OptiScaler",
-    optiscalerInstalling: "Downloading and installing OptiScaler…",
-    optiscalerInstalled: "OptiScaler already detected; you can overwrite it.",
-    optiscalerHint: "Installs next to the selected game executable.",
-    optiscalerNoGame: "No games in the library yet. Add or scan some on the main screen.",
     backToLauncher: "Back to launcher",
     backToLauncherHint: "The game keeps running; the launcher fills the screen again",
     later: "Later",
@@ -681,6 +667,11 @@ export const en: Catalog = {
     changePath: "Change path",
     steamMenu: "Steam cover",
     installMods: "Install mods / tools",
+    installModsBusy: "Downloading and installing OptiScaler…",
+    installModsPreview: "Browser preview can't install OptiScaler; use the Windows app.",
+    installModsNoPath: "This game has no executable path yet; set it from the card menu first.",
+    installModsResult: (name, detail) => `${name}: ${detail}`,
+    installModsFailed: (name, detail) => `Couldn't install OptiScaler for ${name}: ${detail}`,
     remove: "Remove from library",
     quitGame: "Quit game",
     leaveGroup: "Remove from group",

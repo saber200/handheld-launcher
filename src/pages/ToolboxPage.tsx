@@ -1,13 +1,11 @@
 import { ToolboxPanel } from "./ToolboxPanel";
 
-type Props = { focusGameId?: string };
-
-/** Toolbox as a main-window tab. The game card menu jumps here with a game preselected. */
-export function ToolboxPage({ focusGameId }: Props) {
+/** Toolbox as a main-window tab: runtimes only. Per-game tools live on the game card menu. */
+export function ToolboxPage() {
   return (
     <main className="page library-page">
       <div className="toolbox-page-body">
-        <ToolboxPanel active focusGameId={focusGameId} />
+        <ToolboxPanel />
       </div>
     </main>
   );

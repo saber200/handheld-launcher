@@ -38,8 +38,6 @@ function parseFrontendState(payload: FrontendStatePayload): { open: boolean; sur
 export default function App() {
   useI18n();
   const [tab, setTab] = useState<TabId>("games");
-  /** Game preselected when jumping to the toolbox tab from a card menu. */
-  const [toolboxGame, setToolboxGame] = useState<string | undefined>(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [frontendOpen, setFrontendOpen] = useState(false);
   const [frontendSurface, setFrontendSurface] = useState<FrontendSurface>("none");
@@ -387,18 +385,10 @@ export default function App() {
       </header>
       <div className="tab-panel" role="tabpanel">
         <div key={tab} className="tab-panel-view">
-          {tab === "games" && (
-            <GamesPage
-              onInstallMods={(id) => {
-                setToolboxGame(id);
-                playSfx("tab");
-                setTab("toolbox");
-              }}
-            />
-          )}
+          {tab === "games" && <GamesPage />}
           {tab === "apps" && <AppsPage />}
           {tab === "files" && <FilesPage />}
-          {tab === "toolbox" && <ToolboxPage focusGameId={toolboxGame} />}
+          {tab === "toolbox" && <ToolboxPage />}
         </div>
       </div>
       <GamepadKeyboard />

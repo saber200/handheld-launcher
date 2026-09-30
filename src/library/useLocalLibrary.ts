@@ -43,6 +43,7 @@ function inTauri(): boolean {
 }
 
 let launching = false;
+let installingMods = false;
 
 export async function launchLibraryItem(item: {
   id: string;
@@ -98,6 +99,30 @@ export async function quitLibraryGame(item: {
       return text().library.quitGameNotRunning(item.name);
     }
     return text().library.quitGameFailed(item.name, detail);
+  }
+}
+
+/** Card menu → 安装 Mod / 工具: drop OptiScaler next to the game executable. */
+export async function installLibraryGameMods(item: {
+  name: string;
+  launchPath?: string;
+}): Promise<string> {
+  if (!inTauri()) {
+    return text().library.installModsPreview;
+  }
+  if (!item.launchPath) return text().library.installModsNoPath;
+  if (installingMods) return text().library.installModsBusy;
+  installingMods = true;
+  try {
+    const message = await invoke<string>("toolbox_install_optiscaler", {
+      launchPath: item.launchPath,
+    });
+    playSfx("done");
+    return text().library.installModsResult(item.name, message);
+  } catch (err) {
+    return text().library.installModsFailed(item.name, formatError(err));
+  } finally {
+    installingMods = false;
   }
 }
 

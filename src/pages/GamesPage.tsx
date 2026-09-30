@@ -3,9 +3,15 @@ import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { type GameEntry } from "../data/previewGames";
-import { launchLibraryItem, quitLibraryGame, useLocalGames, useRunningGameIds } from "../library/useLocalLibrary";
+import {
+  installLibraryGameMods,
+  launchLibraryItem,
+  quitLibraryGame,
+  useLocalGames,
+  useRunningGameIds,
+} from "../library/useLocalLibrary";
 
-export function GamesPage({ onInstallMods }: { onInstallMods?: (id: string) => void }) {
+export function GamesPage() {
   const library = useLocalGames();
   const running = useRunningGameIds(library.items);
   const [status, setStatus] = useState("");
@@ -49,7 +55,12 @@ export function GamesPage({ onInstallMods }: { onInstallMods?: (id: string) => v
         setStatus("");
         return library.setSteamCover(id, appId);
       }}
-      onInstallMods={onInstallMods}
+      onInstallMods={(id) => {
+        const game = library.items.find((item) => item.id === id);
+        if (!game) return text().library.failed;
+        setStatus("");
+        return installLibraryGameMods({ name: game.name, launchPath: game.launchPath });
+      }}
       scanning={library.scanning}
       onScan={() => setStatus(library.rescan())}
       renderCard={(game, cardRef, options) => (

@@ -16,7 +16,7 @@
 
 - 大概做什么：按start键需要在右侧弹出抽屉，这里当作前端来使用
 - 为什么需要：掌机玩家有可能会频繁的操作tdp、风扇等功能。并且我希望我们的软件可以为掌机用户提供一些工具上的安装和补全，所以可能里面也会集成工具箱的相关功能
-- 备注：Start / End / Ctrl+H / 游戏中 Back+Start 打开独立置顶前端；TDP 先检测 WinRing0，未装则引导安装，装好后才显示调节；风扇延后；工具箱：运行库 + OptiScaler（latest）
+- 备注：Start / End / Ctrl+H / 游戏中 Back+Start 打开独立置顶前端；TDP 先检测 WinRing0，未装则引导安装，装好后才显示调节；风扇延后；工具箱：运行库；OptiScaler（latest）是游戏卡片菜单里的一次性动作
 
 ## 功能 3（已落地壳）
 
@@ -42,11 +42,11 @@
 
 ---
 
-## 功能 6（进行中）— 工具箱：针对某一游戏一键安装 OptiScaler
+## 功能 6（进行中）— 针对某一游戏一键安装 OptiScaler（入口在游戏卡片菜单）
 
-- 大概做什么：从游戏库选中某个游戏，一键把 OptiScaler 装进该游戏目录（参考 GitHub 开源 OptiScaler / OptiScaler-Client，以及 juij.fun 一类一键站的体验）
+- 大概做什么：在游戏卡片菜单里一键把 OptiScaler 装进该游戏目录（参考 GitHub 开源 OptiScaler / OptiScaler-Client，以及 juij.fun 一类一键站的体验）
 - 为什么需要：掌机核显常用 FSR/XeSS 等补帧与超分，手动解压改名对手柄用户不友好
-- 备注：安装源以 **OptiScaler 官方 GitHub Release** 为准。第一版：从游戏库选游戏 → 下载 **latest** zip → 解压到主程序旁并改名为 `dxgi.dll`。**版本选择 / 多 hook（dxgi、winmm 等）暂缓**，之后对一下可装哪些版本再做；卸载 / Fakenvapi 等后续补
+- 备注：安装源以 **OptiScaler 官方 GitHub Release** 为准。第一版：卡片菜单「安装 Mod / 工具」→ 下载 **latest** zip → 解压到主程序旁并改名为 `dxgi.dll`。**版本选择 / 多 hook（dxgi、winmm 等）暂缓**，之后对一下可装哪些版本再做；卸载 / Fakenvapi 等后续补
 
 ---
 

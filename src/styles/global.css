@@ -431,25 +431,6 @@ button {
   font-size: 12px;
 }
 
-.toolbox-select-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.toolbox-select {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.25);
-  color: inherit;
-  font-size: 15px;
-}
-
 .settings-body {
   display: flex;
   flex-direction: column;
