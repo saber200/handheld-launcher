@@ -57,6 +57,7 @@
 - **`fh-core` 铁律：只放不带 `#[tauri::command]` 的纯逻辑。** Tauri 的 `allow-<命令名>` 权限是构建时按 app 自己的 crate 源码生成的，命令搬进依赖 crate 会扫不到、capability 直接报错。所以命令留在各自 app 里，`tdp` / 进程 / IPC 的**实现**放 `fh-core`，由 app 的命令薄薄包一层。阶段 1 只搬了 `logutil`（启动器侧用 `pub use fh_core::logutil;` 保住所有既有调用点）；Rust 侧 `i18n` 暂不共享，UI 文案继续靠共享的 `i18n/catalog.ts`。
 - 两个 app 各自一份 `tauri.conf.json`：启动器（FSE 全屏窗 + `requireAdministrator` 清单）、前端（`visible: false` 的置顶贴右窗 + 无清单、不提权）。**`tauri build --config` 是「与默认配置合并」语义，不能用来切项目**：第二个 app 必须在自己目录里跑 CLI（`projectPath: frontend`）。前端那份配置因此不写 `beforeBuildCommand`，Web 产物由启动器那次 `npm run build` 一次构建、两边共用。
 - Web 侧：同一 Vite 工程多入口 —— `index.html`（启动器，`src/main.tsx`）、`frontend.html`（前端，`src/frontend/main.tsx`）；共享 `i18n/catalog.ts`、`audio/sfx`、需要的样式。
+  - **前端那份 `tauri.conf.json` 的窗口必须写 `"url": "frontend.html"`。** Tauri 的 `WebviewUrl` 默认值是 `index.html`，不是「跟着入口页走」；漏写的后果是正式包里前端窗口加载**启动器**的整屏界面（dev 下 `devUrl` 已经带了 `/frontend.html`，所以只在安装包里露出来）。0.1.46 就是这个情况，0.1.47 修。
 - 语言：共享配置文件（`%APPDATA%\handheld-launcher\settings.json` 的 `locale`），两边各自读写，「最后写入生效」，不做实时同步。
 - CI：`tauri-action` 跑两次（`projectPath: .` 与 `frontend`），产物都落在同一个 `target/release/bundle/nsis/`，用同一个 tag 传进同一个 Release（两个安装包）；前端那步必须排在启动器之后（Web 先构建）。
 

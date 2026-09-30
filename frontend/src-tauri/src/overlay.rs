@@ -23,8 +23,15 @@ pub fn quitting() -> bool {
     QUITTING.load(Ordering::SeqCst)
 }
 
+/// 手柄轮询每 40 ms 问一次，走这个便宜的静态判断；
+/// **决定**开还是关请用 `toggle`，它问的是窗口本身（见下）。
 pub fn is_visible() -> bool {
     VISIBLE.load(Ordering::SeqCst)
+}
+
+/// 真相只有一个：窗口自己的 `is_visible()`。静态的 `VISIBLE` 只是缓存。
+fn window_visible(app: &AppHandle) -> Option<bool> {
+    app.get_webview_window(WINDOW_LABEL)?.is_visible().ok()
 }
 
 /// 托盘点了退出：让手柄轮询线程自己收工。
@@ -33,7 +40,11 @@ pub fn request_quit() {
 }
 
 pub fn toggle(app: &AppHandle, reason: &str) {
-    if is_visible() {
+    // 这里曾经只看静态标记，于是「按了没反应」有了一个隐蔽的来源：只要有一次
+    // show() 没真把窗口显示出来，标记就已经变成 true，之后每次按键都在做 hide()。
+    // 现在每次都问窗口：它说在屏上才关，否则开。
+    let visible = window_visible(app).unwrap_or_else(is_visible);
+    if visible {
         hide(app, reason);
     } else {
         show(app, reason);
@@ -45,23 +56,53 @@ pub fn show(app: &AppHandle, reason: &str) {
         fh_core::logutil::write_line(&format!("frontend show failed: no window ({reason})"));
         return;
     };
-    fh_core::logutil::write_line(&format!("frontend show begin ({reason})"));
+    // 把窗口**实际加载的页面**记下来：0.1.46 的前端窗口因为配置里没写 `url`，
+    // 生产包里加载的是 index.html（启动器那一页）—— 一行日志就能看穿。
+    let url = window
+        .url()
+        .map(|u| u.to_string())
+        .unwrap_or_else(|_| "?".into());
+    fh_core::logutil::write_line(&format!("frontend show begin ({reason}) url={url}"));
     place(&window, app);
-    let _ = window.set_always_on_top(true);
-    let _ = window.show();
-    if TAKE_FOCUS {
-        let _ = window.set_focus();
+    if let Err(err) = window.set_always_on_top(true) {
+        fh_core::logutil::write_line(&format!("frontend always-on-top failed: {err}"));
     }
-    VISIBLE.store(true, Ordering::SeqCst);
-    fh_core::logutil::write_line("frontend shown");
+    // 以前这里的返回值被吞了：窗口没出来，日志却照样写着 "frontend shown"，
+    // 现场只剩「按了没反应」。现在失败要留话，成功也要把真实可见性写回来。
+    if let Err(err) = window.show() {
+        fh_core::logutil::write_line(&format!("frontend show failed ({reason}): {err}"));
+    }
+    if TAKE_FOCUS {
+        if let Err(err) = window.set_focus() {
+            fh_core::logutil::write_line(&format!("frontend focus failed: {err}"));
+        }
+    }
+    let visible = window_visible(app).unwrap_or(true);
+    VISIBLE.store(visible, Ordering::SeqCst);
+    fh_core::logutil::write_line(&format!("frontend show end ({reason}) is_visible={visible}"));
+    if !visible {
+        // 说了要显示却还是不可见：把窗口的真实位置/尺寸记下来，否则现场只剩一句「没反应」。
+        let pos = window
+            .outer_position()
+            .map(|p| format!("{},{}", p.x, p.y))
+            .unwrap_or_else(|_| "?".into());
+        let size = window
+            .outer_size()
+            .map(|s| format!("{}x{}", s.width, s.height))
+            .unwrap_or_else(|_| "?".into());
+        fh_core::logutil::write_line(&format!("frontend still hidden: pos={pos} size={size}"));
+    }
 }
 
 pub fn hide(app: &AppHandle, reason: &str) {
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-        let _ = window.hide();
+        if let Err(err) = window.hide() {
+            fh_core::logutil::write_line(&format!("frontend hide failed: {err}"));
+        }
     }
-    VISIBLE.store(false, Ordering::SeqCst);
-    fh_core::logutil::write_line(&format!("frontend hidden ({reason})"));
+    let visible = window_visible(app).unwrap_or(false);
+    VISIBLE.store(visible, Ordering::SeqCst);
+    fh_core::logutil::write_line(&format!("frontend hide end ({reason}) is_visible={visible}"));
 }
 
 /// 贴右、置顶、整屏高。

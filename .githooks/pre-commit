@@ -1,0 +1,41 @@
+#!/bin/sh
+# 提交前挡住「本机编得过、CI 编不过」这类低级错误 —— v0.1.46 连挂两轮 CI
+# （stale 的 normalize_win_path、重复的 set_locale、嵌套 Result）都是这个原因，
+# 每一轮都要等 20 分钟才知道。
+#
+# 装一次（每个克隆各一次）：npm run hooks
+# 手动跳过：git commit --no-verify
+#
+# 只检查这次提交碰过的语言：没碰 Rust 就不编 Rust，没碰前端就不跑 tsc。
+# 用的是和 CI 同名的命令（clippy --workspace --all-targets / tsc --noEmit），
+# 所以本地绿 == CI 的编译阶段绿；all-targets 连测试代码一起编，这一点比发布流程更严。
+set -u
+
+root=$(git rev-parse --show-toplevel) || exit 0
+cd "$root" || exit 0
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -n "$staged" ] || exit 0
+
+if printf '%s\n' "$staged" | grep -qE '\.(ts|tsx|html)$'; then
+  echo "[pre-commit] tsc --noEmit"
+  npx tsc --noEmit || {
+    echo "[pre-commit] 前端类型检查没过，提交已拦下。" >&2
+    exit 1
+  }
+fi
+
+if printf '%s\n' "$staged" | grep -qE '(^|/)Cargo\.(toml|lock)$|\.rs$'; then
+  echo "[pre-commit] cargo clippy --workspace --all-targets"
+  out=$(cargo clippy --workspace --all-targets 2>&1)
+  code=$?
+  # 告警按类别汇总，不刷屏（本机编不到 Windows 专属代码，那批 dead_code 告警很正常）。
+  printf '%s\n' "$out" | grep -E '^(warning|error)' | sort | uniq -c | sort -rn | head -15
+  if [ "$code" -ne 0 ]; then
+    printf '%s\n' "$out" | grep -E '^error' -A 6 | head -60 >&2
+    echo "[pre-commit] Rust 编译/检查没过，提交已拦下。" >&2
+    exit 1
+  fi
+fi
+
+exit 0

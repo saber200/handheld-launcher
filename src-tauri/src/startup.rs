@@ -45,7 +45,7 @@ pub async fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
         return Ok(());
     }
     #[cfg(not(windows))]
-    Err(pick("只能在 Windows 上打开桌面", "The desktop can only be opened on Windows.").into())
+    Err(pick("只能在 Windows 上打开桌面", "The desktop can only be opened on Windows."))
 }
 
 #[tauri::command]
@@ -94,7 +94,7 @@ fn system_power_now(action: String) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let _ = action;
-        Err(pick("只能在 Windows 上休眠、重启或关机", "Sleep, restart, and shut down only work on Windows.").into())
+        Err(pick("只能在 Windows 上休眠、重启或关机", "Sleep, restart, and shut down only work on Windows."))
     }
 }
 
@@ -118,7 +118,7 @@ fn fse_status_now() -> String {
         return windows::fse_status();
     }
     #[cfg(not(windows))]
-    pick("只能在 Windows 上登记全屏体验。", "Fullscreen experience can only be registered on Windows.").into()
+    pick("只能在 Windows 上登记全屏体验。", "Fullscreen experience can only be registered on Windows.")
 }
 
 /// Powershell + Appx registration takes seconds — never on the event loop.
@@ -139,7 +139,7 @@ fn register_fse_now(app: tauri::AppHandle) -> String {
     #[cfg(not(windows))]
     {
         let _ = app;
-        pick("只能在 Windows 上登记全屏体验。", "Fullscreen experience can only be registered on Windows.").into()
+        pick("只能在 Windows 上登记全屏体验。", "Fullscreen experience can only be registered on Windows.")
     }
 }
 
@@ -160,8 +160,7 @@ fn open_fse_settings_now() -> Result<(), String> {
     Err(pick(
         "只能在 Windows 上打开全屏体验设置。",
         "Fullscreen experience settings are only available on Windows.",
-    )
-    .into())
+    ))
 }
 
 #[tauri::command]
@@ -194,7 +193,7 @@ fn set_autostart_now(enabled: bool) -> Result<(), String> {
     #[cfg(not(windows))]
     {
         let _ = enabled;
-        Err(pick("只能在 Windows 上设置开机自启", "Startup can only be changed on Windows.").into())
+        Err(pick("只能在 Windows 上设置开机自启", "Startup can only be changed on Windows."))
     }
 }
 

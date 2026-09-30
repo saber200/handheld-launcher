@@ -488,7 +488,7 @@ fn open_with_system(path: &str) -> Result<(), String> {
             .arg(path)
             .spawn()
             .map_err(|err| pick(&format!("无法打开：{err}"), &format!("Couldn't open: {err}")))?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -506,6 +506,12 @@ mod tests {
         check_name, copy_path, file_delete, file_move, is_drive_root, is_editable_name, read_text,
         sibling_name,
     };
+
+    /// `file_move` / `file_delete` 是 async 命令（都走 `off_main`），测试里得有个运行时空转，
+    /// 用 Tauri 自己那套就够，不必为一个测试往 dev-dependencies 里塞 tokio。
+    fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+        tauri::async_runtime::block_on(future)
+    }
 
     #[test]
     fn rejects_path_pieces_in_names() {
@@ -546,13 +552,17 @@ mod tests {
         std::fs::create_dir_all(&to_dir).unwrap();
         let src = from_dir.join("a.txt");
         std::fs::write(&src, "move").unwrap();
-        file_move(src.display().to_string(), to_dir.display().to_string()).unwrap();
+        block_on(file_move(
+            src.display().to_string(),
+            to_dir.display().to_string(),
+        ))
+        .unwrap();
         assert!(!src.exists());
         assert_eq!(std::fs::read_to_string(to_dir.join("a.txt")).unwrap(), "move");
-        let err = file_move(
+        let err = block_on(file_move(
             to_dir.join("a.txt").display().to_string(),
             to_dir.display().to_string(),
-        )
+        ))
         .unwrap_err();
         assert!(err.contains("已经在这个文件夹"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -568,9 +578,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.txt");
         std::fs::write(&file, "x").unwrap();
-        file_delete(file.display().to_string()).unwrap();
+        block_on(file_delete(file.display().to_string())).unwrap();
         assert!(!file.exists());
-        assert!(file_delete("C:\\".into()).unwrap_err().contains("盘符"));
+        assert!(block_on(file_delete("C:\\".into()))
+            .unwrap_err()
+            .contains("盘符"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

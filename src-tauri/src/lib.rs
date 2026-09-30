@@ -79,10 +79,8 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
                     api.prevent_close();
                 }
             }
-            WindowEvent::Destroyed => {
-                if !startup::quit_allowed() {
-                    reopen_main(app_handle.clone());
-                }
+            WindowEvent::Destroyed if !startup::quit_allowed() => {
+                reopen_main(app_handle.clone());
             }
             // 这里曾有一个 `Focused(true) => frontend::hide_overlay(...)`：0.1.45 想靠
             // 「壳拿回焦点」收走浮层，结果和浮层自己的可见性状态打架，正是那一版

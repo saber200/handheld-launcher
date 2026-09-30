@@ -47,8 +47,7 @@ pub async fn frontend_install(app: tauri::AppHandle) -> Result<String, String> {
         return Err(pick(
             "这个版本没有内置前端安装包。请到 Release 页面下载前端安装包安装。",
             "This build ships no frontend installer. Download it from the Releases page.",
-        )
-        .into());
+        ));
     };
     // off_main 会把阻塞活儿挪到工作线程；它返回的是「外层 Result + 内层 Result」，
     // 这里要的是内层（安装结果）。
@@ -87,15 +86,14 @@ fn run_installer(payload: &PathBuf) -> Result<String, String> {
     match outcome {
         InstallOutcome::Installed => {
             crate::logutil::write_line("frontend install: installer finished");
-            Ok(pick("前端已安装 / 已更新", "Frontend installed / updated").into())
+            Ok(pick("前端已安装 / 已更新", "Frontend installed / updated"))
         }
         InstallOutcome::Failed(detail) => {
             crate::logutil::write_line(&format!("frontend install failed: {detail}"));
             Err(pick(
                 "前端安装失败。请先在托盘退出前端，再重试；也可到 Release 页面手动安装。",
                 "Frontend install failed. Quit it from the tray and retry, or install manually from Releases.",
-            )
-            .into())
+            ))
         }
     }
 }

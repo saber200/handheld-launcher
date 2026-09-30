@@ -17,3 +17,6 @@ src-tauri/drivers/WinRing0x64.sys
 src-tauri/payload/
 .vscode/*
 !.vscode/extensions.json
+# 编辑器设置要跟着仓库走：里面的 rust-analyzer clippy 配置就是「提交前发现
+# dead_code / 编不过」的那道提醒，不该只存在某台机器上。
+!.vscode/settings.json

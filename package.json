@@ -1,7 +1,7 @@
 {
   "name": "handheld-launcher",
   "private": true,
-  "version": "0.1.46",
+  "version": "0.1.47",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,11 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:dev:frontend": "cd frontend && tauri dev",
-    "tauri:build:frontend": "npm run build && cd frontend && tauri build"
+    "tauri:build:frontend": "npm run build && cd frontend && tauri build",
+    "lint": "tsc --noEmit && cargo clippy --workspace --all-targets",
+    "lint:web": "tsc --noEmit",
+    "lint:rust": "cargo clippy --workspace --all-targets",
+    "hooks": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",

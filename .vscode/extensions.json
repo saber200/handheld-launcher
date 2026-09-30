@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    // 编辑器里的实时检查（rust-analyzer 用 clippy，见 settings.json）。
+    "rust-lang.rust-analyzer",
+    "tauri-apps.tauri-vscode"
+  ]
+}

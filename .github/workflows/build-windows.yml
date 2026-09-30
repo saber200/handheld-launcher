@@ -98,6 +98,15 @@ jobs:
           }
           throw "Failed to fetch WinRing0x64.sys for bundling"
 
+      # 编译闸门：放在打包之前。坏代码在这里 1~2 分钟就报出来，不用等 20 分钟
+      # （v0.1.46 前两轮 tag 都栽在编译错误上，而失败都在最后那个 tauri-action 里，
+      # 日志混在打包输出中很难看）。这一步同时让后面两个 tauri-action 命中已编译的依赖。
+      #
+      # 与 lint.yml 的分工：这里只保证「装不出包」的问题（不写 --all-targets，测试代码
+      # 由每次推 main 的 lint.yml 全量编，那边失败很便宜）。
+      - name: Compile check (both programs)
+        run: cargo check --workspace --locked
+
       # 构建顺序：先出独立前端的安装包 → 把它放进启动器的 payload → 再打启动器安装包。
       # 独立前端：先出它的安装包 —— 启动器的安装包会把这份安装包作为 payload 带上
       # （见仓库根 FRONTEND.md §5）。两个 tauri-action 用同一个 tag，谁先跑都进同一个

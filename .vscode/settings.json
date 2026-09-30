@@ -1,0 +1,17 @@
+{
+  // 让编辑器在你写的时候就说真话：rust-analyzer 用 clippy 做检查，
+  // 并且把测试代码也算进去（0.1.46 有 4 个编译错误就藏在测试里，
+  // 因为发布流程只 `cargo build`，永远编不到它们）。
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.workspace": true,
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.cargo.allTargets": true,
+  // 默认只在 workspace 根目标上做诊断；打开后 dead_code / unused 会直接
+  // 以波浪线出现在编辑器里，而不是等你推到 CI 才发现。
+  "rust-analyzer.diagnostics.styleLints.enable": true,
+  "files.exclude": {
+    "**/target": true
+  },
+  // 用仓库里那份 TypeScript，别用 VS Code 自带的旧版：tsc --noEmit 的结论要和 CI 一致。
+  "typescript.tsdk": "node_modules/typescript/lib"
+}

@@ -1,0 +1,56 @@
+name: Lint
+
+# 便宜的闸门：每次推到 main（以及每个 PR）把「编不过」在几分钟内说清楚，
+# 而不是等打 tag 时用 20 分钟的发布流程才告诉你 —— v0.1.46 连续两轮 CI
+# 都是本机没编过就推了 tag。
+#
+# 跑在 windows-latest 上（不是 ubuntu）：这个仓库真正的风险平台就是 Windows，
+# macOS/Linux 根本编不到 #[cfg(windows)] 那段（windows-sys、注册表、驱动）。
+# 代价是 Windows runner 计费翻倍，但省下的是每轮 20 分钟的发布排查。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # 与发布流程一致：只让 main 作用域保存 npm 缓存。
+          cache: ${{ github.ref == 'refs/heads/main' && 'npm' || '' }}
+
+      - name: Web type check
+        run: |
+          npm ci
+          npx tsc --noEmit
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # 工作区根 Cargo.toml 之后目标目录在仓库根，和 build-windows.yml 保持一致。
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # --all-targets 是关键：把测试代码也编掉。发布流程只 `cargo build`，
+      # 编不到测试目标 —— 0.1.46 的 src-tauri/src/files.rs 里有 4 个编译错误
+      # （async 命令少写 .await）就这么一直藏在本机/CI 全绿的后面。
+      #
+      # 先不加 -D warnings：Windows 上现有告警清到什么程度得先看一轮真实输出，
+      # 这轮绿了、告警归零，再把它变成硬闸门。
+      - name: Rust check (workspace, tests included)
+        run: cargo clippy --workspace --all-targets --locked

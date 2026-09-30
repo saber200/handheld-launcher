@@ -1,9 +1,24 @@
-# 进度对照（v0.1.46）
+# 进度对照（v0.1.47）
 
 > **发布基准：`v0.1.0` 稳定版** — 内容与内部构建 0.1.38 一致（见 `v0.1.0` 标签 / `release/0.1.0` 分支）。
-> `0.1.31`–`0.1.46` 均为测试版，仅内部验证用，不作为发布版。
+> `0.1.31`–`0.1.47` 均为测试版，仅内部验证用，不作为发布版。
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
+
+## 0.1.47 这一版
+
+修 0.1.46 的两个 bug（在掌机上都以「托盘 / 热键按了没反应」的形式露出来），并补上本地与 CI 的 lint 门。
+
+- **前端窗口加载错页面**：`frontend/src-tauri/tauri.conf.json` 的窗口少写 `"url": "frontend.html"`。Tauri 的 `WebviewUrl` 默认是 `index.html`（不是「跟着入口页走」），而 `devUrl` 里已经带了 `/frontend.html` —— 所以只有安装包里才露出来：正式包的前端窗口加载的是**启动器**的整屏界面，而那页一挂载就 `setFullscreen(true)`，会把 660×1200 的浮层窗口拉成全屏。现在窗口页写死，并且每次显示都把**实际加载的 URL** 记进日志（`frontend show begin (...) url=...`），一行就能看穿
+- **可见性标记会说谎**：`frontend/src-tauri/src/overlay.rs` 里 `toggle` 只读静态 `VISIBLE`；`show()` 又吞掉 `window.show()` 的返回值、然后**无条件**写 `frontend shown`。于是「窗口没出来」在日志里长得和成功一模一样。现在 `toggle` 问的是窗口自己的 `is_visible()`，`show()/hide()` 记真实结果与错误，并在「说了要显示却仍然不可见」时补记窗口真实位置/尺寸（`frontend show end (...) is_visible=...` / `frontend still hidden: pos=... size=...`）
+- 现场日志（`%APPDATA%\handheld-launcher\fantasyhub.log`）读出来的结论：托盘 / `Ctrl+H` / 手柄 `Back+Start` / 自启全部正常（`tray installed autostart=true`、`global shortcut Control+H registered`、`chord watch started (Back+Start)`、`frontend ready (visible=false, autostart=true)`）；`frontend place x=1260 y=0 w=660 h=1200 scale=1.5` 与历代老浮层**逐字相同**（全物理单位：1920×1200 @150% 贴右、整高，placement 数学没毛病）；23 秒内被点了 4 次托盘。唯一断掉的就是窗口里的页面
+- **工程：补上四个人能看到问题的门**。0.1.46 之前仓库里**一个本地检查都没有**（没有 `.vscode/`、没有 clippy、没有 pre-commit，CI 又只在打标签时 `cargo build`、从不跑测试）：
+  - 编辑器：`.vscode/settings.json`（rust-analyzer 走 clippy）+ `.vscode/extensions.json`
+  - 提交：`.githooks/pre-commit`（`cargo fmt --check` + `clippy --all-targets`，非零就拦）
+  - 推送 / PR：`.github/workflows/lint.yml`（Windows runner，分钟级）
+  - 打标签：`build-windows.yml` 里加 `Compile check` 步骤（打包前先编译）
+- 清掉 14 条跨平台 clippy 警告（全在非 Windows 的 stub 分支：12 条 `useless_conversion`、2 条 `needless_return`，外加 `manual_range_contains`、`collapsible_match`）；`--all-targets` 一开就暴露 `files.rs` 测试里 4 个**真编译错误**（async 的 `file_move` / `file_delete` 漏 `.await`）—— 这类错误 CI 以前永远看不到
+- 边界（诚实说）：**跨平台**问题现在本地能拦；**Windows 独占**的编译问题仍交给每次推送的 Windows lint 作业。本机 `--target x86_64-pc-windows-msvc` 交叉检查试过，不可行（`ring` 的 C 代码需要 Windows C 工具链），这条路不走
 
 ## 0.1.46 这一版
 
@@ -82,7 +97,7 @@
 | 游戏库 / 软件库 | 可用 |
 | 文件管理 | 可用 |
 | 工具箱 | **0.1.41** 独立成标签页；0.1.44 起只留运行库，OptiScaler 走游戏卡片菜单；实机装包待掌机验证 |
-| 前端浮层 | **0.1.44** 启动不再隐藏主窗、只保证不抢焦点；浮层里可「退出游戏」；TDP 滑条支持手柄；待掌机验证 |
+| 前端浮层 | **0.1.46** 起是独立程序（托盘常驻 + 贴右置顶浮层，`Ctrl+H` / 手柄 `Back+Start`）；**0.1.47** 修正式包里加载错页面（启动器整屏界面）与可见性日志说谎；掌机冒烟仍是最后一道关 |
 
 ## 待完成 / 已知缺口
 
@@ -91,11 +106,12 @@
 3. **OptiScaler**：**0.1.41** 起吃官方 `.7z`（含 BCJ2），此前只认 `.zip` 所以一直装不上；游戏内 hook 与 Insert 菜单待掌机验证；版本 / hook 选型以后对表再做
 4. **扫描**：GOG、Game Pass、微软商店应用等
 5. **风扇 / Game++**：明确延后（见 `FUTURE.md`）
-6. 无代码签名（SmartScreen）；无自动化测试
+6. 无代码签名（SmartScreen）；无自动化测试（**0.1.47 起有 lint 门**：编辑器 / pre-commit / 每次推送的 Windows lint 作业 / 打包前编译检查；单元测试仍未做）
 7. **全屏回库**：0.1.44 起主窗不再隐藏 / 让出，退出游戏后直接就是启动器；游戏里按 Back+Start 呼出浮层可直接「退出游戏」（探不到进程时会提示没找到，库页面卡片菜单里也能退）
 
 ## 近期改动备忘
 
+- 0.1.47：修 0.1.46 的两个 bug —— ① 前端窗口漏写 `"url": "frontend.html"`（`WebviewUrl` 默认 `index.html`，`devUrl` 里带了 `/frontend.html` 所以只在安装包里露出来）：正式包的前端窗口加载的是启动器的整屏界面，那页一挂载就 `setFullscreen(true)`；② `frontend/src-tauri/src/overlay.rs` 的 `toggle` 只读静态 `VISIBLE`，`show()` 又吞掉 `window.show()` 的返回值后无条件写 `frontend shown` —— 于是「窗口没出来」和成功在日志里长得一样。两处都补了现场日志：显示时记**实际加载的 URL** 与真实 `is_visible()`，说了要显示却仍不可见时补记窗口位置/尺寸。另补四个 lint 门（`.vscode/`、`.githooks/pre-commit`、`.github/workflows/lint.yml`、`build-windows.yml` 的 `Compile check`）+ 清 14 条 clippy 警告；`--all-targets` 暴露的 4 个测试编译错误（`files.rs` 里 async 的 `file_move`/`file_delete` 漏 `.await`）一并修掉
 - 0.1.44：修「切标签 / 退回主应用后整机卡住」——**所有重活都从主线程搬到工作线程**（Tauri 的同步 `#[tauri::command] fn` 跑在主线程，即消息循环所在线程：一次盘符探测、图标提取或封面下载超时会把**所有窗口**一起冻住，Back+Start 也要等超时结束才反应；这也解释了「频繁切页后卡一会儿又自己好」）。具体：`files.rs`（盘符/列目录/读写/图标/打开）、`scan.rs`（扫描/运行中探测/封面/启动/退出）、`tdp.rs`、`toolbox.rs`、`startup.rs` 全部改 `async` + `spawn_blocking`；盘符改用 `GetLogicalDrives` + `GetDriveTypeW`（不再对 A–Z 逐个 `Path::exists()` 做真 I/O，空读卡器不再拖住列表）；封面下载失败记 10 分钟冷却，不再每次进页重试；`running_games` 轮询加在途保护。另：`key={tab}` 重挂载导致的重复加载 —— 文件管理记住本次会话的目录与列表（回页即出、3 秒内不重列），扫描结果的封面/图标跟进改成 10 分钟内不重跑。前端状态事件 `{open, surface}` 之前被当成布尔读，浮层会永远「自认已激活」，已按 `payload.open` 解析。另：工具箱去掉「OptiScaler + 选游戏」那一块 —— 卡片菜单「安装 Mod / 工具」本来就是同一件事的入口（原来还先跳标签页、再选一次游戏，纯重复），现在卡片菜单直接下载安装并把结果写在库页面提示行（`installLibraryGameMods`，带并发保护），工具箱只剩运行库；`optiscaler*` i18n 键、`toolbox-select` 样式和 `focusGameId` 预选链路一并删掉。另三处前端逻辑：① 启动游戏 / 软件不再隐藏主窗 —— Windows 会把焦点给新开的程序，我们只要别抢即可，`launch_item` 的隐藏 + `watch_game_exit` 自动回壳 + `reveal_launcher` 命令 + `AWAY_SESSION` / `away_suppress` 状态与 `Focused` 里的抢焦拦截全部删除；② 浮层「回到启动器」换成「退出游戏」，只在库里的游戏正在运行时出现（软件 / 主应用不显示），点一下 `quit_game` 立刻结束；③ TDP 滑条支持手柄：`steerFocus` 遇到 range 输入就 ±1 W 调整（按住由 320/140 ms 连发驱动），页面按 260 ms 合并写入并在写入在途时保留最新值，A 发 `gamepad-commit` 立即提交，↑ / ↓ 仍离开滑条；同时去掉「写入时禁用滑条 / 预设」——禁用会把焦点丢回 body，下一次方向键就跳回列表顶部。
 - 0.1.43：修「全屏下让出主窗后回不来」。浮层加「回到启动器」；让出后后台守望游戏进程，确认退出就自动回壳；切已运行游戏只在切换成功时才让出。另修 OptiScaler 重装时子目录 `OptiScaler.ini` 被覆盖（保留判断改查 `to.join(rel)`，根目录行为不变）；清理 GitHub 上 34 条 tag 作用域废缓存（约 794 MB），并把 npm 缓存也改成只让 main 保存（`package-lock.json` 里的版本号每次发布都变 → setup-node 的 key 每次都不同，tag 存下的那条 23 MB 永远不会被下次发布命中）
 - 0.1.42：无功能变更；CI 加 Cargo 依赖缓存（依赖编译 9 分 35 秒 → 0，整轮 15 分 31 秒 → 6 分 08 秒）。曾试 thin LTO + codegen-units = 16，实测链接更慢（4 分 21 秒 → 约 5 分 30 秒）且产物大 412 KiB，已回退。另修缓存作用域：tag 触发的运行保存缓存时 ref 会被写成畸形的 `refs/heads/refs/tags/vX`（npm 缓存同样如此），main 上的运行读不到，已加 `save-if` 只让 main 保存

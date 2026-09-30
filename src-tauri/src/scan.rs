@@ -126,7 +126,7 @@ fn quit_game_now(id: String, launch_path: String, install_path: String) -> Resul
     #[cfg(not(windows))]
     {
         let _ = (id, launch_path, install_path);
-        return Err(pick("只能在 Windows 上退出游戏", "Quitting games only works on Windows.").into());
+        Err(pick("只能在 Windows 上退出游戏", "Quitting games only works on Windows."))
     }
     // 结束进程的实现也搬到了共享内核：独立前端自己退游戏（免提权）。
     #[cfg(windows)]
@@ -200,7 +200,7 @@ fn launch_item_now(
     #[cfg(not(windows))]
     {
         let _ = (app, id, launch_path, install_path, switch_if_running);
-        Err(pick("只能在 Windows 上启动", "Launching only works on Windows.").into())
+        Err(pick("只能在 Windows 上启动", "Launching only works on Windows."))
     }
 }
 
@@ -282,14 +282,8 @@ fn launched_recently(id: &str) -> bool {
 }
 
 /// 路径规范化与“这个进程属于这个游戏吗”都搬到了共享内核（独立前端要用同一套，
-/// 见 `fh_core::process`）。这里保留同名薄壳，调用点一个字都不用改。
-fn normalize_win_path(path: &str) -> String {
-    fh_core::process::normalize_path(path)
-}
-
-fn process_belongs_to_game(launch_path: &str, install_path: &str, process_path: &str) -> bool {
-    fh_core::process::belongs_to_game(launch_path, install_path, process_path)
-}
+/// 见 `fh_core::process`）。这里不再留同名薄壳：留着只会在 Windows 构建里报
+/// “never used”（调用点早就改成直接打共享内核了），测试也直接打共享内核那份。
 
 #[derive(Debug, PartialEq, Eq)]
 struct AcfGame {
@@ -1160,37 +1154,37 @@ mod tests {
 
     #[test]
     fn matches_only_the_games_own_process() {
-        assert!(process_belongs_to_game(
+        assert!(fh_core::process::belongs_to_game(
             r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
             r"D:\SteamLibrary\steamapps\common\Elden Ring",
             r"D:\SteamLibrary\steamapps\common\Elden Ring\start_protected_game.exe",
         ));
-        assert!(process_belongs_to_game(
+        assert!(fh_core::process::belongs_to_game(
             r"C:\Games\Hades.exe",
             r"C:\Games",
             r"C:\Games\Hades.exe",
         ));
-        assert!(!process_belongs_to_game(
+        assert!(!fh_core::process::belongs_to_game(
             r"C:\Games\Hades.exe",
             r"C:\Games",
             r"C:\Games\Other.exe",
         ));
-        assert!(!process_belongs_to_game(
+        assert!(!fh_core::process::belongs_to_game(
             r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
             r"D:\SteamLibrary\steamapps\common\Elden Ring",
             r"C:\Program Files (x86)\Steam\steam.exe",
         ));
-        assert!(!process_belongs_to_game(
+        assert!(!fh_core::process::belongs_to_game(
             r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
             r"D:\SteamLibrary\steamapps\common\Elden Ring",
             r"D:\SteamLibrary\steamapps\common\Elden Ring\steamwebhelper.exe",
         ));
-        assert!(process_belongs_to_game(
+        assert!(fh_core::process::belongs_to_game(
             r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
             r"D:\SteamLibrary\steamapps\common\Elden Ring",
             "eldenring.exe",
         ));
-        assert!(!process_belongs_to_game(
+        assert!(!fh_core::process::belongs_to_game(
             r"D:\SteamLibrary\steamapps\common\Elden Ring\eldenring.exe",
             r"D:\SteamLibrary\steamapps\common\Elden Ring",
             "steam.exe",

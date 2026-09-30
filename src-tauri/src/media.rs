@@ -87,7 +87,7 @@ pub fn fetch_steam_library_cover(appid: &str) -> Result<String, String> {
     #[cfg(not(windows))]
     {
         let _ = appid;
-        Err(pick("只能在 Windows 上获取 Steam 封面。", "Steam covers can only be fetched on Windows.").into())
+        Err(pick("只能在 Windows 上获取 Steam 封面。", "Steam covers can only be fetched on Windows."))
     }
 }
 

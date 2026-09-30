@@ -83,7 +83,7 @@ fn set_tdp_now(watts: u32) -> Result<TdpInfo, String> {
 
 fn stored_watts() -> Option<u32> {
     let value = LAST_WATTS.load(Ordering::Relaxed);
-    (value >= MIN_W && value <= MAX_W).then_some(value)
+    (MIN_W..=MAX_W).contains(&value).then_some(value)
 }
 
 /// Whether the WinRing0 device can be opened (TDP backend ready).
