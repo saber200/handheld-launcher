@@ -185,9 +185,14 @@ export function FrontendPanel({ active }: { active: boolean }) {
     queueTdp(watts, 0);
   };
 
+  // 滑块一步一个音：升 = tdp-up、降 = tdp-down（手柄推方向键走的是同一个入口）。
+  // 基准取「还没落盘的最新值」，快速拖动时不会因为 React 还没重渲染就判错方向。
   const stepTdp = (watts: number) => {
-    playSfx("click");
-    queueTdp(watts, TDP_WRITE_DELAY_MS);
+    const next = clampTdp(watts);
+    const prev = pending.current ?? display;
+    if (next > prev) playSfx("tdpUp");
+    else if (next < prev) playSfx("tdpDown");
+    queueTdp(next, TDP_WRITE_DELAY_MS);
   };
 
   const quitRunning = async () => {
