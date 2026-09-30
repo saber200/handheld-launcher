@@ -98,8 +98,9 @@ export type Catalog = {
     runtimesTitle: string;
     runtimesBody: string;
     runtimesEmpty: string;
-    backToLauncher: string;
-    backToLauncherHint: string;
+    quitGame: string;
+    quitGameBody: (name: string) => string;
+    quitGameRunning: string;
     later: string;
     soon: string;
   };
@@ -288,7 +289,7 @@ export const zh: Catalog = {
     focusTools: "方向键移到新建 / 添加",
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
-    frontend: "Start 开/关浮层；游戏中 Back+Start 或 Ctrl+H 呼出，选「回到启动器」回库",
+    frontend: "Start 开/关浮层；游戏中 Back+Start 或 Ctrl+H 呼出，可直接退出游戏",
   },
   settings: {
     title: "设置",
@@ -362,8 +363,9 @@ export const zh: Catalog = {
     runtimesTitle: "游戏运行库",
     runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
     runtimesEmpty: "暂时没有可安装的运行库项。",
-    backToLauncher: "回到启动器",
-    backToLauncherHint: "游戏继续在后台跑，启动器会重新铺满屏幕",
+    quitGame: "退出游戏",
+    quitGameBody: (name) => `立刻结束「${name}」；没保存的进度会丢`,
+    quitGameRunning: "正在退出…",
     later: "展开",
     soon: "即将推出",
   },
@@ -553,7 +555,7 @@ export const en: Catalog = {
     focusTools: "D-pad to New / Add",
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
-    frontend: "Start toggles the overlay; in-game use Back+Start or Ctrl+H, then pick \"Back to launcher\"",
+    frontend: "Start toggles the overlay; in-game use Back+Start or Ctrl+H to quit the running game",
   },
   settings: {
     title: "Settings",
@@ -627,8 +629,9 @@ export const en: Catalog = {
     runtimesTitle: "Game runtimes",
     runtimesBody: "Official Microsoft redistributables first; more packages later.",
     runtimesEmpty: "No runtime packages available yet.",
-    backToLauncher: "Back to launcher",
-    backToLauncherHint: "The game keeps running; the launcher fills the screen again",
+    quitGame: "Quit game",
+    quitGameBody: (name) => `Ends “${name}” right away; unsaved progress is lost`,
+    quitGameRunning: "Quitting…",
     later: "Later",
     soon: "Soon",
   },

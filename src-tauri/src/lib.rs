@@ -65,7 +65,6 @@ fn reopen_main(app: tauri::AppHandle) {
 }
 
 fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
-    let watched = window.clone();
     let app_handle = app.clone();
     window.on_window_event(move |event| {
         match event {
@@ -82,38 +81,24 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
             WindowEvent::Focused(true) => {
                 // Do NOT focus_frontend here — under FSE that focus fight freezes the UI.
                 // Overlay must not hide or fight the main window (Game Bar style).
-                if frontend::frontend_visible(&app_handle) {
-                    return;
-                }
-                // Launch path hides the shell. FSE often force-focuses us right away —
-                // re-hide during the suppress window so the game keeps the foreground.
-                if scan::away_session_active() {
-                    if scan::away_suppress_active() {
-                        scan::rehide_shell_if_away(&app_handle);
-                        return;
-                    }
-                    // Suppress expired and user is back on the shell — restore fullscreen.
-                    scan::clear_away_session();
-                    startup::fill_screen(&watched);
-                    return;
-                }
+                // Launching a game no longer hides the shell either: whatever we
+                // start keeps the focus Windows gave it, we never grab it back.
+                let _ = frontend::frontend_visible(&app_handle);
             }
             _ => {}
         }
     });
 }
 
-/// Bring the hidden shell back. The single-instance relaunch, the overlay's
-/// 「回到启动器」 row and the post-game watcher in scan.rs all land here.
-/// Fullscreen / FSE hides the shell with no task list to come back from, so
-/// this is the one place that has to stay reliable.
+/// Bring the hidden shell back. The single-instance relaunch used this while the
+/// launcher still hid itself on launch; the shell now stays visible, so this is
+/// only a safety net for windows that ended up off screen.
 pub(crate) fn reveal_shell(app: &tauri::AppHandle) {
     // The floating overlay is a game-time surface; the library takes over now.
     frontend::hide_overlay(app);
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    scan::clear_away_session();
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
@@ -142,7 +127,6 @@ pub fn run() {
             scan::launch_item,
             scan::running_games,
             scan::quit_game,
-            scan::reveal_launcher,
             scan::cache_covers,
             scan::steam_library_cover,
             frontend::toggle_frontend,

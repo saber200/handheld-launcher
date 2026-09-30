@@ -50,7 +50,6 @@ pub async fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 pub fn enter_fullscreen(window: tauri::WebviewWindow) -> Result<(), String> {
-    crate::scan::clear_away_session();
     fill_screen(&window);
     Ok(())
 }

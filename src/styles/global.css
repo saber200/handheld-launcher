@@ -356,6 +356,13 @@ button {
   cursor: default;
 }
 
+/* The slider is the only control that is not a button: pad focus has to be obvious. */
+.tdp-slider:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
 .tdp-slider-ends {
   display: flex;
   justify-content: space-between;

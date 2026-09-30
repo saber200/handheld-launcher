@@ -46,6 +46,36 @@ function typingTarget(): HTMLInputElement | HTMLTextAreaElement | null {
   return null;
 }
 
+/** Focused range input (the TDP slider) — steering adjusts it instead of leaving it. */
+function rangeTarget(): HTMLInputElement | null {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLInputElement)) return null;
+  if (el.type !== "range" || el.disabled) return null;
+  return el;
+}
+
+/** Pages listen for this on a slider: A asks for the value to be written now. */
+export const GAMEPAD_COMMIT = "gamepad-commit";
+
+/**
+ * One step on a focused slider. Left / right used to walk the focus ring, so the
+ * TDP slider could not be changed with a gamepad at all, and A clicked a range
+ * (which does nothing).
+ */
+function stepRange(el: HTMLInputElement, dir: number) {
+  const step = Number(el.step) || 1;
+  const min = el.min === "" ? Number.NEGATIVE_INFINITY : Number(el.min);
+  const max = el.max === "" ? Number.POSITIVE_INFINITY : Number(el.max);
+  const current = Number(el.value);
+  if (!Number.isFinite(current)) return;
+  const next = Math.min(max, Math.max(min, current + dir * step));
+  if (next === current) return;
+  // React tracks the DOM value: write through the native setter so the input
+  // event carries the new value into onInput.
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(el, String(next));
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function moveTextCaret(el: HTMLInputElement | HTMLTextAreaElement, dx: number, dy: number) {
   const value = el.value;
   const start = el.selectionStart ?? 0;
@@ -163,6 +193,12 @@ export function backspaceGamepadField() {
 
 /** Direction leaves a field that is not currently accepting text, and opens the keyboard with confirm. */
 export function steerFocus(dx: number, dy: number) {
+  // A slider is adjusted in place; up / down still leave it for the neighbours.
+  const slider = rangeTarget();
+  if (slider && dx !== 0) {
+    stepRange(slider, dx);
+    return;
+  }
   const field = typingTarget();
   const editing = field instanceof HTMLTextAreaElement ? !suspendCaret : textEditing && !suspendCaret;
   if (field && editing) {
@@ -195,6 +231,13 @@ export function confirmFocused() {
   }
   if (field instanceof HTMLInputElement && field.inputMode === "numeric" && visibleFocusables().includes(field)) {
     openGamepadKeyboard(field);
+    return;
+  }
+  const slider = rangeTarget();
+  if (slider) {
+    // click() does nothing to a range input; the page commits the value instead.
+    playSfx("click");
+    slider.dispatchEvent(new Event(GAMEPAD_COMMIT));
     return;
   }
   const el = document.activeElement as HTMLElement | null;

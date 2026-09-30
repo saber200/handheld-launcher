@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { playSfx, startLoadingSfx, stopLoadingSfx } from "../audio/sfx";
+import { GAMEPAD_COMMIT } from "../hooks/useGamepadNav";
+import { quitLibraryGame, useRunningLibraryGame } from "../library/useLocalLibrary";
 import { text } from "../i18n";
 
 type Props = { active: boolean };
@@ -32,15 +34,24 @@ const FALLBACK_PRESETS = [5, 10, 15, 25, 35, 40];
 const FALLBACK_MIN = 5;
 const FALLBACK_MAX = 40;
 
+/// A held D-pad steps faster than the driver answers, so writes are coalesced:
+/// the newest value wins and nothing stacks up behind the running one.
+const TDP_WRITE_DELAY_MS = 260;
+
 export function FrontendPage({ active }: Props) {
   const firstRef = useRef<HTMLButtonElement>(null);
+  const sliderRef = useRef<HTMLInputElement>(null);
   const m = text().frontend;
   const [tdp, setTdp] = useState<TdpInfo | null>(null);
   const [driver, setDriver] = useState<TdpDriverStatus | null>(null);
-  const [busy, setBusy] = useState(false);
   const [driverBusy, setDriverBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [draft, setDraft] = useState<number | null>(null);
+  const [quitting, setQuitting] = useState(false);
+  const [runningGame, refreshRunningGame] = useRunningLibraryGame(active);
+  const writeTimer = useRef<number | null>(null);
+  const writing = useRef(false);
+  const pending = useRef<number | null>(null);
 
   const refreshDriver = () => {
     if (!inTauri()) {
@@ -102,34 +113,109 @@ export function FrontendPage({ active }: Props) {
     }
   };
 
-  const applyTdp = async (watts: number) => {
-    const minW = tdp?.minW ?? FALLBACK_MIN;
-    const maxW = tdp?.maxW ?? FALLBACK_MAX;
-    const next = Math.min(maxW, Math.max(minW, Math.round(watts)));
-    setDraft(next);
-    playSfx("click");
-    if (!inTauri()) {
-      return;
-    }
-    setBusy(true);
+  const clampTdp = (watts: number) => {
+    const min = tdp?.minW ?? FALLBACK_MIN;
+    const max = tdp?.maxW ?? FALLBACK_MAX;
+    return Math.min(max, Math.max(min, Math.round(watts)));
+  };
+
+  const writeTdp = async (watts: number) => {
+    if (!inTauri()) return;
+    writing.current = true;
     try {
-      const info = await invoke<TdpInfo>("set_tdp", { watts: next });
+      const info = await invoke<TdpInfo>("set_tdp", { watts });
       setTdp(info);
-      setDraft(info.watts ?? next);
+      setDraft(info.watts ?? watts);
       setStatus(info.message);
       playSfx("done");
     } catch (err) {
       setStatus(m.tdpFailed(String(err)));
     } finally {
-      setBusy(false);
+      writing.current = false;
     }
   };
 
-  const backToLauncher = () => {
+  const drainTdp = async () => {
+    if (writing.current) return;
+    const next = pending.current;
+    if (next === null) return;
+    pending.current = null;
+    await writeTdp(next);
+    // The button is probably still held: write what arrived while we were busy.
+    if (pending.current !== null) void drainTdp();
+  };
+
+  const queueTdp = (watts: number, delay: number) => {
+    pending.current = clampTdp(watts);
+    setDraft(pending.current);
+    if (writing.current) return;
+    if (delay <= 0) {
+      void drainTdp();
+      return;
+    }
+    if (writeTimer.current !== null) return;
+    writeTimer.current = window.setTimeout(() => {
+      writeTimer.current = null;
+      void drainTdp();
+    }, delay);
+  };
+
+  const flushTdp = () => {
+    if (writeTimer.current !== null) {
+      window.clearTimeout(writeTimer.current);
+      writeTimer.current = null;
+    }
+    void drainTdp();
+  };
+  const flushRef = useRef(flushTdp);
+  flushRef.current = flushTdp;
+
+  // A on the focused slider commits right away (see confirmFocused in useGamepadNav).
+  useEffect(() => {
+    const slider = sliderRef.current;
+    if (!slider) return;
+    const commit = () => flushRef.current();
+    slider.addEventListener(GAMEPAD_COMMIT, commit);
+    return () => slider.removeEventListener(GAMEPAD_COMMIT, commit);
+  }, [driver?.ready]);
+
+  // Stepping and then closing the panel still has to keep the last value.
+  useEffect(
+    () => () => {
+      if (writeTimer.current !== null) window.clearTimeout(writeTimer.current);
+      const last = pending.current;
+      pending.current = null;
+      if (last !== null && inTauri()) {
+        void invoke("set_tdp", { watts: last }).catch(() => {});
+      }
+    },
+    [],
+  );
+
+  const applyTdp = (watts: number) => {
     playSfx("click");
-    if (!inTauri()) return;
-    // The shell may be hidden behind a fullscreen game — this is the way home.
-    void invoke("reveal_launcher").catch(() => {});
+    queueTdp(watts, 0);
+  };
+
+  const stepTdp = (watts: number) => {
+    playSfx("click");
+    queueTdp(watts, TDP_WRITE_DELAY_MS);
+  };
+
+  const quitRunningGame = async () => {
+    if (!runningGame || quitting) return;
+    playSfx("click");
+    setQuitting(true);
+    const message = await quitLibraryGame({
+      id: runningGame.id,
+      name: runningGame.name,
+      launchPath: runningGame.launchPath,
+      installPath: runningGame.installPath,
+      customPath: runningGame.customPath,
+    });
+    setStatus(message);
+    setQuitting(false);
+    refreshRunningGame();
   };
 
   const presets = tdp?.presets?.length ? tdp.presets : FALLBACK_PRESETS;
@@ -198,8 +284,7 @@ export function FrontendPage({ active }: Props) {
                     type="button"
                     className={`tdp-preset${display === watts ? " on" : ""}`}
                     data-focusable
-                    disabled={busy}
-                    onClick={() => void applyTdp(watts)}
+                    onClick={() => applyTdp(watts)}
                   >
                     {watts}W
                   </button>
@@ -208,6 +293,7 @@ export function FrontendPage({ active }: Props) {
               <label className="tdp-slider-row">
                 <span className="tdp-slider-label">{m.tdpSlider}</span>
                 <input
+                  ref={sliderRef}
                   type="range"
                   className="tdp-slider"
                   min={minW}
@@ -215,10 +301,8 @@ export function FrontendPage({ active }: Props) {
                   step={1}
                   value={display}
                   data-focusable
-                  disabled={busy}
                   aria-label={m.tdpSlider}
-                  onInput={(e) => setDraft(Number(e.currentTarget.value))}
-                  onChange={(e) => void applyTdp(Number(e.currentTarget.value))}
+                  onInput={(e) => stepTdp(Number(e.currentTarget.value))}
                 />
                 <span className="tdp-slider-ends">
                   <span>{minW}W</span>
@@ -235,15 +319,23 @@ export function FrontendPage({ active }: Props) {
           </span>
           <span className="switch">{m.later}</span>
         </button>
-        {/* 全屏 / FSE 下主窗会隐起来去让游戏，且没有任务栏可以找回来；
-            这一行是游戏里唯一可靠的回家入口（Back+Start 呼出浮层后选它）。 */}
-        <button type="button" className="setting-row" data-focusable onClick={backToLauncher}>
-          <span>
-            <strong>{m.backToLauncher}</strong>
-            <small>{m.backToLauncherHint}</small>
-          </span>
-          <span className="switch">{m.backToLauncher}</span>
-        </button>
+        {/* Only a library *game* gets this row: apps and the shell have nothing
+            to kill, and the overlay should get you out of a game without
+            hunting for the task manager. */}
+        {runningGame ? (
+          <button
+            type="button"
+            className="setting-row"
+            data-focusable
+            onClick={() => void quitRunningGame()}
+          >
+            <span>
+              <strong>{quitting ? m.quitGameRunning : m.quitGame}</strong>
+              <small>{m.quitGameBody(runningGame.name)}</small>
+            </span>
+            <span className="switch">{quitting ? m.toolboxWorking : m.quitGame}</span>
+          </button>
+        ) : null}
       </section>
     </div>
   );

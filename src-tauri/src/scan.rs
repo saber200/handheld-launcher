@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 #[cfg(windows)]
 use std::collections::{HashMap, HashSet};
@@ -8,10 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::i18n::pick;
 
-/// Shell is tucked (hidden) so a game / other app can keep focus under FSE.
-static AWAY_SESSION: AtomicBool = AtomicBool::new(false);
-/// While set, FSE may force-focus us — re-hide instead of filling the screen.
-static AWAY_SUPPRESS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Games this shell started a moment ago — a second click is not a second start.
 static RECENT_LAUNCHES: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
 
 fn unix_ms() -> u64 {
@@ -19,106 +15,6 @@ fn unix_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|dur| u64::try_from(dur.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or(0)
-}
-
-pub fn away_session_active() -> bool {
-    AWAY_SESSION.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-pub fn away_suppress_active() -> bool {
-    unix_ms() < AWAY_SUPPRESS_UNTIL.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-pub fn clear_away_session() {
-    AWAY_SESSION.store(false, std::sync::atomic::Ordering::Relaxed);
-    AWAY_SUPPRESS_UNTIL.store(0, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Leave exclusive fullscreen and hide — never minimize under FSE (it snaps back and steals focus).
-#[cfg(windows)]
-pub fn begin_away_session(app: &tauri::AppHandle) {
-    leave_fullscreen(app);
-    if let Some(window) = launcher_window(app) {
-        let _ = window.hide();
-    }
-    AWAY_SESSION.store(true, std::sync::atomic::Ordering::Relaxed);
-    AWAY_SUPPRESS_UNTIL.store(
-        unix_ms().saturating_add(3000),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    crate::logutil::write_line("away session: hide shell (no minimize)");
-}
-
-#[cfg(windows)]
-pub fn restore_shell(app: &tauri::AppHandle) {
-    clear_away_session();
-    if let Some(window) = launcher_window(app) {
-        crate::startup::fill_screen(&window);
-    }
-}
-
-/// FSE forced focus during launch suppress — tuck again so the game keeps the foreground.
-pub fn rehide_shell_if_away(app: &tauri::AppHandle) {
-    #[cfg(windows)]
-    {
-        if !away_session_active() {
-            return;
-        }
-        if let Some(window) = launcher_window(app) {
-            let _ = window.hide();
-            crate::logutil::write_line("away session: re-hide after FSE focus");
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = app;
-    }
-}
-
-/// Watch the process we just yielded to and bring the shell back when it exits.
-/// The shell hides itself on launch and fullscreen / FSE offers no task list, so
-/// without this the user would quit the game onto a bare desktop. Only a game we
-/// have actually seen running may "disappear" — a slow first start, a launcher
-/// hand-off or a level reload must never pop the library back over the game.
-#[cfg(windows)]
-pub fn watch_game_exit(app: &tauri::AppHandle, launch_path: &str, install_path: &str) {
-    static WATCHING: AtomicBool = AtomicBool::new(false);
-    if WATCHING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
-    }
-    let launch_path = launch_path.to_string();
-    let install_path = install_path.to_string();
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let mut seen_running = false;
-        let mut missing = 0u32;
-        let started = std::time::Instant::now();
-        // Bounded so a broken probe cannot leave a thread polling forever.
-        while started.elapsed() < std::time::Duration::from_secs(8 * 60 * 60) {
-            std::thread::sleep(std::time::Duration::from_millis(2000));
-            // User came back on their own, or the app is quitting.
-            if crate::startup::quit_allowed() || !away_session_active() {
-                break;
-            }
-            match windows::activate_game(&launch_path, &install_path) {
-                GamePresence::Absent => {
-                    if seen_running {
-                        missing = missing.saturating_add(1);
-                        if missing >= 2 {
-                            crate::logutil::write_line("game exited: reveal shell");
-                            crate::reveal_shell(&app);
-                            break;
-                        }
-                    }
-                }
-                GamePresence::Focused | GamePresence::Running => {
-                    seen_running = true;
-                    missing = 0;
-                }
-            }
-        }
-        WATCHING.store(false, std::sync::atomic::Ordering::SeqCst);
-    });
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -287,59 +183,29 @@ fn launch_item_now(
 ) -> Result<String, String> {
     #[cfg(windows)]
     {
+        // The shell no longer hides itself on launch, so it needs no handle here.
+        let _ = app;
         if switch_if_running.unwrap_or(false) {
             match windows::activate_game(&launch_path, &install_path) {
                 GamePresence::Absent if launched_recently(&id) => return Ok("running".into()),
                 GamePresence::Absent => {}
                 GamePresence::Focused | GamePresence::Running => {
                     let switched = windows::reveal_game(&id, &launch_path, &install_path);
-                    // Only yield the shell once the game really owns the screen. Under
-                    // fullscreen / FSE a hidden shell has no task list to come back from,
-                    // so a switch that failed must leave the library where it is.
-                    if switched {
-                        begin_away_session(&app);
-                        watch_game_exit(&app, &launch_path, &install_path);
-                    }
                     return Ok(if switched { "focused".into() } else { "running".into() });
                 }
             }
         }
-        // Hide (not minimize) — FSE restores minimized windows and steals focus back.
-        begin_away_session(&app);
-        if let Err(err) = windows::launch(&id, &launch_path, &install_path) {
-            restore_shell(&app);
-            return Err(err);
-        }
+        // The shell stays where it is. Windows focuses whatever we start, and
+        // nothing here calls set_focus — hiding ourselves was what used to strand
+        // the library behind the game, with no task list to come back from.
+        windows::launch(&id, &launch_path, &install_path)?;
         remember_launch(&id);
-        // The shell just hid itself and FSE has no task list, so watch the game for us.
-        watch_game_exit(&app, &launch_path, &install_path);
         return Ok("launched".into());
     }
     #[cfg(not(windows))]
     {
         let _ = (app, id, launch_path, install_path, switch_if_running);
         Err(pick("只能在 Windows 上启动", "Launching only works on Windows.").into())
-    }
-}
-
-/// Bring the library back after a game (or another app) took the screen.
-/// The floating overlay calls this from its 「回到启动器」 row; desktop mode can
-/// use it too. It is also the recovery path when nothing else is reachable.
-#[tauri::command]
-pub fn reveal_launcher(app: tauri::AppHandle) {
-    crate::reveal_shell(&app);
-}
-
-#[cfg(windows)]
-fn launcher_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
-    use tauri::Manager;
-    app.get_webview_window("main")
-}
-
-#[cfg(windows)]
-fn leave_fullscreen(app: &tauri::AppHandle) {
-    if let Some(window) = launcher_window(app) {
-        let _ = window.set_fullscreen(false);
     }
 }
 

@@ -425,9 +425,6 @@ fn attach(window: &WebviewWindow, app: &AppHandle) {
 }
 
 fn focus_main_if_idle(app: &AppHandle) {
-    if crate::scan::away_session_active() {
-        return;
-    }
     let Some(main) = app.get_webview_window("main") else {
         return;
     };

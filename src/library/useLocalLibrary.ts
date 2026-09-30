@@ -171,6 +171,87 @@ export function useRunningGameIds(items: GameEntry[]) {
   return new Set(ids);
 }
 
+export type RunningLibraryGame = {
+  id: string;
+  name: string;
+  launchPath?: string;
+  installPath?: string;
+  customPath?: boolean;
+};
+
+/**
+ * The games the library would show, read straight from this session's scan
+ * cache. The frontend overlay only needs a candidate list for `running_games`;
+ * unlike the library page it must never start a full system scan.
+ */
+export function cachedLibraryGames(): RunningLibraryGame[] {
+  if (!inTauri()) return [];
+  const extras = loadExtras("games");
+  const scanned = (readScanCache<RawGame>("scan_games") ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    launchPath: row.launchPath,
+    installPath: row.installPath,
+  }));
+  const base = withPaths(scanned, extras);
+  const known = new Set(base.map((item) => item.launchPath).filter(Boolean));
+  const added = extras.added
+    .filter((item) => !known.has(item.launchPath))
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      launchPath: item.launchPath,
+      installPath: item.installPath,
+      customPath: true,
+    }));
+  return [...base, ...added].filter((item) => !extras.hidden.includes(item.id));
+}
+
+/**
+ * The library game running right now, for the frontend's quit row. Probes the
+ * same process list as the library, but only while the overlay is on screen.
+ * Returns `null` for apps and for the shell itself, so no row is offered there.
+ */
+export function useRunningLibraryGame(active: boolean): [RunningLibraryGame | null, () => void] {
+  const [game, setGame] = useState<RunningLibraryGame | null>(null);
+  const items = useMemo(() => (active ? cachedLibraryGames() : []), [active]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const inFlight = useRef(false);
+  const tick = useCallback(() => {
+    const list = itemsRef.current;
+    if (list.length === 0) {
+      setGame(null);
+      return;
+    }
+    // Walking the process list is the expensive part: never stack a second probe.
+    if (inFlight.current) return;
+    inFlight.current = true;
+    void invoke<string[]>("running_games", {
+      items: list.map((item) => ({
+        id: item.id,
+        launchPath: item.launchPath ?? "",
+        installPath: item.installPath ?? "",
+      })),
+    })
+      .then((ids) => setGame(list.find((item) => ids.includes(item.id)) ?? null))
+      .catch(() => {})
+      .finally(() => {
+        inFlight.current = false;
+      });
+  }, []);
+  useEffect(() => {
+    if (!active || !inTauri()) {
+      setGame(null);
+      return;
+    }
+    tick();
+    const timer = window.setInterval(tick, 4000);
+    return () => window.clearInterval(timer);
+  }, [active, tick]);
+  return [game, tick];
+}
+
 function formatError(err: unknown): string {
   if (typeof err === "string") return err;
   if (err instanceof Error && err.message) return err.message;
