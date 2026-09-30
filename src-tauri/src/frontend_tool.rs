@@ -50,8 +50,12 @@ pub async fn frontend_install(app: tauri::AppHandle) -> Result<String, String> {
         )
         .into());
     };
-    let message = crate::off_main(move || run_installer(&payload)).await?;
-    Ok(message)
+    // off_main 会把阻塞活儿挪到工作线程；它返回的是「外层 Result + 内层 Result」，
+    // 这里要的是内层（安装结果）。
+    match crate::off_main(move || run_installer(&payload)).await {
+        Ok(result) => result,
+        Err(err) => Err(err),
+    }
 }
 
 /// 安装包放在资源目录的 `payload/frontend-setup.exe`（CI 会把前端安装包拷进来）。

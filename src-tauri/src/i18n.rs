@@ -9,8 +9,3 @@ pub use fh_core::i18n::{apply, pick};
 pub fn set_locale(locale: String) {
     apply(&locale);
 }
-
-#[tauri::command]
-pub fn set_locale(locale: String) {
-    apply(&locale);
-}
