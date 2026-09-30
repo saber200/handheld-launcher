@@ -31,6 +31,12 @@ jobs:
         with:
           workspaces: "src-tauri -> target"
           cache-on-failure: true
+          # 只让 main 分支保存缓存：tag 触发的发布运行会把缓存 ref 写成畸形的
+          # "refs/heads/refs/tags/v0.1.42"，main 上的运行读不到它，等于每次发布
+          # 白存约 810 MB、还多花约 3 分钟打包上传（0.1.42 那次实测如此）。
+          # 反过来 tag 运行能正常读 main 的缓存，所以让它只读不写：
+          # 依赖有变动（Cargo.toml/Cargo.lock）后，在 main 上跑一次预热即可。
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install frontend deps
         run: npm ci
