@@ -56,14 +56,21 @@ pub fn preload(app: &AppHandle) {
 #[tauri::command]
 pub async fn toggle_frontend(app: tauri::AppHandle) -> Result<bool, String> {
     // Main shell owns the in-app drawer via JS. Float only when FantasyHub is not foreground.
+    // A *visible* overlay always wins though: if it is on screen the user is
+    // asking to dismiss it, whatever the focus says (SetForegroundWindow can
+    // fail, which used to leave the overlay stuck with no way out).
+    if FRONTEND_OPEN.load(Ordering::SeqCst) {
+        crate::logutil::write_line("toggle_frontend close (overlay visible)");
+        schedule_set_open(app, false, "toggle_frontend");
+        return Ok(false);
+    }
     if shell_is_foreground(&app) {
         crate::logutil::write_line("toggle_frontend ignored (main owns drawer)");
         return Ok(false);
     }
-    let next = !FRONTEND_OPEN.load(Ordering::SeqCst);
-    crate::logutil::write_line(&format!("toggle_frontend float -> {next}"));
-    schedule_set_open(app, next, "toggle_frontend");
-    Ok(next)
+    crate::logutil::write_line("toggle_frontend float -> true");
+    schedule_set_open(app, true, "toggle_frontend");
+    Ok(true)
 }
 
 #[tauri::command]
@@ -72,6 +79,10 @@ pub async fn open_frontend(app: tauri::AppHandle) -> Result<(), String> {
         crate::logutil::write_line("open_frontend inline (main foreground)");
         // Never open the second WebView over FSE home — it ducks fullscreen and freezes.
         FRONTEND_OPEN.store(false, Ordering::SeqCst);
+        // The drawer replaces the overlay: take a leftover overlay window off
+        // screen, otherwise it is visible but unknown to FRONTEND_OPEN (so no
+        // pad events, no toggle) and can never be closed again.
+        hide(&app);
         emit_state(&app, true, "inline");
         return Ok(());
     }
@@ -127,15 +138,16 @@ pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
                     }
                     if shortcut.matches(Modifiers::CONTROL, Code::KeyH) {
                         // Main shell already toggles the in-app drawer on Ctrl+H.
-                        // Outside main, toggle the floating overlay.
+                        // Outside main, toggle the floating overlay — and always
+                        // allow closing a visible overlay.
+                        if FRONTEND_OPEN.load(Ordering::SeqCst) {
+                            schedule_set_open(app.clone(), false, "hotkey Control+H");
+                            return;
+                        }
                         if shell_is_foreground(app) {
                             return;
                         }
-                        schedule_set_open(
-                            app.clone(),
-                            !FRONTEND_OPEN.load(Ordering::SeqCst),
-                            "hotkey Control+H",
-                        );
+                        schedule_set_open(app.clone(), true, "hotkey Control+H");
                     }
                 })
                 .build(),
@@ -584,18 +596,17 @@ fn start_chord_watch(app: AppHandle) {
                 }
             }
             if pressed && !held {
-                // Only ignore while the library shell is foreground (Start opens the
-                // in-app drawer there). When a game is up — or the floating
-                // frontend itself is focused — Back+Start toggles the overlay.
-                if shell_is_foreground(&app) {
+                // Only ignore the *open* while the library shell is foreground
+                // (Start opens the in-app drawer there). A visible overlay is
+                // always closable, even if the focus check thinks main owns it.
+                if FRONTEND_OPEN.load(Ordering::SeqCst) {
+                    crate::logutil::write_line("chord Back+Start closes visible overlay");
+                    schedule_set_open(app.clone(), false, "chord Back+Start");
+                } else if shell_is_foreground(&app) {
                     crate::logutil::write_line("chord Back+Start ignored (main foreground)");
                 } else {
                     crate::logutil::write_line("chord Back+Start");
-                    schedule_set_open(
-                        app.clone(),
-                        !FRONTEND_OPEN.load(Ordering::SeqCst),
-                        "chord Back+Start",
-                    );
+                    schedule_set_open(app.clone(), true, "chord Back+Start");
                 }
             }
             held = pressed;

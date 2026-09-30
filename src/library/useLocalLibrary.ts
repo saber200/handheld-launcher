@@ -112,7 +112,12 @@ export function useRunningGameIds(items: GameEntry[]) {
       return;
     }
     let cancel = false;
+    let inFlight = false;
     const tick = () => {
+      // The probe walks the process list: never stack a second one behind a
+      // slow answer, that is how quick tab-hopping used to pile up work.
+      if (inFlight) return;
+      inFlight = true;
       void invoke<string[]>("running_games", {
         items: itemsRef.current.map((item) => ({
           id: item.id,
@@ -126,7 +131,10 @@ export function useRunningGameIds(items: GameEntry[]) {
             current.length === next.length && current.every((id, index) => id === next[index]) ? current : next,
           );
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          inFlight = false;
+        });
     };
     tick();
     const timer = window.setInterval(tick, 1500);
@@ -146,6 +154,32 @@ function formatError(err: unknown): string {
 
 function scanCacheKey(command: string) {
   return `handheld-launcher.scan.${command}`;
+}
+
+function scanStampKey(command: string) {
+  return `handheld-launcher.scan.${command}.checked`;
+}
+
+/// How long a finished scan counts as "already followed up". Covers and icons
+/// are fetched over the network, so a tab switch must not start that again.
+const SCAN_FOLLOW_UP_MS = 10 * 60 * 1000;
+
+function scanCheckedAt(command: string): number {
+  try {
+    const raw = localStorage.getItem(scanStampKey(command));
+    const value = raw == null ? 0 : Number(raw);
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function markScanChecked(command: string) {
+  try {
+    localStorage.setItem(scanStampKey(command), String(Date.now()));
+  } catch {
+    // Storage full / disabled: the next mount just tries again.
+  }
 }
 
 function readScanCache<TRaw>(command: string): TRaw[] | null {
@@ -192,6 +226,7 @@ function useScanned<TRaw, T extends { name: string }>(
       if (cancel.current) return;
       setItems(next);
       setError("");
+      markScanChecked(command);
       afterLoad?.(next, (updated) => {
         if (!cancel.current) setItems(updated);
       });
@@ -225,9 +260,15 @@ function useScanned<TRaw, T extends { name: string }>(
     const cancel = { current: false };
     if (cached) {
       const mapped = cached.map(map).sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
-      afterLoad?.(mapped, (updated) => {
-        if (!cancel.current) setItems(updated);
-      });
+      // Cached rows already carry the covers/icons a previous follow-up saved.
+      // Only redo that work when it is stale — switching tabs must not re-fetch
+      // every missing cover (each one waits out its own network timeout).
+      if (Date.now() - scanCheckedAt(command) >= SCAN_FOLLOW_UP_MS) {
+        markScanChecked(command);
+        afterLoad?.(mapped, (updated) => {
+          if (!cancel.current) setItems(updated);
+        });
+      }
       return () => {
         cancel.current = true;
       };

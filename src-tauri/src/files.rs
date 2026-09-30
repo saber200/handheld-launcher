@@ -13,19 +13,33 @@ pub struct FileEntry {
     pub editable: bool,
 }
 
+// Disk work runs on a worker thread: the Files tab re-asks for the drive list
+// and the current folder every time the tab is (re)mounted, and a plain
+// `#[tauri::command] fn` would hold the main thread — and with it every window
+// — for as long as a dead card reader or an unreachable share takes to answer.
 #[tauri::command]
-pub fn file_places() -> Vec<FileEntry> {
-    places()
+pub async fn file_places() -> Vec<FileEntry> {
+    crate::off_main(places).await.unwrap_or_default()
 }
 
 #[tauri::command]
-pub fn file_list(path: String) -> Result<Vec<FileEntry>, String> {
-    list_dir(Path::new(&path))
+pub async fn file_list(path: String) -> Result<Vec<FileEntry>, String> {
+    match crate::off_main(move || list_dir(Path::new(&path))).await {
+        Ok(rows) => rows,
+        Err(err) => Err(err),
+    }
 }
 
 #[tauri::command]
-pub fn file_make_dir(parent: String, name: String) -> Result<(), String> {
-    let name = check_name(&name)?;
+pub async fn file_make_dir(parent: String, name: String) -> Result<(), String> {
+    match crate::off_main(move || make_dir(&parent, &name)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn make_dir(parent: &str, name: &str) -> Result<(), String> {
+    let name = check_name(name)?;
     let dest = PathBuf::from(parent).join(name);
     if dest.exists() {
         return Err(pick("已经有同名项目", "That name is already here."));
@@ -34,8 +48,15 @@ pub fn file_make_dir(parent: String, name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn file_make_file(parent: String, name: String) -> Result<(), String> {
-    let name = check_name(&name)?;
+pub async fn file_make_file(parent: String, name: String) -> Result<(), String> {
+    match crate::off_main(move || make_file(&parent, &name)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn make_file(parent: &str, name: &str) -> Result<(), String> {
+    let name = check_name(name)?;
     let dest = PathBuf::from(parent).join(name);
     if dest.exists() {
         return Err(pick("已经有同名项目", "That name is already here."));
@@ -44,7 +65,14 @@ pub fn file_make_file(parent: String, name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn file_copy(from: String, dest_dir: String) -> Result<(), String> {
+pub async fn file_copy(from: String, dest_dir: String) -> Result<(), String> {
+    match crate::off_main(move || copy_entry(from, dest_dir)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn copy_entry(from: String, dest_dir: String) -> Result<(), String> {
     let from = PathBuf::from(from);
     let dest_dir = PathBuf::from(dest_dir);
     if !from.exists() {
@@ -63,7 +91,14 @@ pub fn file_copy(from: String, dest_dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn file_delete(path: String) -> Result<(), String> {
+pub async fn file_delete(path: String) -> Result<(), String> {
+    match crate::off_main(move || delete_entry(path)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn delete_entry(path: String) -> Result<(), String> {
     let path = PathBuf::from(path.trim());
     if is_drive_root(&path) {
         return Err(pick("不能删除盘符", "A drive can't be deleted."));
@@ -86,7 +121,14 @@ fn is_drive_root(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub fn file_move(from: String, dest_dir: String) -> Result<(), String> {
+pub async fn file_move(from: String, dest_dir: String) -> Result<(), String> {
+    match crate::off_main(move || move_entry(from, dest_dir)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn move_entry(from: String, dest_dir: String) -> Result<(), String> {
     let from = PathBuf::from(from);
     let dest_dir = PathBuf::from(dest_dir);
     if !from.exists() {
@@ -120,12 +162,22 @@ pub fn file_move(from: String, dest_dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn file_read_text(path: String) -> Result<String, String> {
-    read_text(Path::new(&path))
+pub async fn file_read_text(path: String) -> Result<String, String> {
+    match crate::off_main(move || read_text(Path::new(&path))).await {
+        Ok(read) => read,
+        Err(err) => Err(err),
+    }
 }
 
 #[tauri::command]
-pub fn file_write_text(path: String, text: String) -> Result<(), String> {
+pub async fn file_write_text(path: String, text: String) -> Result<(), String> {
+    match crate::off_main(move || write_text(path, text)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn write_text(path: String, text: String) -> Result<(), String> {
     let path = Path::new(&path);
     if path.is_dir() {
         return Err(pick("不能把文件夹当成文本保存", "A folder can't be saved as text."));
@@ -134,16 +186,26 @@ pub fn file_write_text(path: String, text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn file_icon(app: tauri::AppHandle, path: String) -> String {
-    let path = path.trim();
-    if path.is_empty() {
+pub async fn file_icon(app: tauri::AppHandle, path: String) -> String {
+    if path.trim().is_empty() {
         return String::new();
     }
-    crate::media::cached_icon(&app, path, path)
+    // Icon extraction + PNG encoding is tens of milliseconds per file; keep it
+    // off the event loop so a card of new programs cannot stall the shell.
+    crate::off_main(move || crate::media::cached_icon(&app, &path, &path))
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
-pub fn file_open(path: String) -> Result<(), String> {
+pub async fn file_open(path: String) -> Result<(), String> {
+    match crate::off_main(move || open_entry(path)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn open_entry(path: String) -> Result<(), String> {
     if !Path::new(&path).exists() {
         return Err(pick("找不到这个文件", "Couldn't find that file."));
     }
@@ -154,12 +216,7 @@ fn places() -> Vec<FileEntry> {
     let mut found = Vec::new();
     #[cfg(windows)]
     {
-        for letter in b'A'..=b'Z' {
-            let path = format!("{}:\\", letter as char);
-            if Path::new(&path).exists() {
-                found.push(dir_entry(format!("{}:", letter as char), path));
-            }
-        }
+        found.extend(letters());
         if let Some(home) = std::env::var_os("USERPROFILE") {
             let path = PathBuf::from(&home);
             if path.is_dir() {
@@ -188,6 +245,42 @@ fn dir_entry(name: String, path: String) -> FileEntry {
         bytes: 0,
         editable: false,
     }
+}
+
+/// `DRIVE_NO_ROOT_DIR`: the letter is in the bitmap but has no usable root
+/// (an empty card reader, a removed USB stick). See Win32 `GetDriveType`.
+#[cfg(windows)]
+const DRIVE_NO_ROOT_DIR: u32 = 1;
+
+/// Drive letters from the kernel's cached bitmask.
+///
+/// The old loop probed `Path::new("X:\\").exists()` for A..Z, i.e. real device
+/// I/O per letter: an empty card reader or an unreachable share answers late
+/// (or never), so simply opening the Files tab could block for seconds.
+/// `GetLogicalDrives` + `GetDriveTypeW` only read cached state.
+#[cfg(windows)]
+fn letters() -> Vec<FileEntry> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+
+    let mask = unsafe { GetLogicalDrives() };
+    if mask == 0 {
+        // No bitmap (rare): never hand the user an empty list, C: always exists.
+        return vec![dir_entry("C:".into(), "C:\\".into())];
+    }
+    let mut found = Vec::new();
+    for letter in b'A'..=b'Z' {
+        if mask & (1u32 << (letter - b'A')) == 0 {
+            continue;
+        }
+        let path = format!("{}:\\", letter as char);
+        let mut wide: Vec<u16> = path.encode_utf16().collect();
+        wide.push(0);
+        if unsafe { GetDriveTypeW(wide.as_ptr()) } == DRIVE_NO_ROOT_DIR {
+            continue;
+        }
+        found.push(dir_entry(format!("{}:", letter as char), path));
+    }
+    found
 }
 
 fn list_dir(path: &Path) -> Result<Vec<FileEntry>, String> {

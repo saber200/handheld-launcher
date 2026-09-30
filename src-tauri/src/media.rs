@@ -164,6 +164,45 @@ mod windows {
         }
     }
 
+    /// URL -> "don't try again before" (unix ms). Every tab switch re-asked for
+    /// every cover the device couldn't fetch, so each mount paid the full 8s
+    /// connect / 20s read timeout again. Remember the failures for a while.
+    fn cover_failures() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
+        static FAILED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+            std::sync::OnceLock::new();
+        FAILED.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+    }
+
+    const COVER_RETRY_AFTER_MS: u64 = 10 * 60 * 1000;
+
+    fn unix_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|dur| u64::try_from(dur.as_millis()).unwrap_or(u64::MAX))
+            .unwrap_or(0)
+    }
+
+    /// True while a recent download failure for this URL should keep us quiet.
+    fn cooling_down(url: &str) -> bool {
+        let Ok(mut failed) = cover_failures().lock() else {
+            return false;
+        };
+        match failed.get(url) {
+            Some(until) if *until > unix_ms() => true,
+            Some(_) => {
+                failed.remove(url);
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn remember_failure(url: &str) {
+        if let Ok(mut failed) = cover_failures().lock() {
+            failed.insert(url.to_string(), unix_ms().saturating_add(COVER_RETRY_AFTER_MS));
+        }
+    }
+
     pub fn cache_remote_covers(
         app: &tauri::AppHandle,
         covers: Vec<CoverRequest>,
@@ -186,7 +225,11 @@ mod windows {
                     .unwrap_or(false);
             if !valid {
                 let _ = std::fs::remove_file(&dest);
+                if cooling_down(&cover.url) {
+                    continue;
+                }
                 if !download(&agent, &cover.url, &dest) {
+                    remember_failure(&cover.url);
                     continue;
                 }
             }

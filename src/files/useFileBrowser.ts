@@ -225,12 +225,46 @@ function updateDir(
   );
 }
 
+/// The Files tab is unmounted on every tab switch (`key={tab}` in App.tsx), so
+/// its folder and rows used to be thrown away: coming back re-asked for the
+/// drive list and flashed "loading" again. Keep the last listing for this app
+/// session so a remount paints immediately, then refresh in the background.
+/// (Fresh answers skip the refresh entirely; the Rust side now does the walk
+/// off the event loop, but repeating it for nothing is still wasted work.)
+const LISTING_FRESH_MS = 3000;
+
+type SessionListing = { location: string | null; rows: FileEntry[]; at: number };
+
+let sessionListing: SessionListing | null = null;
+const sessionFolders = new Map<string, SessionListing>();
+
+function cachedRows(location: string | null): FileEntry[] {
+  if (sessionListing !== null && sessionListing.location === location) return sessionListing.rows;
+  if (location !== null) return sessionFolders.get(location)?.rows ?? [];
+  return [];
+}
+
+function rememberRows(location: string | null, rows: FileEntry[]) {
+  const entry: SessionListing = { location, rows, at: Date.now() };
+  sessionListing = entry;
+  if (location !== null) sessionFolders.set(location, entry);
+}
+
+function listingIsFresh(location: string | null): boolean {
+  if (sessionListing === null || sessionListing.location !== location) return false;
+  return Date.now() - sessionListing.at < LISTING_FRESH_MS;
+}
+
 export function useFileBrowser() {
   const { locale } = useI18n();
   const preview = !inTauri();
-  const [location, setLocation] = useState<string | null>(null);
+  const [location, setLocation] = useState<string | null>(() =>
+    preview ? null : sessionListing?.location ?? null,
+  );
   const [tree, setTree] = useState<PreviewNode>(() => previewTree());
-  const [nativeEntries, setNativeEntries] = useState<FileEntry[]>([]);
+  const [nativeEntries, setNativeEntries] = useState<FileEntry[]>(() =>
+    preview ? [] : cachedRows(sessionListing?.location ?? null),
+  );
   const [note, setNote] = useState("");
   const [clip, setClip] = useState<Clip | null>(null);
   const [pendingFocus, setPendingFocus] = useState("");
@@ -245,6 +279,7 @@ export function useFileBrowser() {
         path == null
           ? await invoke<FileEntry[]>("file_places")
           : await invoke<FileEntry[]>("file_list", { path });
+      rememberRows(path, rows);
       setNativeEntries(rows);
       setNote("");
     } catch (err) {
@@ -255,6 +290,7 @@ export function useFileBrowser() {
 
   useEffect(() => {
     if (preview) return;
+    if (listingIsFresh(location)) return;
     let cancel = false;
     void (async () => {
       try {
@@ -263,6 +299,7 @@ export function useFileBrowser() {
             ? await invoke<FileEntry[]>("file_places")
             : await invoke<FileEntry[]>("file_list", { path: location });
         if (!cancel) {
+          rememberRows(location, rows);
           setNativeEntries(rows);
           setNote("");
         }

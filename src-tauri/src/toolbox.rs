@@ -11,8 +11,14 @@ pub struct RuntimePackage {
     pub installed: bool,
 }
 
+/// Downloads and unpacks archives / talks to the service manager: everything
+/// here is far too slow to run on the webview event loop.
 #[tauri::command]
-pub fn toolbox_runtimes() -> Vec<RuntimePackage> {
+pub async fn toolbox_runtimes() -> Vec<RuntimePackage> {
+    crate::off_main(toolbox_runtimes_now).await.unwrap_or_default()
+}
+
+fn toolbox_runtimes_now() -> Vec<RuntimePackage> {
     #[cfg(windows)]
     {
         return windows::runtimes();
@@ -24,7 +30,14 @@ pub fn toolbox_runtimes() -> Vec<RuntimePackage> {
 }
 
 #[tauri::command]
-pub fn toolbox_install_runtime(app: tauri::AppHandle, id: String) -> Result<String, String> {
+pub async fn toolbox_install_runtime(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    match crate::off_main(move || toolbox_install_runtime_now(app, id)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn toolbox_install_runtime_now(app: tauri::AppHandle, id: String) -> Result<String, String> {
     #[cfg(windows)]
     {
         return windows::install_runtime(&app, &id);
@@ -40,7 +53,13 @@ pub fn toolbox_install_runtime(app: tauri::AppHandle, id: String) -> Result<Stri
 }
 
 #[tauri::command]
-pub fn toolbox_optiscaler_installed(launch_path: String) -> bool {
+pub async fn toolbox_optiscaler_installed(launch_path: String) -> bool {
+    crate::off_main(move || toolbox_optiscaler_installed_now(launch_path))
+        .await
+        .unwrap_or(false)
+}
+
+fn toolbox_optiscaler_installed_now(launch_path: String) -> bool {
     #[cfg(windows)]
     {
         return windows::optiscaler_installed(&launch_path);
@@ -53,7 +72,14 @@ pub fn toolbox_optiscaler_installed(launch_path: String) -> bool {
 }
 
 #[tauri::command]
-pub fn toolbox_install_optiscaler(app: tauri::AppHandle, launch_path: String) -> Result<String, String> {
+pub async fn toolbox_install_optiscaler(app: tauri::AppHandle, launch_path: String) -> Result<String, String> {
+    match crate::off_main(move || toolbox_install_optiscaler_now(app, launch_path)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn toolbox_install_optiscaler_now(app: tauri::AppHandle, launch_path: String) -> Result<String, String> {
     #[cfg(windows)]
     {
         return windows::install_optiscaler(&app, &launch_path);
@@ -79,7 +105,18 @@ pub struct TdpDriverStatus {
 }
 
 #[tauri::command]
-pub fn toolbox_tdp_driver_status() -> TdpDriverStatus {
+pub async fn toolbox_tdp_driver_status() -> TdpDriverStatus {
+    crate::off_main(toolbox_tdp_driver_status_now)
+        .await
+        .unwrap_or_else(|err| TdpDriverStatus {
+            ready: false,
+            elevated: false,
+            installed: false,
+            message: err,
+        })
+}
+
+fn toolbox_tdp_driver_status_now() -> TdpDriverStatus {
     #[cfg(windows)]
     {
         return windows::tdp_driver_status();
@@ -99,7 +136,14 @@ pub fn toolbox_tdp_driver_status() -> TdpDriverStatus {
 }
 
 #[tauri::command]
-pub fn toolbox_install_tdp_driver(app: tauri::AppHandle) -> Result<TdpDriverStatus, String> {
+pub async fn toolbox_install_tdp_driver(app: tauri::AppHandle) -> Result<TdpDriverStatus, String> {
+    match crate::off_main(move || toolbox_install_tdp_driver_now(app)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn toolbox_install_tdp_driver_now(app: tauri::AppHandle) -> Result<TdpDriverStatus, String> {
     #[cfg(windows)]
     {
         return windows::install_tdp_driver(&app);

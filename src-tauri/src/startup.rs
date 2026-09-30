@@ -35,7 +35,7 @@ pub fn quit_launcher(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-pub fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
+pub async fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
     let _ = window.set_fullscreen(false);
     let _ = window.unminimize();
     let _ = window.show();
@@ -80,7 +80,14 @@ fn cover_monitor(window: &tauri::WebviewWindow) {
 }
 
 #[tauri::command]
-pub fn system_power(action: String) -> Result<(), String> {
+pub async fn system_power(action: String) -> Result<(), String> {
+    match crate::off_main(move || system_power_now(action)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn system_power_now(action: String) -> Result<(), String> {
     #[cfg(windows)]
     {
         return windows::system_power(&action);
@@ -102,7 +109,11 @@ pub fn schedule_fse_registration(resource_dir: Option<std::path::PathBuf>) {
 }
 
 #[tauri::command]
-pub fn fse_status() -> String {
+pub async fn fse_status() -> String {
+    crate::off_main(fse_status_now).await.unwrap_or_else(|err| err)
+}
+
+fn fse_status_now() -> String {
     #[cfg(windows)]
     {
         return windows::fse_status();
@@ -111,8 +122,15 @@ pub fn fse_status() -> String {
     pick("只能在 Windows 上登记全屏体验。", "Fullscreen experience can only be registered on Windows.").into()
 }
 
+/// Powershell + Appx registration takes seconds — never on the event loop.
 #[tauri::command]
-pub fn register_fse(app: tauri::AppHandle) -> String {
+pub async fn register_fse(app: tauri::AppHandle) -> String {
+    crate::off_main(move || register_fse_now(app))
+        .await
+        .unwrap_or_else(|err| err)
+}
+
+fn register_fse_now(app: tauri::AppHandle) -> String {
     #[cfg(windows)]
     {
         let dir = app.path().resource_dir().ok();
@@ -127,7 +145,14 @@ pub fn register_fse(app: tauri::AppHandle) -> String {
 }
 
 #[tauri::command]
-pub fn open_fse_settings() -> Result<(), String> {
+pub async fn open_fse_settings() -> Result<(), String> {
+    match crate::off_main(open_fse_settings_now).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn open_fse_settings_now() -> Result<(), String> {
     #[cfg(windows)]
     {
         return windows::open_fse_settings();
@@ -141,7 +166,11 @@ pub fn open_fse_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn autostart_enabled() -> bool {
+pub async fn autostart_enabled() -> bool {
+    crate::off_main(autostart_enabled_now).await.unwrap_or(false)
+}
+
+fn autostart_enabled_now() -> bool {
     #[cfg(windows)]
     {
         return windows::enabled();
@@ -151,7 +180,14 @@ pub fn autostart_enabled() -> bool {
 }
 
 #[tauri::command]
-pub fn set_autostart(enabled: bool) -> Result<(), String> {
+pub async fn set_autostart(enabled: bool) -> Result<(), String> {
+    match crate::off_main(move || set_autostart_now(enabled)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn set_autostart_now(enabled: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
         return windows::set_enabled(enabled);

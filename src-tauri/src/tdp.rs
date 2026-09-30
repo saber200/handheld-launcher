@@ -23,32 +23,56 @@ pub struct TdpInfo {
 }
 
 #[tauri::command]
-pub fn tdp_status() -> TdpInfo {
+pub async fn tdp_status() -> TdpInfo {
+    match crate::off_main(tdp_status_now).await {
+        Ok(info) => info,
+        Err(err) => {
+            crate::logutil::write_line(&format!("tdp_status off-main failed: {err}"));
+            tdp_status_fallback()
+        }
+    }
+}
+
+/// Probing the CPU / WinRing0 device reads firmware state; keep it off the
+/// event loop (the overlay asks for it every time it opens).
+fn tdp_status_now() -> TdpInfo {
     #[cfg(windows)]
     {
         return windows::status();
     }
     #[cfg(not(windows))]
     {
-        TdpInfo {
-            vendor: "unknown".into(),
-            cpu_name: String::new(),
-            min_w: MIN_W,
-            max_w: MAX_W,
-            watts: stored_watts(),
-            presets: PRESETS.to_vec(),
-            supported: false,
-            backend: "none".into(),
-            message: pick(
-                "TDP 只能在 Windows 掌机上调节。",
-                "TDP can only be adjusted on Windows handhelds.",
-            ),
-        }
+        tdp_status_fallback()
+    }
+}
+
+/// Nothing this build can control — same shape so the UI still renders.
+fn tdp_status_fallback() -> TdpInfo {
+    TdpInfo {
+        vendor: "unknown".into(),
+        cpu_name: String::new(),
+        min_w: MIN_W,
+        max_w: MAX_W,
+        watts: stored_watts(),
+        presets: PRESETS.to_vec(),
+        supported: false,
+        backend: "none".into(),
+        message: pick(
+            "TDP 只能在 Windows 掌机上调节。",
+            "TDP can only be adjusted on Windows handhelds.",
+        ),
     }
 }
 
 #[tauri::command]
-pub fn set_tdp(watts: u32) -> Result<TdpInfo, String> {
+pub async fn set_tdp(watts: u32) -> Result<TdpInfo, String> {
+    match crate::off_main(move || set_tdp_now(watts)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn set_tdp_now(watts: u32) -> Result<TdpInfo, String> {
     let watts = watts.clamp(MIN_W, MAX_W);
     #[cfg(windows)]
     {

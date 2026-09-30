@@ -15,6 +15,29 @@ use tauri_plugin_autostart::MacosLauncher;
 
 static REOPENING: AtomicBool = AtomicBool::new(false);
 
+/// Run a blocking job on the runtime's blocking pool instead of the webview
+/// event loop.
+///
+/// A plain `#[tauri::command] fn` is executed on the main thread — the same
+/// thread that pumps every window message. One slow drive probe, icon
+/// extraction or a cover download with a 20s read timeout therefore freezes
+/// *all* windows until it returns: the shell stops repainting, Back+Start looks
+/// dead and a Start press only lands after the timeout expires. Long jobs are
+/// handed to a worker thread here so the IPC reply can still be slow while the
+/// UI stays responsive.
+pub(crate) async fn off_main<T, F>(work: F) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|err| {
+            logutil::write_line(&format!("blocking job failed: {err}"));
+            format!("后台任务失败：{err}")
+        })
+}
+
 fn reopen_main(app: tauri::AppHandle) {
     if startup::quit_allowed() || REOPENING.swap(true, Ordering::SeqCst) {
         return;

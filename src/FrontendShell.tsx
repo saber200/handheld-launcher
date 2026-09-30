@@ -73,8 +73,12 @@ export function FrontendShell() {
     };
     syncVisible();
     const timer = window.setInterval(syncVisible, 400);
-    const unlisten = listen<boolean>("frontend-state", (event) => {
-      if (!cancel) setShellActive(Boolean(event.payload));
+    const unlisten = listen<boolean | { open?: boolean }>("frontend-state", (event) => {
+      // The event carries {open, surface}; reading it as a boolean used to keep
+      // the overlay "active" forever (every payload is a truthy object).
+      const payload = event.payload;
+      const open = typeof payload === "boolean" ? payload : Boolean(payload?.open);
+      if (!cancel) setShellActive(open);
     });
     return () => {
       cancel = true;

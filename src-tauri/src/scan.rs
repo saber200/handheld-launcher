@@ -143,10 +143,14 @@ pub struct ScannedApp {
 }
 
 #[tauri::command]
-pub fn scan_games(app: tauri::AppHandle) -> Vec<ScannedGame> {
+pub async fn scan_games(app: tauri::AppHandle) -> Vec<ScannedGame> {
+    crate::off_main(move || scan_games_now(&app)).await.unwrap_or_default()
+}
+
+fn scan_games_now(app: &tauri::AppHandle) -> Vec<ScannedGame> {
     #[cfg(windows)]
     {
-        return windows::scan_games(&app);
+        return windows::scan_games(app);
     }
     #[cfg(not(windows))]
     {
@@ -156,10 +160,14 @@ pub fn scan_games(app: tauri::AppHandle) -> Vec<ScannedGame> {
 }
 
 #[tauri::command]
-pub fn scan_apps(app: tauri::AppHandle) -> Vec<ScannedApp> {
+pub async fn scan_apps(app: tauri::AppHandle) -> Vec<ScannedApp> {
+    crate::off_main(move || scan_apps_now(&app)).await.unwrap_or_default()
+}
+
+fn scan_apps_now(app: &tauri::AppHandle) -> Vec<ScannedApp> {
     #[cfg(windows)]
     {
-        return windows::scan_apps(&app);
+        return windows::scan_apps(app);
     }
     #[cfg(not(windows))]
     {
@@ -169,16 +177,23 @@ pub fn scan_apps(app: tauri::AppHandle) -> Vec<ScannedApp> {
 }
 
 #[tauri::command]
-pub fn cache_covers(
+pub async fn cache_covers(
     app: tauri::AppHandle,
     covers: Vec<crate::media::CoverRequest>,
 ) -> Vec<crate::media::CachedCover> {
-    crate::media::cache_remote_covers(&app, covers)
+    // Network: an 8s connect / 20s read timeout per cover. On the event loop a
+    // single unreachable CDN froze the whole UI for the length of that timeout.
+    crate::off_main(move || crate::media::cache_remote_covers(&app, covers))
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
-pub fn steam_library_cover(app_id: String) -> Result<String, String> {
-    crate::media::fetch_steam_library_cover(&app_id)
+pub async fn steam_library_cover(app_id: String) -> Result<String, String> {
+    match crate::off_main(move || crate::media::fetch_steam_library_cover(&app_id)).await {
+        Ok(found) => found,
+        Err(err) => Err(err),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,8 +212,14 @@ enum GamePresence {
     Focused,
 }
 
+/// Polled every 1.5s by the library. It snapshots the process list and opens
+/// every process to read its image path — far too heavy for the event loop.
 #[tauri::command]
-pub fn running_games(items: Vec<RunningQuery>) -> Vec<String> {
+pub async fn running_games(items: Vec<RunningQuery>) -> Vec<String> {
+    crate::off_main(move || running_ids_now(items)).await.unwrap_or_default()
+}
+
+fn running_ids_now(items: Vec<RunningQuery>) -> Vec<String> {
     #[cfg(windows)]
     {
         return windows::running_ids(&items);
@@ -211,7 +232,14 @@ pub fn running_games(items: Vec<RunningQuery>) -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn quit_game(id: String, launch_path: String, install_path: String) -> Result<u32, String> {
+pub async fn quit_game(id: String, launch_path: String, install_path: String) -> Result<u32, String> {
+    match crate::off_main(move || quit_game_now(id, launch_path, install_path)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn quit_game_now(id: String, launch_path: String, install_path: String) -> Result<u32, String> {
     #[cfg(windows)]
     {
         let killed = windows::kill_game(&launch_path, &install_path);
@@ -233,7 +261,24 @@ pub fn quit_game(id: String, launch_path: String, install_path: String) -> Resul
 }
 
 #[tauri::command]
-pub fn launch_item(
+pub async fn launch_item(
+    app: tauri::AppHandle,
+    id: String,
+    launch_path: String,
+    install_path: String,
+    switch_if_running: Option<bool>,
+) -> Result<String, String> {
+    match crate::off_main(move || {
+        launch_item_now(app, id, launch_path, install_path, switch_if_running)
+    })
+    .await
+    {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn launch_item_now(
     app: tauri::AppHandle,
     id: String,
     launch_path: String,
