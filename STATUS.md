@@ -1,7 +1,7 @@
-# 进度对照（v0.1.41）
+# 进度对照（v0.1.42）
 
 > **发布基准：`v0.1.0` 稳定版** — 内容与内部构建 0.1.38 一致（见 `v0.1.0` 标签 / `release/0.1.0` 分支）。
-> `0.1.31`–`0.1.41` 均为测试版，仅内部验证用，不作为发布版。
+> `0.1.31`–`0.1.42` 均为测试版，仅内部验证用，不作为发布版。
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
@@ -12,7 +12,7 @@
 - Tauri 2 + React + TypeScript + Vite
 - 无边框全屏壳；正式名「幻想枢纽 / FantasyHub」；标识 `com.handheld.launcher`
 - 要求管理员清单（`requireAdministrator`）；启动日志写 `%APPDATA%\handheld-launcher\fantasyhub.log`（含 `elevated=`）
-- GitHub Actions：`v*` 标签打 Windows NSIS 安装包
+- GitHub Actions：`v*` 标签打 Windows NSIS 安装包；已加 Cargo 依赖缓存，整轮 15 分 31 秒 → 7 分 02 秒
 
 ### 顶部标签与导航
 
@@ -89,6 +89,7 @@
 
 ## 近期改动备忘
 
+- 0.1.42：无功能变更；CI 加 Cargo 依赖缓存（依赖编译 9 分 35 秒 → 0，整轮 15 分 31 秒 → 7 分 02 秒）。曾试 thin LTO + codegen-units = 16，实测链接更慢（4 分 21 秒 → 约 5 分 30 秒）且产物大 412 KiB，已回退
 - 0.1.41：工具箱独立成第 4 个标签页（游戏卡片可直接跳转并预选）；OptiScaler 改吃官方 `.7z` 包（旧版只认 `.zip`，导致一直装不上）
 - 0.1.40：修设置页未使用变量导致 CI tsc 失败
 - 0.1.39：浮层改 Game Bar 式（不隐藏主窗；断开 owner + TOPMOST）；设置页微调

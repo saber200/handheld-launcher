@@ -1,6 +1,6 @@
 [package]
 name = "handheld-launcher"
-version = "0.1.41"
+version = "0.1.42"
 description = "Windows handheld frontend launcher shell"
 authors = ["you"]
 edition = "2021"
@@ -49,11 +49,11 @@ windows-sys = { version = "0.61", features = [
 
 [profile.release]
 panic = "abort"
-# 下面是"编译速度"与"体积/极限性能"的权衡，本项目取编译速度：
-#   codegen-units = 1  每次构建要多花数分钟（关掉了 crate 内的代码生成并行）
-#   lto = true (fat)   跨全部依赖的串行 LTO，实测在 CI 上独占 4 分 21 秒
-# 改为 thin LTO + 默认并行度后链接阶段大幅缩短；strip 再把体积找回来一部分。
-# 对 FantasyHub 这类启动器（IO 密集 + 前端渲染为主）性能影响可忽略。
-codegen-units = 16
-lto = "thin"
-strip = true
+# 勿改成 thin LTO / codegen-units = 16：2026-09-30 在 GitHub windows-latest 上实测过，
+# 链接阶段从 4 分 21 秒涨到约 5 分 30 秒，产物还大了 412 KiB，两头都亏。
+# 原因：fat LTO 会给依赖传 -C linker-plugin-lto，依赖只生成 bitcode、不跑机器码后端；
+# thin LTO 却要求每个依赖既生成机器码又保留 bitcode，等于把并行的工作挪进串行阶段。
+# 真正的提速来自 CI 的 Cargo 依赖缓存（见 .github/workflows/build-windows.yml），
+# 依赖编译 9 分 35 秒 → 0，整轮 15 分 31 秒 → 7 分 02 秒。
+codegen-units = 1
+lto = true
