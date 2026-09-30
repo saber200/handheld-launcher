@@ -18,7 +18,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          # npm 缓存同样只让 main 作用域保存。理由和下面 rust-cache 的 save-if 一样，
+          # 而且更狠：setup-node 的缓存 key 是 package-lock.json 的哈希，而
+          # package-lock 里的 version 每次发布都要改 → key 每次都不同，tag 运行存下的
+          # 那条 23 MB 永远不会被下一次发布命中（实测 v0.1.13–v0.1.43 攒了 30 多条）。
+          # tag 运行照样能读 main 的缓存，冷跑一次 npm ci 也就十几秒。
+          cache: ${{ github.ref == 'refs/heads/main' && 'npm' || '' }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
