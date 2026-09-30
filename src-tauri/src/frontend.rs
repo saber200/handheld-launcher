@@ -113,10 +113,6 @@ pub fn focus_frontend(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub fn frontend_visible(_app: &AppHandle) -> bool {
-    FRONTEND_OPEN.load(Ordering::SeqCst)
-}
-
 /// Hide the floating overlay — the library shell is taking over again.
 pub fn hide_overlay(app: &AppHandle) {
     if FRONTEND_OPEN.load(Ordering::SeqCst) {

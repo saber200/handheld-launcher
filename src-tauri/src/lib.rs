@@ -80,10 +80,12 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
             }
             WindowEvent::Focused(true) => {
                 // Do NOT focus_frontend here — under FSE that focus fight freezes the UI.
-                // Overlay must not hide or fight the main window (Game Bar style).
-                // Launching a game no longer hides the shell either: whatever we
-                // start keeps the focus Windows gave it, we never grab it back.
-                let _ = frontend::frontend_visible(&app_handle);
+                // Launching a game never hides the shell either: whatever we start
+                // keeps the focus Windows gave it, we never grab it back.
+                // The overlay is a game-time surface though: the moment the shell
+                // is the window in use again it goes off screen, otherwise it
+                // stays on top of the library and fights it for the pad.
+                frontend::hide_overlay(&app_handle);
             }
             _ => {}
         }

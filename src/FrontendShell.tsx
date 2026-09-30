@@ -203,7 +203,7 @@ export function FrontendShell() {
         </button>
       </header>
       <div className="frontend-shell-body">
-        <FrontendPage active={shellActive} />
+        <FrontendPage active={shellActive} onClose={close} />
       </div>
       <footer className="frontend-shell-hint">
         <span>{text().hints.frontend}</span>

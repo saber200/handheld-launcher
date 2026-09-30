@@ -1,11 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { playSfx, startLoadingSfx, stopLoadingSfx } from "../audio/sfx";
 import { GAMEPAD_COMMIT } from "../hooks/useGamepadNav";
 import { quitLibraryGame, useRunningLibraryGame } from "../library/useLocalLibrary";
 import { text } from "../i18n";
 
-type Props = { active: boolean };
+type Props = {
+  active: boolean;
+  /**
+   * Close the surface this page is drawn in (float overlay window or the
+   * launcher's drawer). The frontend belongs to the game, so quitting that game
+   * closes the frontend with it.
+   */
+  onClose?: () => void;
+};
 
 type TdpInfo = {
   vendor: string;
@@ -38,7 +46,7 @@ const FALLBACK_MAX = 40;
 /// the newest value wins and nothing stacks up behind the running one.
 const TDP_WRITE_DELAY_MS = 260;
 
-export function FrontendPage({ active }: Props) {
+export function FrontendPage({ active, onClose }: Props) {
   const firstRef = useRef<HTMLButtonElement>(null);
   const sliderRef = useRef<HTMLInputElement>(null);
   const m = text().frontend;
@@ -48,10 +56,39 @@ export function FrontendPage({ active }: Props) {
   const [status, setStatus] = useState("");
   const [draft, setDraft] = useState<number | null>(null);
   const [quitting, setQuitting] = useState(false);
-  const [runningGame, refreshRunningGame] = useRunningLibraryGame(active);
+  const [probe, refreshRunningGame] = useRunningLibraryGame(active);
+  const runningGame = probe.game;
   const writeTimer = useRef<number | null>(null);
   const writing = useRef(false);
   const pending = useRef<number | null>(null);
+  const sawRunning = useRef(false);
+
+  const closeSurface = useCallback(() => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    if (inTauri()) void invoke("close_frontend").catch(() => {});
+  }, [onClose]);
+
+  /// The frontend belongs to the game that is running: once that game is gone
+  /// (quit from this row, closed from the library, or crashed) the frontend goes
+  /// with it and we are back on the plain launcher. Only a game we actually saw
+  /// running counts, so a probe that finds nothing when opening never closes.
+  useEffect(() => {
+    if (!active) {
+      sawRunning.current = false;
+      return;
+    }
+    if (runningGame) {
+      sawRunning.current = true;
+      return;
+    }
+    if (probe.settled && sawRunning.current) {
+      sawRunning.current = false;
+      closeSurface();
+    }
+  }, [active, closeSurface, probe.settled, runningGame]);
 
   const refreshDriver = () => {
     if (!inTauri()) {

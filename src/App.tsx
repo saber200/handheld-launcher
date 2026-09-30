@@ -444,7 +444,7 @@ export default function App() {
         />
         <aside className="drawer is-end" role="dialog" aria-label={m.frontend.title}>
           <h1>{m.frontend.title}</h1>
-          <FrontendPage active />
+          <FrontendPage active onClose={closeFrontend} />
           <div className="library-tools" style={{ marginTop: 16 }}>
             <button type="button" className="library-tool" data-focusable onClick={closeFrontend}>
               {m.frontend.close}

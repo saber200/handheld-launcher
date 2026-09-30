@@ -179,6 +179,13 @@ export type RunningLibraryGame = {
   customPath?: boolean;
 };
 
+/** Result of one process probe: the game found, and whether an answer arrived. */
+export type RunningProbe = {
+  game: RunningLibraryGame | null;
+  /** False until the current probe session got a usable answer (empty counts). */
+  settled: boolean;
+};
+
 /**
  * The games the library would show, read straight from this session's scan
  * cache. The frontend overlay only needs a candidate list for `running_games`;
@@ -212,20 +219,26 @@ export function cachedLibraryGames(): RunningLibraryGame[] {
  * same process list as the library, but only while the overlay is on screen.
  * Returns `null` for apps and for the shell itself, so no row is offered there.
  */
-export function useRunningLibraryGame(active: boolean): [RunningLibraryGame | null, () => void] {
-  const [game, setGame] = useState<RunningLibraryGame | null>(null);
+export function useRunningLibraryGame(active: boolean): [RunningProbe, () => void] {
+  const [probe, setProbe] = useState<RunningProbe>({ game: null, settled: false });
   const items = useMemo(() => (active ? cachedLibraryGames() : []), [active]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const inFlight = useRef(false);
+  const rerun = useRef(false);
+  const probes = useRef<() => void>(() => {});
   const tick = useCallback(() => {
     const list = itemsRef.current;
     if (list.length === 0) {
-      setGame(null);
+      setProbe({ game: null, settled: true });
       return;
     }
-    // Walking the process list is the expensive part: never stack a second probe.
-    if (inFlight.current) return;
+    // Walking the process list is the expensive part: never stack a second probe,
+    // but remember the ask — a quit has to land without waiting for the next tick.
+    if (inFlight.current) {
+      rerun.current = true;
+      return;
+    }
     inFlight.current = true;
     void invoke<string[]>("running_games", {
       items: list.map((item) => ({
@@ -234,22 +247,30 @@ export function useRunningLibraryGame(active: boolean): [RunningLibraryGame | nu
         installPath: item.installPath ?? "",
       })),
     })
-      .then((ids) => setGame(list.find((item) => ids.includes(item.id)) ?? null))
+      .then((ids) =>
+        setProbe({ game: list.find((item) => ids.includes(item.id)) ?? null, settled: true }),
+      )
+      // A probe that failed is not a game that quit: leave the last answer alone.
       .catch(() => {})
       .finally(() => {
         inFlight.current = false;
+        if (rerun.current) {
+          rerun.current = false;
+          probes.current();
+        }
       });
   }, []);
+  probes.current = tick;
   useEffect(() => {
     if (!active || !inTauri()) {
-      setGame(null);
+      setProbe({ game: null, settled: false });
       return;
     }
     tick();
     const timer = window.setInterval(tick, 4000);
     return () => window.clearInterval(timer);
   }, [active, tick]);
-  return [game, tick];
+  return [probe, tick];
 }
 
 function formatError(err: unknown): string {

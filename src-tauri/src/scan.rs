@@ -196,10 +196,17 @@ fn launch_item_now(
             }
         }
         // The shell stays where it is. Windows focuses whatever we start, and
-        // nothing here calls set_focus — hiding ourselves was what used to strand
-        // the library behind the game, with no task list to come back from.
+        // nothing here calls set_focus on the shell — hiding ourselves was what
+        // used to strand the library behind the game, with no task list to come
+        // back from. What we do own is handing the *new* window the foreground:
+        // an app that reuses a running process (Chrome) otherwise stays behind
+        // our fullscreen shell.
+        windows::allow_foreground();
         windows::launch(&id, &launch_path, &install_path)?;
         remember_launch(&id);
+        let started = launch_path.clone();
+        let install = install_path.clone();
+        std::thread::spawn(move || windows::foreground_launched(&started, &install));
         return Ok("launched".into());
     }
     #[cfg(not(windows))]
@@ -685,6 +692,31 @@ mod windows {
             }
         }
         switched
+    }
+
+    /// Let the process we are about to start bring itself forward. Chrome, Steam
+    /// and friends hand the request to a process that is already running, and
+    /// that process needs this right or Windows refuses its SetForegroundWindow.
+    pub fn allow_foreground() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+        unsafe {
+            AllowSetForegroundWindow(ASFW_ANY);
+        }
+    }
+
+    /// Hand the foreground to what we just started. The shell stays where it is,
+    /// so an app that opens behind our fullscreen window would look like nothing
+    /// happened. Polls briefly: the window appears a beat after the process, and
+    /// an app that reuses an existing window is already there.
+    pub fn foreground_launched(launch_path: &str, install_path: &str) {
+        for _ in 0..16 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let pids = game_pids(launch_path, install_path);
+            if let Some(hwnd) = game_window(&pids) {
+                focus_window(hwnd);
+                return;
+            }
+        }
     }
 
     pub fn kill_game(launch_path: &str, install_path: &str) -> u32 {
