@@ -49,5 +49,11 @@ windows-sys = { version = "0.61", features = [
 
 [profile.release]
 panic = "abort"
-codegen-units = 1
-lto = true
+# 下面是"编译速度"与"体积/极限性能"的权衡，本项目取编译速度：
+#   codegen-units = 1  每次构建要多花数分钟（关掉了 crate 内的代码生成并行）
+#   lto = true (fat)   跨全部依赖的串行 LTO，实测在 CI 上独占 4 分 21 秒
+# 改为 thin LTO + 默认并行度后链接阶段大幅缩短；strip 再把体积找回来一部分。
+# 对 FantasyHub 这类启动器（IO 密集 + 前端渲染为主）性能影响可忽略。
+codegen-units = 16
+lto = "thin"
+strip = true

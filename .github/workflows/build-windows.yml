@@ -23,6 +23,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Cargo 依赖缓存。在此之前每次 CI 都要从零编译 286 个第三方 crate（约 9 分 35 秒）。
+      # 注意：仓库根目录没有 Cargo.toml（Cargo 项目在 src-tauri/），而 rust-cache 的默认值是
+      # ". -> target"，照默认值写会去根目录找 target 目录、导致缓存完全不生效，所以必须显式指定。
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          cache-on-failure: true
+
       - name: Install frontend deps
         run: npm ci
 
