@@ -12,7 +12,7 @@
 - Tauri 2 + React + TypeScript + Vite
 - 无边框全屏壳；正式名「幻想枢纽 / FantasyHub」；标识 `com.handheld.launcher`
 - 要求管理员清单（`requireAdministrator`）；启动日志写 `%APPDATA%\handheld-launcher\fantasyhub.log`（含 `elevated=`）
-- GitHub Actions：`v*` 标签打 Windows NSIS 安装包；已加 Cargo 依赖缓存，整轮 15 分 31 秒 → 7 分 02 秒
+- GitHub Actions：`v*` 标签打 Windows NSIS 安装包；已加 Cargo 依赖缓存，整轮 15 分 31 秒 → 6 分 08 秒（依赖编译 9 分 35 秒 → 0）
 
 ### 顶部标签与导航
 
@@ -89,7 +89,7 @@
 
 ## 近期改动备忘
 
-- 0.1.42：无功能变更；CI 加 Cargo 依赖缓存（依赖编译 9 分 35 秒 → 0，整轮 15 分 31 秒 → 7 分 02 秒）。曾试 thin LTO + codegen-units = 16，实测链接更慢（4 分 21 秒 → 约 5 分 30 秒）且产物大 412 KiB，已回退
+- 0.1.42：无功能变更；CI 加 Cargo 依赖缓存（依赖编译 9 分 35 秒 → 0，整轮 15 分 31 秒 → 6 分 08 秒）。曾试 thin LTO + codegen-units = 16，实测链接更慢（4 分 21 秒 → 约 5 分 30 秒）且产物大 412 KiB，已回退。另修缓存作用域：tag 触发的运行保存缓存时 ref 会被写成畸形的 `refs/heads/refs/tags/vX`（npm 缓存同样如此），main 上的运行读不到，已加 `save-if` 只让 main 保存
 - 0.1.41：工具箱独立成第 4 个标签页（游戏卡片可直接跳转并预选）；OptiScaler 改吃官方 `.7z` 包（旧版只认 `.zip`，导致一直装不上）
 - 0.1.40：修设置页未使用变量导致 CI tsc 失败
 - 0.1.39：浮层改 Game Bar 式（不隐藏主窗；断开 owner + TOPMOST）；设置页微调
