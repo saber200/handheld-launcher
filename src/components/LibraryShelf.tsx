@@ -31,6 +31,8 @@ type Props<T extends Item> = {
   restorable?: T[];
   onRestore?: (id: string) => string;
   onSteamCover?: (id: string, appId: string) => string | Promise<string>;
+  /** Games only: jump to the toolbox tab with this game preselected. */
+  onInstallMods?: (id: string) => void;
   onScan: () => void;
   scanning?: boolean;
   renderCard: (item: T, cardRef: Ref<HTMLButtonElement> | undefined, options?: CardOptions) => ReactNode;
@@ -49,6 +51,7 @@ export function LibraryShelf<T extends Item>({
   restorable = [],
   onRestore,
   onSteamCover,
+  onInstallMods,
   onScan,
   scanning = false,
   renderCard,
@@ -618,6 +621,22 @@ export function LibraryShelf<T extends Item>({
                     }}
                   >
                     {text().library.steamMenu}
+                  </button>
+                )}
+                {kind === "games" && onInstallMods && (
+                  <button
+                    type="button"
+                    className="library-tool"
+                    data-focusable
+                    onClick={() => {
+                      if (!menuCardId) return;
+                      const id = menuCardId;
+                      setMenuCardId(null);
+                      setMenuView("actions");
+                      onInstallMods(id);
+                    }}
+                  >
+                    {text().library.installMods}
                   </button>
                 )}
                 <button

@@ -5,7 +5,7 @@ import { LibraryShelf } from "../components/LibraryShelf";
 import { type GameEntry } from "../data/previewGames";
 import { launchLibraryItem, quitLibraryGame, useLocalGames, useRunningGameIds } from "../library/useLocalLibrary";
 
-export function GamesPage() {
+export function GamesPage({ onInstallMods }: { onInstallMods?: (id: string) => void }) {
   const library = useLocalGames();
   const running = useRunningGameIds(library.items);
   const [status, setStatus] = useState("");
@@ -49,6 +49,7 @@ export function GamesPage() {
         setStatus("");
         return library.setSteamCover(id, appId);
       }}
+      onInstallMods={onInstallMods}
       scanning={library.scanning}
       onScan={() => setStatus(library.rescan())}
       renderCard={(game, cardRef, options) => (

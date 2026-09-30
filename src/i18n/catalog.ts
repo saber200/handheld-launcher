@@ -10,7 +10,7 @@ export type Catalog = {
   save: string;
   edit: string;
   open: string;
-  tabs: { menu: string; games: string; apps: string; files: string };
+  tabs: { menu: string; games: string; apps: string; files: string; toolbox: string };
   hints: {
     filesNav: string;
     filesMulti: string;
@@ -80,11 +80,6 @@ export type Catalog = {
     tdpFailed: (detail: string) => string;
     fan: string;
     fanBody: string;
-    toolsTitle: string;
-    toolsBody: string;
-    toolbox: string;
-    toolboxShow: string;
-    toolboxHide: string;
     toolboxPreview: string;
     toolboxFailed: (detail: string) => string;
     toolboxInstall: string;
@@ -148,6 +143,7 @@ export type Catalog = {
     rename: string;
     changePath: string;
     steamMenu: string;
+    installMods: string;
     remove: string;
     leaveGroup: string;
     currentGroup: string;
@@ -278,7 +274,7 @@ export const zh: Catalog = {
   save: "保存",
   edit: "编辑",
   open: "打开",
-  tabs: { menu: "主菜单", games: "游戏库", apps: "软件库", files: "文件管理" },
+  tabs: { menu: "主菜单", games: "游戏库", apps: "软件库", files: "文件管理", toolbox: "工具箱" },
   hints: {
     filesNav: "方向键选择",
     filesMulti: "X 多选",
@@ -348,11 +344,6 @@ export const zh: Catalog = {
     tdpFailed: (detail) => `TDP 调节失败：${detail}`,
     fan: "风扇",
     fanBody: "风扇协议较复杂，先不做，记在 FUTURE 里以后再接。",
-    toolsTitle: "工具箱",
-    toolsBody: "运行库补齐、OptiScaler 一键安装等。",
-    toolbox: "工具箱",
-    toolboxShow: "展开",
-    toolboxHide: "收起",
     toolboxPreview: "浏览器预览无法安装运行库或 OptiScaler。",
     toolboxFailed: (detail) => `工具箱操作失败：${detail}`,
     toolboxInstall: "安装",
@@ -417,6 +408,7 @@ export const zh: Catalog = {
     rename: "修改名称",
     changePath: "修改路径",
     steamMenu: "添加ID获取封面",
+    installMods: "安装 Mod / 工具",
     remove: "从库中移除",
     quitGame: "退出游戏",
     leaveGroup: "移出分组",
@@ -548,7 +540,7 @@ export const en: Catalog = {
   save: "Save",
   edit: "Edit",
   open: "Open",
-  tabs: { menu: "Main menu", games: "Games", apps: "Apps", files: "Files" },
+  tabs: { menu: "Main menu", games: "Games", apps: "Apps", files: "Files", toolbox: "Toolbox" },
   hints: {
     filesNav: "D-pad to move",
     filesMulti: "X select more",
@@ -618,11 +610,6 @@ export const en: Catalog = {
     tdpFailed: (detail) => `Couldn't change TDP: ${detail}`,
     fan: "Fan",
     fanBody: "Fan control is deferred — protocols vary a lot by handheld.",
-    toolsTitle: "Toolbox",
-    toolsBody: "Redistributables, one-click OptiScaler, and more.",
-    toolbox: "Toolbox",
-    toolboxShow: "Open",
-    toolboxHide: "Hide",
     toolboxPreview: "Browser preview can't install runtimes or OptiScaler.",
     toolboxFailed: (detail) => `Toolbox action failed: ${detail}`,
     toolboxInstall: "Install",
@@ -687,6 +674,7 @@ export const en: Catalog = {
     rename: "Rename",
     changePath: "Change path",
     steamMenu: "Steam cover",
+    installMods: "Install mods / tools",
     remove: "Remove from library",
     quitGame: "Quit game",
     leaveGroup: "Remove from group",

@@ -377,6 +377,17 @@ button {
   margin-top: 10px;
 }
 
+/* Toolbox tab: scrolls on its own, capped so rows stay readable on wide screens. */
+.toolbox-page-body {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 760px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 .toolbox-block {
   padding: 14px 16px;
   border-radius: 16px;

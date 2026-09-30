@@ -1,3 +1,3 @@
-export type TabId = "games" | "apps" | "files";
+export type TabId = "games" | "apps" | "files" | "toolbox";
 
-export const TABS: { id: TabId }[] = [{ id: "games" }, { id: "apps" }, { id: "files" }];
+export const TABS: { id: TabId }[] = [{ id: "games" }, { id: "apps" }, { id: "files" }, { id: "toolbox" }];

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { text } from "../i18n";
 
@@ -95,10 +95,11 @@ function readLibraryGames(): LibraryGame[] {
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, "zh"));
 }
 
-type Props = { active: boolean };
+type Props = { active: boolean; focusGameId?: string };
 
-export function ToolboxPanel({ active }: Props) {
+export function ToolboxPanel({ active, focusGameId }: Props) {
   const m = text().frontend;
+  const panelRef = useRef<HTMLDivElement>(null);
   const [runtimes, setRuntimes] = useState<RuntimePackage[]>([]);
   const [games, setGames] = useState<LibraryGame[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -125,8 +126,16 @@ export function ToolboxPanel({ active }: Props) {
   }, [active]);
 
   useEffect(() => {
+    // Mounts fresh on each tab switch: give gamepad navigation a starting point.
     if (!active) return;
-    const selected = games.find((game) => game.id === selectedId) ?? games[0];
+    panelRef.current?.querySelector<HTMLElement>("[data-focusable]")?.focus();
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    // A game picked from its card menu wins until the user changes the dropdown.
+    const fromMenu = focusGameId ? games.find((game) => game.id === focusGameId) : undefined;
+    const selected = games.find((game) => game.id === selectedId) ?? fromMenu ?? games[0];
     if (!selected) {
       setSelectedId("");
       setOptiInstalled(false);
@@ -140,7 +149,7 @@ export function ToolboxPanel({ active }: Props) {
     void invoke<boolean>("toolbox_optiscaler_installed", { launchPath: selected.launchPath })
       .then(setOptiInstalled)
       .catch(() => setOptiInstalled(false));
-  }, [active, games, selectedId]);
+  }, [active, games, selectedId, focusGameId]);
 
   const installRuntime = async (id: string) => {
     if (!inTauri()) {
@@ -189,7 +198,7 @@ export function ToolboxPanel({ active }: Props) {
   const anyBusy = busyId !== "" || optiBusy;
 
   return (
-    <div className="toolbox-panel">
+    <div className="toolbox-panel" ref={panelRef}>
       <section className="toolbox-block">
         <h3 className="toolbox-block-title">{m.runtimesTitle}</h3>
         <p className="toolbox-block-body">{m.runtimesBody}</p>

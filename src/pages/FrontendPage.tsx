@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { playSfx, playSwitch, startLoadingSfx, stopLoadingSfx } from "../audio/sfx";
+import { playSfx, startLoadingSfx, stopLoadingSfx } from "../audio/sfx";
 import { text } from "../i18n";
-import { ToolboxPanel } from "./ToolboxPanel";
 
 type Props = { active: boolean };
 
@@ -42,7 +41,6 @@ export function FrontendPage({ active }: Props) {
   const [driverBusy, setDriverBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [draft, setDraft] = useState<number | null>(null);
-  const [toolboxOpen, setToolboxOpen] = useState(false);
 
   const refreshDriver = () => {
     if (!inTauri()) {
@@ -230,28 +228,6 @@ export function FrontendPage({ active }: Props) {
           </span>
           <span className="switch">{m.later}</span>
         </button>
-      </section>
-      <section className="settings-list">
-        <h2 className="frontend-section-title">{m.toolsTitle}</h2>
-        <button
-          type="button"
-          className="setting-row"
-          data-focusable
-          onClick={() => {
-            setToolboxOpen((open) => {
-              playSwitch(!open);
-              return !open;
-            });
-          }}
-        >
-          <span>
-            <strong>{m.toolbox}</strong>
-          </span>
-          <span className={`switch${toolboxOpen ? " on" : ""}`}>
-            {toolboxOpen ? m.toolboxHide : m.toolboxShow}
-          </span>
-        </button>
-        {toolboxOpen ? <ToolboxPanel active={active && toolboxOpen} /> : null}
       </section>
     </div>
   );
