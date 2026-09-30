@@ -201,7 +201,6 @@ mod windows {
         }
 
         let cache = cache_dir(app)?;
-        let zip_path = cache.join("OptiScaler-latest.zip");
         let extract_dir = cache.join("optiscaler-extract");
         let _ = fs::remove_dir_all(&extract_dir);
         fs::create_dir_all(&extract_dir).map_err(|err| {
@@ -211,9 +210,10 @@ mod windows {
             )
         })?;
 
-        let download_url = latest_optiscaler_zip_url()?;
-        download(&download_url, &zip_path)?;
-        expand_zip(&zip_path, &extract_dir)?;
+        let (download_url, file_name) = latest_optiscaler_archive()?;
+        let archive_path = cache.join(&file_name);
+        download(&download_url, &archive_path)?;
+        expand_archive(&archive_path, &extract_dir)?;
 
         let package_root = find_optiscaler_root(&extract_dir).ok_or_else(|| {
             pick(
@@ -225,8 +225,8 @@ mod windows {
         copy_optiscaler_files(&package_root, &dir)?;
         write_marker(&dir);
         Ok(pick(
-            "已安装 OptiScaler（dxgi.dll）。进游戏后按 Home 打开菜单。",
-            "OptiScaler installed as dxgi.dll. Press Home in-game for the menu.",
+            "已安装 OptiScaler（dxgi.dll）。进游戏后按 Insert 打开菜单。",
+            "OptiScaler installed as dxgi.dll. Press Insert in-game for the menu.",
         ))
     }
 
@@ -776,7 +776,10 @@ mod windows {
         let _ = fs::write(dir.join(".fantasyhub-optiscaler"), b"dxgi\n");
     }
 
-    fn latest_optiscaler_zip_url() -> Result<String, String> {
+    /// OptiScaler 官方 Release 从 0.4 起只发 `.7z`，所以这里按扩展名挑压缩包，
+    /// 不能只认 `.zip`（旧实现因此永远找不到下载）。
+    /// 返回 (下载地址, 本地缓存文件名)。
+    fn latest_optiscaler_archive() -> Result<(String, String), String> {
         let body = ureq::get("https://api.github.com/repos/optiscaler/OptiScaler/releases/latest")
             .set("User-Agent", "FantasyHub-Toolbox")
             .set("Accept", "application/vnd.github+json")
@@ -804,27 +807,59 @@ mod windows {
             .get("assets")
             .and_then(|v| v.as_array())
             .ok_or_else(|| pick("Release 没有附件。", "Release has no assets."))?;
+        let mut fallback: Option<(String, String)> = None;
         for asset in assets {
             let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let lower = name.to_ascii_lowercase();
-            if lower.ends_with(".zip") && lower.contains("optiscaler") {
-                if let Some(url) = asset.get("browser_download_url").and_then(|v| v.as_str()) {
-                    return Ok(url.to_string());
-                }
+            let extension = if lower.ends_with(".7z") {
+                ".7z"
+            } else if lower.ends_with(".zip") {
+                ".zip"
+            } else {
+                continue;
+            };
+            let Some(url) = asset.get("browser_download_url").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let entry = (url.to_string(), format!("OptiScaler-latest{extension}"));
+            if lower.contains("optiscaler") {
+                return Ok(entry);
+            }
+            if fallback.is_none() {
+                fallback = Some(entry);
             }
         }
-        for asset in assets {
-            let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            if name.to_ascii_lowercase().ends_with(".zip") {
-                if let Some(url) = asset.get("browser_download_url").and_then(|v| v.as_str()) {
-                    return Ok(url.to_string());
-                }
-            }
+        fallback.ok_or_else(|| {
+            pick(
+                "找不到 OptiScaler 的压缩包下载。",
+                "Couldn't find an OptiScaler archive download.",
+            )
+        })
+    }
+
+    /// 官方包是 `.7z`（个别老包是 `.zip`），按扩展名选解压方式。
+    fn expand_archive(archive: &Path, dest: &Path) -> Result<(), String> {
+        let is_7z = archive
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("7z"));
+        if is_7z {
+            expand_7z(archive, dest)
+        } else {
+            expand_zip(archive, dest)
         }
-        Err(pick(
-            "找不到 OptiScaler 的 zip 下载。",
-            "Couldn't find an OptiScaler zip download.",
-        ))
+    }
+
+    /// `Expand-Archive` 只认 zip；7z 用纯 Rust 解（官方包带 BCJ2 过滤器）。
+    fn expand_7z(archive: &Path, dest: &Path) -> Result<(), String> {
+        // sevenz-rust2 要求目标是绝对路径，且不接受含 `..` 的路径。
+        let dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
+        sevenz_rust2::decompress_file(archive, &dest).map_err(|err| {
+            pick(
+                &format!("解压 OptiScaler 失败：{err}"),
+                &format!("Failed to extract OptiScaler: {err}"),
+            )
+        })
     }
 
     fn expand_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
@@ -856,33 +891,39 @@ mod windows {
         path.to_string_lossy().replace('\'', "''")
     }
 
+    /// 安装包里的 `OptiScaler.dll` 所在目录即「包根」，展开后可能嵌在子目录里。
     fn find_optiscaler_root(extract_dir: &Path) -> Option<PathBuf> {
-        if extract_dir.join("OptiScaler.dll").is_file() {
-            return Some(extract_dir.to_path_buf());
-        }
-        let entries = fs::read_dir(extract_dir).ok()?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join("OptiScaler.dll").is_file() {
-                return Some(path);
-            }
-        }
-        // Some packs only ship renamed dlls; look for OptiScaler.ini
-        if extract_dir.join("OptiScaler.ini").is_file() {
-            return Some(extract_dir.to_path_buf());
-        }
-        let entries = fs::read_dir(extract_dir).ok()?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join("OptiScaler.ini").is_file() {
-                return Some(path);
-            }
-        }
-        None
+        let dll = find_named_file(extract_dir, "OptiScaler.dll")
+            .or_else(|| find_named_file(extract_dir, "OptiScaler.ini"))?;
+        Some(
+            dll.parent()
+                .map(|parent| parent.to_path_buf())
+                .unwrap_or_else(|| extract_dir.to_path_buf()),
+        )
     }
 
     fn copy_optiscaler_files(from: &Path, to: &Path) -> Result<(), String> {
-        let entries = fs::read_dir(from).map_err(|err| {
+        let mut copied_dll = false;
+        copy_optiscaler_dir(from, from, to, &mut copied_dll)?;
+        if !copied_dll {
+            return Err(pick(
+                "安装包里没有 OptiScaler.dll。",
+                "Package is missing OptiScaler.dll.",
+            ));
+        }
+        Ok(())
+    }
+
+    /// 逐层拷贝安装包内容：保留 `D3D12_Optiscaler/`、`Licenses/` 等子目录
+    /// （官方 0.9.x 的这些文件必须一起进游戏目录），`OptiScaler.dll` 改名成
+    /// `dxgi.dll` 放到游戏目录根。
+    fn copy_optiscaler_dir(
+        root: &Path,
+        dir: &Path,
+        to: &Path,
+        copied_dll: &mut bool,
+    ) -> Result<(), String> {
+        let entries = fs::read_dir(dir).map_err(|err| {
             pick(
                 &format!("无法读取 OptiScaler 目录：{err}"),
                 &format!("Couldn't read OptiScaler folder: {err}"),
@@ -890,25 +931,42 @@ mod windows {
         })?;
         for entry in entries.flatten() {
             let src = entry.path();
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            let rel = src.strip_prefix(root).unwrap_or(Path::new(&*name_str));
+            if src.is_dir() {
+                let dest_dir = to.join(rel);
+                fs::create_dir_all(&dest_dir).map_err(|err| {
+                    pick(
+                        &format!("无法创建目录 {}：{err}", dest_dir.display()),
+                        &format!("Couldn't create {}: {err}", dest_dir.display()),
+                    )
+                })?;
+                copy_optiscaler_dir(root, &src, to, copied_dll)?;
+                continue;
+            }
             if !src.is_file() {
                 continue;
             }
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            // Skip installer scripts; we place files directly.
-            if name_str.eq_ignore_ascii_case("setup_windows.bat")
-                || name_str.eq_ignore_ascii_case("setup_windows.sh")
-                || name_str.eq_ignore_ascii_case("remove_optiscaler.bat")
+            // 官方的「!! EXTRACT ALL FILES !!」提示与 setup/remove 脚本不进游戏目录。
+            if name_str.starts_with("!!") || is_setup_script(&name_str) {
+                continue;
+            }
+            // 已有的 OptiScaler.ini 是用户配置，重装时保留。
+            if name_str.eq_ignore_ascii_case("OptiScaler.ini") && to.join("OptiScaler.ini").is_file()
             {
                 continue;
             }
-            let dest_name = if name_str.eq_ignore_ascii_case("OptiScaler.dll") {
+            let is_optiscaler_dll = name_str.eq_ignore_ascii_case("OptiScaler.dll");
+            let dest_name = if is_optiscaler_dll {
+                *copied_dll = true;
                 PathBuf::from("dxgi.dll")
             } else {
-                PathBuf::from(&name)
+                rel.to_path_buf()
             };
             let dest = to.join(&dest_name);
-            if dest_name.file_name().and_then(|n| n.to_str()) == Some("dxgi.dll") && dest.is_file() {
+            if is_optiscaler_dll && dest.is_file() {
+                // 游戏自带的 dxgi.dll 先留一份备份，别直接盖掉。
                 let bak = to.join("dxgi.dll.fantasyhub.bak");
                 if !bak.is_file() {
                     let _ = fs::copy(&dest, &bak);
@@ -921,13 +979,14 @@ mod windows {
                 )
             })?;
         }
-        // If pack had no OptiScaler.dll but already dxgi, leave as-is.
-        if !to.join("dxgi.dll").is_file() {
-            return Err(pick(
-                "安装包里没有 OptiScaler.dll。",
-                "Package is missing OptiScaler.dll.",
-            ));
-        }
         Ok(())
+    }
+
+    /// 官方的安装 / 卸载脚本（`setup_windows.bat`、`setup_linux.sh` 等）不进游戏目录。
+    fn is_setup_script(name: &str) -> bool {
+        let lower = name.to_ascii_lowercase();
+        [".bat", ".cmd", ".ps1", ".sh"]
+            .iter()
+            .any(|ext| lower.ends_with(ext))
     }
 }

@@ -30,6 +30,8 @@ tauri-plugin-global-shortcut = "2"
 winreg = "0.56"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "gif", "bmp"] }
 ureq = "2"
+# OptiScaler 官方 Release 只发 .7z（含 BCJ2 过滤器），Expand-Archive 解不了。
+sevenz-rust2 = "0.21"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
