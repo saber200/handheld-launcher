@@ -199,7 +199,7 @@ pub fn belongs_to_game(launch_path: &str, install_path: &str, process_path: &str
     if process.is_empty() {
         return false;
     }
-    let launch = normalize_win_path(launch_path);
+    let launch = normalize_path(launch_path);
     if !launch.is_empty() && process == launch {
         return true;
     }
