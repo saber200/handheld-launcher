@@ -79,24 +79,19 @@ description = "Choose Chinese or English for system messages."
 commands.allow = ["set_locale"]
 
 [[permission]]
-identifier = "allow-toggle-frontend"
-description = "Open or close the floating frontend panel."
-commands.allow = ["toggle_frontend"]
+identifier = "allow-library-publish"
+description = "Publish the library list so the standalone frontend can read it."
+commands.allow = ["library_publish"]
 
 [[permission]]
-identifier = "allow-open-frontend"
-description = "Open the floating frontend panel without toggling."
-commands.allow = ["open_frontend"]
+identifier = "allow-frontend-status"
+description = "Read whether the standalone frontend is installed (it reports its own path)."
+commands.allow = ["frontend_status"]
 
 [[permission]]
-identifier = "allow-close-frontend"
-description = "Close the floating frontend panel."
-commands.allow = ["close_frontend"]
-
-[[permission]]
-identifier = "allow-focus-frontend"
-description = "Keep keyboard focus on the floating frontend panel."
-commands.allow = ["focus_frontend"]
+identifier = "allow-frontend-install"
+description = "Run the bundled frontend installer (file-level install/update only)."
+commands.allow = ["frontend_install"]
 
 [[permission]]
 identifier = "allow-quit-launcher"

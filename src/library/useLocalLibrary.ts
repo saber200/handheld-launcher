@@ -749,6 +749,21 @@ export function useLocalGames() {
       .filter((item) => !extra.extras.hidden.includes(item.id))
       .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   }, [extra.extras, scanned.items]);
+  // 把游戏清单发布到 `library.json`：独立前端读这个文件来判断「哪个游戏在跑 / 退掉它」。
+  // 前端读的是**数据文件**，不是命令通道 —— 启动器不因此获得任何对前端的控制能力
+  // （见仓库根 FRONTEND.md §3/§4）。
+  useEffect(() => {
+    if (!inTauri()) return;
+    void invoke("library_publish", {
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        launchPath: item.launchPath ?? "",
+        installPath: item.installPath ?? "",
+      })),
+    }).catch(() => {});
+  }, [items]);
+
   const restorable = useMemo(() => {
     const hidden = new Set(extra.extras.hidden);
     if (hidden.size === 0) return [];

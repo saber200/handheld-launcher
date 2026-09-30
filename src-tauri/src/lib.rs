@@ -1,11 +1,17 @@
 mod files;
-mod frontend;
+// 工具箱里的「前端」卡片：只做文件级安装/更新（见文件头部说明）。
+mod frontend_tool;
 mod i18n;
-mod logutil;
+mod library;
 mod media;
+// 日志实现搬进了共享内核（独立前端也要用）。这里 re-export，
+// 让仓库里所有 `crate::logutil::...` 调用点保持原样。
+pub use fh_core::logutil;
 mod scan;
 mod startup;
 mod tdp;
+// TDP 的本地 IPC 服务端：独立前端只能发这三个请求（见 tdp_ipc.rs）。
+mod tdp_ipc;
 mod toolbox;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -78,15 +84,10 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
                     reopen_main(app_handle.clone());
                 }
             }
-            WindowEvent::Focused(true) => {
-                // Do NOT focus_frontend here — under FSE that focus fight freezes the UI.
-                // Launching a game never hides the shell either: whatever we start
-                // keeps the focus Windows gave it, we never grab it back.
-                // The overlay is a game-time surface though: the moment the shell
-                // is the window in use again it goes off screen, otherwise it
-                // stays on top of the library and fights it for the pad.
-                frontend::hide_overlay(&app_handle);
-            }
+            // 这里曾有一个 `Focused(true) => frontend::hide_overlay(...)`：0.1.45 想靠
+            // 「壳拿回焦点」收走浮层，结果和浮层自己的可见性状态打架，正是那一版
+            // 「开机就出现、还关不掉」的成因之一。前端现在是独立程序（FRONTEND.md），
+            // 两者的显示/隐藏互不相干，这段永远删掉。
             _ => {}
         }
     });
@@ -96,8 +97,6 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
 /// launcher still hid itself on launch; the shell now stays visible, so this is
 /// only a safety net for windows that ended up off screen.
 pub(crate) fn reveal_shell(app: &tauri::AppHandle) {
-    // The floating overlay is a game-time surface; the library takes over now.
-    frontend::hide_overlay(app);
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -131,10 +130,6 @@ pub fn run() {
             scan::quit_game,
             scan::cache_covers,
             scan::steam_library_cover,
-            frontend::toggle_frontend,
-            frontend::open_frontend,
-            frontend::close_frontend,
-            frontend::focus_frontend,
             tdp::tdp_status,
             tdp::set_tdp,
             toolbox::toolbox_runtimes,
@@ -152,6 +147,11 @@ pub fn run() {
             startup::enter_fullscreen,
             startup::system_power,
             startup::quit_launcher,
+            // 把库清单发布给独立前端（只写文件，前端只读）。
+            library::library_publish,
+            // 工具箱前端卡片：看安装状态、跑随包的安装包（不含任何窗口/进程控制）。
+            frontend_tool::frontend_status,
+            frontend_tool::frontend_install,
             i18n::set_locale,
             files::file_places,
             files::file_list,
@@ -174,10 +174,8 @@ pub fn run() {
                 let _ = window.set_fullscreen(true);
                 attach_main(&window, app.handle());
             }
-            frontend::preload(app.handle());
-            if let Err(err) = frontend::install_hotkeys(app) {
-                logutil::write_line(&format!("frontend hotkeys: {err}"));
-            }
+            // 独立前端要 TDP 时来找这里（只有它提权、装着 WinRing0）。
+            tdp_ipc::start();
             Ok(())
         });
     let app = builder

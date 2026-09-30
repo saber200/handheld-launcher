@@ -94,15 +94,8 @@ fn toolbox_install_optiscaler_now(app: tauri::AppHandle, launch_path: String) ->
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TdpDriverStatus {
-    pub ready: bool,
-    pub elevated: bool,
-    /// Sys file / service already on disk — may only need a start after reboot.
-    pub installed: bool,
-    pub message: String,
-}
+/// 数据结构在共享内核里（独立前端通过本地 IPC 拿到的就是同一个形状）。
+pub use fh_core::tdp::TdpDriverStatus;
 
 #[tauri::command]
 pub async fn toolbox_tdp_driver_status() -> TdpDriverStatus {

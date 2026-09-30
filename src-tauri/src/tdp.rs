@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::i18n::pick;
@@ -8,19 +7,10 @@ const MAX_W: u32 = 40;
 const PRESETS: [u32; 6] = [5, 10, 15, 25, 35, 40];
 static LAST_WATTS: AtomicU32 = AtomicU32::new(0);
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TdpInfo {
-    pub vendor: String,
-    pub cpu_name: String,
-    pub min_w: u32,
-    pub max_w: u32,
-    pub watts: Option<u32>,
-    pub presets: Vec<u32>,
-    pub supported: bool,
-    pub backend: String,
-    pub message: String,
-}
+/// 数据结构在共享内核里，独立前端通过本地 IPC 拿到的就是同一个形状
+/// （前端只读，实际读写 MSR 永远在提权的启动器这边，见 tdp_ipc.rs）。
+pub use fh_core::tdp::TdpInfo;
+
 
 #[tauri::command]
 pub async fn tdp_status() -> TdpInfo {

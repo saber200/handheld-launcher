@@ -1,0 +1,37 @@
+[package]
+name = "fantasyhub-frontend"
+version.workspace = true
+description = "FantasyHub 独立前端：托盘常驻 + 置顶浮层（独立程序，不受启动器控制）"
+edition = "2021"
+# 注意：这里**不要**加 requireAdministrator。前端不提权，TDP 由已提权的启动器
+# 通过本地 IPC 提供（见仓库根 FRONTEND.md §4），所以 build.rs 只调 tauri_build::build()，
+# 不像启动器那样挂 Windows app manifest。
+
+[[bin]]
+name = "FantasyHubFrontend"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon：托盘常驻（阶段 2 起用）。
+tauri = { workspace = true, features = ["tray-icon"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# 前端自己的开机自启（HKCU Run），与启动器的自启互不相干。
+tauri-plugin-autostart = "2"
+# Ctrl+H 全局热键。
+tauri-plugin-global-shortcut = "2"
+# 第二次启动只叫出已经在跑的实例，不会多出一个托盘图标。
+tauri-plugin-single-instance = "2"
+fh-core = { path = "../../crates/fh-core" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  # 系统 UI 语言（托盘文案的过渡方案）。
+  "Win32_Globalization",
+  # 手柄 Back+Start 轮询。
+  "Win32_UI_Input_XboxController",
+] }

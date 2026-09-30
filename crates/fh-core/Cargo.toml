@@ -1,0 +1,25 @@
+[package]
+name = "fh-core"
+version.workspace = true
+edition = "2021"
+description = "FantasyHub 两个程序共用的内核：日志、文案、TDP 数据结构、库清单、本地 IPC"
+
+# 规则：这里只放**不带** `#[tauri::command]` 的纯逻辑。
+# Tauri 的 `allow-<命令名>` 权限是构建时按“app 自己的 crate 源码”自动生成的，
+# 命令搬进依赖 crate 后扫不到、会让 capability 报错，所以命令一律留在各 app 里，
+# 只把可复用的实现放进来。
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  # 系统 UI 语言。
+  "Win32_Globalization",
+  # 进程枚举与结束进程（前端自己判断/退游戏）。
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Threading",
+  "Win32_UI_Shell",
+] }
+

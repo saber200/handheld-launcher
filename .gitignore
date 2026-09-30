@@ -3,11 +3,17 @@ dist
 dist-ssr
 *.local
 .DS_Store
+# 工作区根 Cargo.toml 之后，cargo 的目标目录在仓库根；旧路径留着不碍事。
+/target
 src-tauri/target
+frontend/src-tauri/target
+frontend/src-tauri/gen
 src-tauri/gen
 src-tauri/fse/identity.msix
 src-tauri/fse/identity.cer
 src-tauri/fse/cert.pfx
 src-tauri/drivers/WinRing0x64.sys
+# 随包分发的前端安装包：CI 每次构建时从 target/ 拷进来，不进仓库。
+src-tauri/payload/
 .vscode/*
 !.vscode/extensions.json

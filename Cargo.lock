@@ -1083,6 +1083,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fantasyhub-frontend"
+version = "0.1.46"
+dependencies = [
+ "fh-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-single-instance",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1095,6 +1110,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
+]
+
+[[package]]
+name = "fh-core"
+version = "0.1.46"
+dependencies = [
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1587,8 +1611,9 @@ dependencies = [
 
 [[package]]
 name = "handheld-launcher"
-version = "0.1.45"
+version = "0.1.46"
 dependencies = [
+ "fh-core",
  "image",
  "serde",
  "serde_json",
@@ -1596,7 +1621,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
- "tauri-plugin-global-shortcut",
  "tauri-plugin-single-instance",
  "ureq",
  "windows-sys 0.61.2",

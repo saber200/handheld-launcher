@@ -5,6 +5,9 @@ fn main() {
         "fse/identity.cer",
         "fse/CustomCapability.SCCD",
         "drivers/WinRing0x64.sys",
+        // 随包分发的前端安装包：CI 会把真实产物拷到这里；本地/dev 构建留个空占位，
+        // 免得 bundler 因为文件不存在直接报错（工具箱那边会提示"这个版本没内置"）。
+        "payload/frontend-setup.exe",
     ] {
         let path = manifest_dir.join(name);
         if !path.exists() {

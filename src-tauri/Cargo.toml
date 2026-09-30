@@ -1,6 +1,7 @@
 [package]
 name = "handheld-launcher"
-version = "0.1.45"
+# 版本号继承工作区根 Cargo.toml 的 [workspace.package]（发版只改一处）。
+version.workspace = true
 description = "Windows handheld frontend launcher shell"
 authors = ["you"]
 edition = "2021"
@@ -17,14 +18,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { workspace = true, features = ["protocol-asset"] }
 tauri-plugin-autostart = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 tauri-plugin-single-instance = "2"
-
-[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
-tauri-plugin-global-shortcut = "2"
+# 与独立前端（frontend/src-tauri）共用的内核：目前只有日志。
+fh-core = { path = "../crates/fh-core" }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
@@ -47,13 +47,6 @@ windows-sys = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
-[profile.release]
-panic = "abort"
-# 勿改成 thin LTO / codegen-units = 16：2026-09-30 在 GitHub windows-latest 上实测过，
-# 链接阶段从 4 分 21 秒涨到约 5 分 30 秒，产物还大了 412 KiB，两头都亏。
-# 原因：fat LTO 会给依赖传 -C linker-plugin-lto，依赖只生成 bitcode、不跑机器码后端；
-# thin LTO 却要求每个依赖既生成机器码又保留 bitcode，等于把并行的工作挪进串行阶段。
-# 真正的提速来自 CI 的 Cargo 依赖缓存（见 .github/workflows/build-windows.yml），
-# 依赖编译 9 分 35 秒 → 0，整轮 15 分 31 秒 → 7 分 02 秒。
-codegen-units = 1
-lto = true
+# [profile.release] 已搬到工作区根 Cargo.toml：cargo 会忽略成员 crate 里的 profile 表
+# （只打印告警），写在成员里等于没写。
+

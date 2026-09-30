@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+// 独立前端的主面板（从 0.1.45 的 src/pages/FrontendPage.tsx 搬来）。
+//
+// 与旧版的三处不同：
+//  1. 前端的开关不跟游戏绑定 —— 旧版那条「游戏退出就把前端收起来」属于耦合设计，
+//     连同它的状态一起删掉；现在只有用户能开关。
+//  2. TDP 交给 Rust 侧转发给启动器的本地 IPC（前端不提权）。
+//  3. 装 TDP 驱动需要管理员，入口留在启动器的工具箱；这里只显示状态与去哪装。
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { playSfx, startLoadingSfx, stopLoadingSfx } from "../audio/sfx";
+import { playSfx } from "../audio/sfx";
 import { GAMEPAD_COMMIT } from "../hooks/useGamepadNav";
-import { quitLibraryGame, useRunningLibraryGame } from "../library/useLocalLibrary";
 import { text } from "../i18n";
-
-type Props = {
-  active: boolean;
-  /**
-   * Close the surface this page is drawn in (float overlay window or the
-   * launcher's drawer). The frontend belongs to the game, so quitting that game
-   * closes the frontend with it.
-   */
-  onClose?: () => void;
-};
+import { quitGame, useRunningGame } from "./library";
 
 type TdpInfo = {
   vendor: string;
@@ -42,53 +39,23 @@ const FALLBACK_PRESETS = [5, 10, 15, 25, 35, 40];
 const FALLBACK_MIN = 5;
 const FALLBACK_MAX = 40;
 
-/// A held D-pad steps faster than the driver answers, so writes are coalesced:
-/// the newest value wins and nothing stacks up behind the running one.
+// 按着方向键时驱动的响应跟不上，写入按 260 ms 合并：只保留最新值，不排队。
 const TDP_WRITE_DELAY_MS = 260;
 
-export function FrontendPage({ active, onClose }: Props) {
+export function FrontendPanel({ active }: { active: boolean }) {
   const firstRef = useRef<HTMLButtonElement>(null);
   const sliderRef = useRef<HTMLInputElement>(null);
   const m = text().frontend;
   const [tdp, setTdp] = useState<TdpInfo | null>(null);
   const [driver, setDriver] = useState<TdpDriverStatus | null>(null);
-  const [driverBusy, setDriverBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [draft, setDraft] = useState<number | null>(null);
   const [quitting, setQuitting] = useState(false);
-  const [probe, refreshRunningGame] = useRunningLibraryGame(active);
+  const [probe, refreshRunningGame] = useRunningGame(active);
   const runningGame = probe.game;
   const writeTimer = useRef<number | null>(null);
   const writing = useRef(false);
   const pending = useRef<number | null>(null);
-  const sawRunning = useRef(false);
-
-  const closeSurface = useCallback(() => {
-    if (onClose) {
-      onClose();
-      return;
-    }
-    if (inTauri()) void invoke("close_frontend").catch(() => {});
-  }, [onClose]);
-
-  /// The frontend belongs to the game that is running: once that game is gone
-  /// (quit from this row, closed from the library, or crashed) the frontend goes
-  /// with it and we are back on the plain launcher. Only a game we actually saw
-  /// running counts, so a probe that finds nothing when opening never closes.
-  useEffect(() => {
-    if (!active) {
-      sawRunning.current = false;
-      return;
-    }
-    if (runningGame) {
-      sawRunning.current = true;
-      return;
-    }
-    if (probe.settled && sawRunning.current) {
-      sawRunning.current = false;
-      closeSurface();
-    }
-  }, [active, closeSurface, probe.settled, runningGame]);
 
   const refreshDriver = () => {
     if (!inTauri()) {
@@ -97,7 +64,15 @@ export function FrontendPage({ active, onClose }: Props) {
     }
     void invoke<TdpDriverStatus>("toolbox_tdp_driver_status")
       .then(setDriver)
-      .catch((err) => setStatus(m.toolboxFailed(String(err))));
+      // 拿不到状态通常是启动器没在跑：说清楚，别让人以为前端坏了。
+      .catch(() =>
+        setDriver({
+          ready: false,
+          elevated: false,
+          installed: false,
+          message: m.tdpNoLauncher,
+        }),
+      );
   };
 
   const refreshTdp = () => {
@@ -125,30 +100,6 @@ export function FrontendPage({ active, onClose }: Props) {
     if (!active || !driver?.ready) return;
     refreshTdp();
   }, [active, driver?.ready]);
-
-  const installDriver = async () => {
-    if (!inTauri()) {
-      setStatus(m.tdpPreview);
-      return;
-    }
-    setDriverBusy(true);
-    const already = Boolean(driver?.installed);
-    setStatus(already ? m.tdpDriverStarting : m.tdpDriverInstalling);
-    startLoadingSfx();
-    try {
-      const next = await invoke<TdpDriverStatus>("toolbox_install_tdp_driver");
-      setDriver(next);
-      setStatus(next.message);
-      stopLoadingSfx(next.ready);
-      if (next.ready) refreshTdp();
-    } catch (err) {
-      stopLoadingSfx(false);
-      setStatus(m.toolboxFailed(String(err)));
-      refreshDriver();
-    } finally {
-      setDriverBusy(false);
-    }
-  };
 
   const clampTdp = (watts: number) => {
     const min = tdp?.minW ?? FALLBACK_MIN;
@@ -178,7 +129,7 @@ export function FrontendPage({ active, onClose }: Props) {
     if (next === null) return;
     pending.current = null;
     await writeTdp(next);
-    // The button is probably still held: write what arrived while we were busy.
+    // 手可能还按着：把期间到达的值补上。
     if (pending.current !== null) void drainTdp();
   };
 
@@ -207,7 +158,7 @@ export function FrontendPage({ active, onClose }: Props) {
   const flushRef = useRef(flushTdp);
   flushRef.current = flushTdp;
 
-  // A on the focused slider commits right away (see confirmFocused in useGamepadNav).
+  // 焦点在滑条上时按 A 立即提交（见 useGamepadNav 的 confirmFocused）。
   useEffect(() => {
     const slider = sliderRef.current;
     if (!slider) return;
@@ -216,7 +167,7 @@ export function FrontendPage({ active, onClose }: Props) {
     return () => slider.removeEventListener(GAMEPAD_COMMIT, commit);
   }, [driver?.ready]);
 
-  // Stepping and then closing the panel still has to keep the last value.
+  // 调完就关也不丢最后一次值。
   useEffect(
     () => () => {
       if (writeTimer.current !== null) window.clearTimeout(writeTimer.current);
@@ -239,18 +190,11 @@ export function FrontendPage({ active, onClose }: Props) {
     queueTdp(watts, TDP_WRITE_DELAY_MS);
   };
 
-  const quitRunningGame = async () => {
+  const quitRunning = async () => {
     if (!runningGame || quitting) return;
     playSfx("click");
     setQuitting(true);
-    const message = await quitLibraryGame({
-      id: runningGame.id,
-      name: runningGame.name,
-      launchPath: runningGame.launchPath,
-      installPath: runningGame.installPath,
-      customPath: runningGame.customPath,
-    });
-    setStatus(message);
+    setStatus(await quitGame(runningGame));
     setQuitting(false);
     refreshRunningGame();
   };
@@ -263,7 +207,7 @@ export function FrontendPage({ active, onClose }: Props) {
   const driverReady = Boolean(driver?.ready);
 
   return (
-    <div className="settings-body">
+    <div className="frontend-panel-body settings-body">
       <section className="settings-list">
         <h2 className="frontend-section-title">{m.powerTitle}</h2>
         <div className="tdp-panel">
@@ -280,36 +224,9 @@ export function FrontendPage({ active, onClose }: Props) {
           {!driverReady ? (
             <>
               <p className="toolbox-block-body">{m.tdpDriverBody}</p>
-              {driver ? <p className="tdp-status">{driver.message}</p> : null}
-              <button
-                ref={firstRef}
-                type="button"
-                className="setting-row"
-                data-focusable
-                disabled={driverBusy}
-                onClick={() => void installDriver()}
-                style={{ marginTop: "10px" }}
-              >
-                <span>
-                  <strong>
-                    {driver?.installed ? m.tdpDriverStart : m.tdpDriverInstall}
-                  </strong>
-                  <small>
-                    {driver && !driver.elevated
-                      ? m.tdpDriverNeedAdmin
-                      : driver?.installed
-                        ? m.tdpDriverStart
-                        : m.tdpDriverInstall}
-                  </small>
-                </span>
-                <span className="switch">
-                  {driverBusy
-                    ? m.toolboxWorking
-                    : driver?.installed
-                      ? m.tdpDriverStart
-                      : m.toolboxInstall}
-                </span>
-              </button>
+              <p className="tdp-status">{driver?.message || m.tdpNoLauncher}</p>
+              {/* 装驱动要管理员，入口在启动器的工具箱 —— 前端不替任何人装内核驱动。 */}
+              <p className="tdp-status">{m.tdpDriverInLauncher}</p>
             </>
           ) : (
             <>
@@ -356,15 +273,13 @@ export function FrontendPage({ active, onClose }: Props) {
           </span>
           <span className="switch">{m.later}</span>
         </button>
-        {/* Only a library *game* gets this row: apps and the shell have nothing
-            to kill, and the overlay should get you out of a game without
-            hunting for the task manager. */}
+        {/* 只有库里的**游戏**才有这行：软件和启动器本身没什么可退的。 */}
         {runningGame ? (
           <button
             type="button"
             className="setting-row"
             data-focusable
-            onClick={() => void quitRunningGame()}
+            onClick={() => void quitRunning()}
           >
             <span>
               <strong>{quitting ? m.quitGameRunning : m.quitGame}</strong>

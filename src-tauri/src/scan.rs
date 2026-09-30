@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::Mutex;
 #[cfg(windows)]
 use std::collections::{HashMap, HashSet};
@@ -92,15 +92,8 @@ pub async fn steam_library_cover(app_id: String) -> Result<String, String> {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunningQuery {
-    pub id: String,
-    #[serde(default)]
-    pub launch_path: String,
-    #[serde(default)]
-    pub install_path: String,
-}
+/// 候选表的数据结构在共享内核里 —— 独立前端自己判断进程时用的是同一份。
+pub use fh_core::process::RunningQuery;
 
 enum GamePresence {
     Absent,
@@ -116,15 +109,9 @@ pub async fn running_games(items: Vec<RunningQuery>) -> Vec<String> {
 }
 
 fn running_ids_now(items: Vec<RunningQuery>) -> Vec<String> {
-    #[cfg(windows)]
-    {
-        return windows::running_ids(&items);
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = items;
-        Vec::new()
-    }
+    // 实现搬到了共享内核：独立前端也要用同一套判断（它自己枚举进程，不需要提权），
+    // 两份实现迟早会走偏，所以只留一份。
+    fh_core::process::running_ids(&items)
 }
 
 #[tauri::command]
@@ -136,9 +123,15 @@ pub async fn quit_game(id: String, launch_path: String, install_path: String) ->
 }
 
 fn quit_game_now(id: String, launch_path: String, install_path: String) -> Result<u32, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (id, launch_path, install_path);
+        return Err(pick("只能在 Windows 上退出游戏", "Quitting games only works on Windows.").into());
+    }
+    // 结束进程的实现也搬到了共享内核：独立前端自己退游戏（免提权）。
     #[cfg(windows)]
     {
-        let killed = windows::kill_game(&launch_path, &install_path);
+        let killed = fh_core::process::kill_game(&launch_path, &install_path);
         forget_launch(&id);
         if killed == 0 {
             return Err(pick(
@@ -148,11 +141,6 @@ fn quit_game_now(id: String, launch_path: String, install_path: String) -> Resul
             .into());
         }
         Ok(killed)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (id, launch_path, install_path);
-        Err(pick("只能在 Windows 上退出游戏", "Quitting games only works on Windows.").into())
     }
 }
 
@@ -293,77 +281,14 @@ fn launched_recently(id: &str) -> bool {
     list.iter().any(|(key, at)| key == id && now.saturating_sub(*at) < 8_000)
 }
 
+/// 路径规范化与“这个进程属于这个游戏吗”都搬到了共享内核（独立前端要用同一套，
+/// 见 `fh_core::process`）。这里保留同名薄壳，调用点一个字都不用改。
 fn normalize_win_path(path: &str) -> String {
-    path.replace('/', "\\").trim().trim_end_matches('\\').to_ascii_lowercase()
-}
-
-fn usable_game_root(path: &str) -> Option<String> {
-    let norm = normalize_win_path(path);
-    let rest = norm.split_once('\\').map(|(_, tail)| tail).unwrap_or("");
-    let parts: Vec<&str> = rest.split('\\').filter(|part| !part.is_empty()).collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    const GENERIC: &[&str] = &[
-        "program files",
-        "program files (x86)",
-        "windows",
-        "users",
-        "steam",
-        "steamapps",
-        "common",
-        "games",
-        "desktop",
-        "downloads",
-    ];
-    if parts.last().is_some_and(|part| GENERIC.contains(part)) {
-        return None;
-    }
-    Some(norm)
+    fh_core::process::normalize_path(path)
 }
 
 fn process_belongs_to_game(launch_path: &str, install_path: &str, process_path: &str) -> bool {
-    let process = normalize_win_path(process_path);
-    if process.is_empty() {
-        return false;
-    }
-    let launch = normalize_win_path(launch_path);
-    if !launch.is_empty() && process == launch {
-        return true;
-    }
-    let file = process.rsplit('\\').next().unwrap_or("");
-    const HELPERS: &[&str] = &[
-        "steam.exe",
-        "steamwebhelper.exe",
-        "steamservice.exe",
-        "steamerrorreporter.exe",
-        "gameoverlayui.exe",
-        "epicgameslauncher.exe",
-        "epicwebhelper.exe",
-        "explorer.exe",
-    ];
-    if HELPERS.contains(&file) {
-        return false;
-    }
-    let under = |root: &str| process == root || process.starts_with(&format!("{root}\\"));
-    if let Some(root) = usable_game_root(install_path) {
-        if under(&root) {
-            return true;
-        }
-    }
-    if let Some(parent) = launch.rsplit_once('\\').map(|(dir, _)| dir) {
-        if let Some(root) = usable_game_root(parent) {
-            if under(&root) {
-                return true;
-            }
-        }
-    }
-    // Anti-cheat processes often refuse a full path query. The snapshot still has the exe name.
-    if !process.contains('\\') {
-        let launch_file = launch.rsplit('\\').next().unwrap_or("");
-        return !launch_file.is_empty() && file == launch_file;
-    }
-    false
+    fh_core::process::belongs_to_game(launch_path, install_path, process_path)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -653,19 +578,6 @@ mod windows {
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    pub fn running_ids(items: &[RunningQuery]) -> Vec<String> {
-        let processes = process_paths();
-        items
-            .iter()
-            .filter(|item| {
-                processes
-                    .iter()
-                    .any(|(_, path)| process_belongs_to_game(&item.launch_path, &item.install_path, path))
-            })
-            .map(|item| item.id.clone())
-            .collect()
-    }
-
     pub fn activate_game(launch_path: &str, install_path: &str) -> GamePresence {
         let pids = game_pids(launch_path, install_path);
         if pids.is_empty() {
@@ -719,104 +631,8 @@ mod windows {
         }
     }
 
-    pub fn kill_game(launch_path: &str, install_path: &str) -> u32 {
-        let mut killed = 0u32;
-        for pid in game_pids(launch_path, install_path) {
-            if terminate_pid(pid) {
-                killed = killed.saturating_add(1);
-            }
-        }
-        killed
-    }
-
-    fn terminate_pid(pid: u32) -> bool {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
-        if pid == 0 {
-            return false;
-        }
-        unsafe {
-            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
-            if handle.is_null() {
-                return false;
-            }
-            let ok = TerminateProcess(handle, 1) != 0;
-            CloseHandle(handle);
-            ok
-        }
-    }
-
     fn game_pids(launch_path: &str, install_path: &str) -> Vec<u32> {
-        process_paths()
-            .into_iter()
-            .filter(|(_, path)| process_belongs_to_game(launch_path, install_path, path))
-            .map(|(pid, _)| pid)
-            .collect()
-    }
-
-    fn process_paths() -> Vec<(u32, String)> {
-        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
-        };
-
-        unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if snap.is_null() || snap == INVALID_HANDLE_VALUE {
-                return Vec::new();
-            }
-            let mut entry = PROCESSENTRY32W::default();
-            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-            let mut found = Vec::new();
-            if Process32FirstW(snap, &mut entry) != 0 {
-                loop {
-                    let pid = entry.th32ProcessID;
-                    if let Some(path) = image_path(pid) {
-                        found.push((pid, path));
-                    } else {
-                        let end = entry
-                            .szExeFile
-                            .iter()
-                            .position(|&c| c == 0)
-                            .unwrap_or(entry.szExeFile.len());
-                        let name = String::from_utf16_lossy(&entry.szExeFile[..end]);
-                        if !name.is_empty() {
-                            found.push((pid, name));
-                        }
-                    }
-                    if Process32NextW(snap, &mut entry) == 0 {
-                        break;
-                    }
-                }
-            }
-            CloseHandle(snap);
-            found
-        }
-    }
-
-    fn image_path(pid: u32) -> Option<String> {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{
-            OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
-        };
-        if pid == 0 {
-            return None;
-        }
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if handle.is_null() {
-                return None;
-            }
-            let mut buf = [0u16; 1024];
-            let mut len = buf.len() as u32;
-            let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
-            CloseHandle(handle);
-            if ok == 0 || len == 0 {
-                return None;
-            }
-            let end = (len as usize).min(buf.len());
-            Some(String::from_utf16_lossy(&buf[..end]))
-        }
+        fh_core::process::pids_for_game(launch_path, install_path)
     }
 
     fn game_window(pids: &[u32]) -> Option<windows_sys::Win32::Foundation::HWND> {

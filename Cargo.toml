@@ -1,0 +1,32 @@
+# FantasyHub 工作区根。
+#
+# 一仓两程序：启动器（src-tauri，全屏壳）与独立前端（frontend/src-tauri，托盘常驻浮层），
+# 共用 crates/fh-core。两个程序不再互相控制（详见仓库根 FRONTEND.md）。
+#
+# 注意：有了工作区，cargo 的目标目录变成仓库根的 target/（不再是 src-tauri/target），
+# 所以 CI 的 rust-cache 与产物路径都按 ". -> target" 写。
+[workspace]
+resolver = "2"
+members = ["src-tauri", "frontend/src-tauri", "crates/fh-core"]
+
+# 三个 crate 共用一个版本号：发版时只改这一处（另需同步 package.json 与两个 tauri.conf.json）。
+[workspace.package]
+version = "0.1.46"
+
+[workspace.dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# profile 只能写在工作区根：成员里的 [profile.*] 会被 cargo 忽略（只告警），
+# 所以从 src-tauri/Cargo.toml 搬到这里，两个程序共用同一套优化参数。
+[profile.release]
+panic = "abort"
+# 勿改成 thin LTO / codegen-units = 16：2026-09-30 在 GitHub windows-latest 上实测过，
+# 链接阶段从 4 分 21 秒涨到约 5 分 30 秒，产物还大了 412 KiB，两头都亏。
+# 原因：fat LTO 会给依赖传 -C linker-plugin-lto，依赖只生成 bitcode、不跑机器码后端；
+# thin LTO 却要求每个依赖既生成机器码又保留 bitcode，等于把并行的工作挪进串行阶段。
+# 真正的提速来自 CI 的 Cargo 依赖缓存（见 .github/workflows/build-windows.yml），
+# 依赖编译 9 分 35 秒 → 0，整轮 15 分 31 秒 → 7 分 02 秒。
+codegen-units = 1
+lto = true

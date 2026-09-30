@@ -5,7 +5,9 @@ use std::sync::Mutex;
 
 static LOG: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-pub fn init() {
+/// 启动器与独立前端写同一个日志文件（按行追加），方便把两边行为放在一条时间线上对照；
+/// `tag` 只用来区分是谁启动的。
+pub fn init_for(tag: &str) {
     let path = log_path();
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -13,12 +15,17 @@ pub fn init() {
     if let Ok(mut guard) = LOG.lock() {
         *guard = Some(path.clone());
     }
-    write_line(&format!("FantasyHub start pid={}", std::process::id()));
+    write_line(&format!("{tag} start pid={}", std::process::id()));
     #[cfg(windows)]
     {
         let elevated = unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 };
         write_line(&format!("elevated={elevated}"));
     }
+}
+
+/// 启动器的入口：日志首行保持 `FantasyHub start pid=...` 不变。
+pub fn init() {
+    init_for("FantasyHub");
 }
 
 pub fn write_line(message: &str) {

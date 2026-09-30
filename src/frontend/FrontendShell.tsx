@@ -1,17 +1,23 @@
+// 独立前端的浮层外壳（从 0.1.45 的 src/FrontendShell.tsx 搬来）。
+//
+// 与旧版的区别：
+//  - 可见性只看**自己窗口**的 isVisible()，不再听 `frontend-state`（那是启动器的全局状态，
+//    也正是 0.1.45「窗口在屏上、状态却是关的、于是关不掉」的来源）；
+//  - 「关闭」= 隐藏窗口（托盘常驻），不是通知启动器；
+//  - 手柄状态由本程序 Rust 侧的 XInput 轮询通过 `frontend-pad` 推过来。
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { FrontendPage } from "./pages/FrontendPage";
 import {
   closeGamepadKeyboard,
   confirmFocused,
   gamepadKeyboardOpen,
   steerFocus,
   useGamepadNav,
-} from "./hooks/useGamepadNav";
-import { text, useI18n } from "./i18n";
-import { preloadSfx } from "./audio/sfx";
+} from "../hooks/useGamepadNav";
+import { text, useI18n } from "../i18n";
+import { preloadSfx } from "../audio/sfx";
+import { FrontendPanel } from "./FrontendPanel";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -25,13 +31,15 @@ type FrontendPad = {
   start: boolean;
 };
 
-/** Ignore B close until open-press is released (Start opens; B closes). */
+/** 打开那一下的按键不能立刻把浮层关掉（Start 开、B 关）。 */
 const CLOSE_GRACE_MS = 1200;
+
+/** 自己窗口的可见性就是唯一真相：400 ms 问一次，够快也不贵。 */
+const VISIBLE_POLL_MS = 400;
 
 export function FrontendShell() {
   useI18n();
   const m = text().frontend;
-  // Hidden preload window still runs JS; only handle input while shown.
   const [shellActive, setShellActive] = useState(!inTauri());
   const padHeld = useRef({ a: false, b: false, start: false, dx: 0, dy: 0 });
   const padRepeatAt = useRef(0);
@@ -39,12 +47,9 @@ export function FrontendShell() {
   const bMustRelease = useRef(false);
 
   const close = useCallback(() => {
-    if (!inTauri()) {
-      window.location.hash = "";
-      window.location.reload();
-      return;
-    }
-    void invoke("close_frontend").catch(() => {});
+    if (!inTauri()) return;
+    // 关窗 == 隐藏到托盘；真正退出只在托盘菜单里。
+    void getCurrentWindow().hide().catch(() => {});
   }, []);
 
   const closeFromPad = useCallback(() => {
@@ -72,18 +77,10 @@ export function FrontendShell() {
         .catch(() => {});
     };
     syncVisible();
-    const timer = window.setInterval(syncVisible, 400);
-    const unlisten = listen<boolean | { open?: boolean }>("frontend-state", (event) => {
-      // The event carries {open, surface}; reading it as a boolean used to keep
-      // the overlay "active" forever (every payload is a truthy object).
-      const payload = event.payload;
-      const open = typeof payload === "boolean" ? payload : Boolean(payload?.open);
-      if (!cancel) setShellActive(open);
-    });
+    const timer = window.setInterval(syncVisible, VISIBLE_POLL_MS);
     return () => {
       cancel = true;
       window.clearInterval(timer);
-      void unlisten.then((stop) => stop());
     };
   }, []);
 
@@ -102,28 +99,21 @@ export function FrontendShell() {
       if (e.key === "Escape" || e.key === "b" || e.key === "B") {
         e.preventDefault();
         closeFromPad();
-        return;
-      }
-      if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "h") {
-        e.preventDefault();
-        closeFromPad();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [closeFromPad, shellActive]);
 
-  // Browser preview: Gamepad API. Tauri frontend webview often gets empty pads.
+  // 浏览器预览用 Gamepad API（Tauri 的 WebView 里它常常给空表，所以那边走 XInput 桥）。
   useGamepadNav({
     enabled: shellActive && !inTauri(),
     onBack: closeFromPad,
     onConfirm: () => {
       confirmFocused();
     },
-    onStart: closeFromPad,
   });
 
-  // Windows: XInput bridge from Rust (second WebView Gamepad API is unreliable).
   useEffect(() => {
     if (!shellActive || !inTauri()) return;
     padHeld.current = { a: true, b: true, start: true, dx: 0, dy: 0 };
@@ -135,16 +125,10 @@ export function FrontendShell() {
       const pad = event.payload;
       const dx = pad.dx || 0;
       const dy = pad.dy || 0;
-      // Treat currently held buttons as already down so open-press can't close us.
+      // 打开时按着的键当作已经按下，避免“开的那一下顺手把自己关了”。
       if (!primed) {
         primed = true;
-        padHeld.current = {
-          a: true,
-          b: true,
-          start: true,
-          dx,
-          dy,
-        };
+        padHeld.current = { a: true, b: true, start: true, dx, dy };
         if (pad.b) bMustRelease.current = true;
         return;
       }
@@ -168,17 +152,11 @@ export function FrontendShell() {
       if (pad.a && !held.a && !inGrace) {
         confirmFocused();
       }
-      // B or Start closes after the open-press is released.
+      // B 或 Start 松手后才关（避免开按未松就关掉）。
       if (pad.b && !held.b) closeFromPad();
       if (pad.start && !held.start && !inGrace) closeFromPad();
 
-      padHeld.current = {
-        a: pad.a,
-        b: pad.b,
-        start: pad.start,
-        dx,
-        dy,
-      };
+      padHeld.current = { a: pad.a, b: pad.b, start: pad.start, dx, dy };
     });
     return () => {
       void unlisten.then((stop) => stop());
@@ -187,15 +165,12 @@ export function FrontendShell() {
 
   useEffect(() => {
     if (!shellActive) return;
-    // Prefer in-panel controls — Close is mouse-only (no data-focusable).
-    const preferred = document.querySelector<HTMLElement>(
-      ".frontend-shell-body [data-focusable]",
-    );
-    preferred?.focus();
+    // 焦点优先落在面板里的控件上：关闭按钮是鼠标专用（没有 data-focusable）。
+    document.querySelector<HTMLElement>(".frontend-panel-body [data-focusable]")?.focus();
   }, [shellActive]);
 
   return (
-    <div className="frontend-shell focus-trap open">
+    <div className="frontend-shell">
       <header className="frontend-shell-head">
         <h1>{m.title}</h1>
         <button type="button" className="library-tool" onClick={close}>
@@ -203,7 +178,7 @@ export function FrontendShell() {
         </button>
       </header>
       <div className="frontend-shell-body">
-        <FrontendPage active={shellActive} onClose={close} />
+        <FrontendPanel active={shellActive} />
       </div>
       <footer className="frontend-shell-hint">
         <span>{text().hints.frontend}</span>

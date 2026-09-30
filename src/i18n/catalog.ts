@@ -70,6 +70,14 @@ export type Catalog = {
     title: string;
     close: string;
     hint: string;
+    tdpNoLauncher: string;
+    tdpDriverInLauncher: string;
+    frontendTitle: string;
+    frontendBody: string;
+    frontendStatusInstalled: (version: string) => string;
+    frontendStatusMissing: string;
+    frontendAction: string;
+    frontendNoPayload: string;
     powerTitle: string;
     powerBody: string;
     tdp: string;
@@ -289,7 +297,7 @@ export const zh: Catalog = {
     focusTools: "方向键移到新建 / 添加",
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
-    frontend: "Start 开/关浮层；游戏中 Back+Start 或 Ctrl+H 呼出，可直接退出游戏",
+    frontend: "前端是独立软件：装好后托盘常驻，Ctrl+H / 手柄 Back+Start 开关",
   },
   settings: {
     title: "设置",
@@ -334,6 +342,15 @@ export const zh: Catalog = {
     title: "前端",
     close: "关闭前端",
     hint: "掌机常用调节和工具箱会放在这里。TDP 可先试 5–40W 档位。",
+    tdpNoLauncher: "启动器没在运行 —— TDP 暂不可用，其它功能照常。",
+    tdpDriverInLauncher: "安装 TDP 驱动需要管理员：请在启动器的「工具箱」里安装。",
+    frontendTitle: "前端（独立程序）",
+    frontendBody:
+      "前端是独立软件：托盘常驻，Ctrl+H 或手柄 Back+Start 开关浮层。这里只负责安装 / 更新它，不控制它的开关。",
+    frontendStatusInstalled: (version) => `已安装 ${version}`,
+    frontendStatusMissing: "还没装过",
+    frontendAction: "安装 / 更新",
+    frontendNoPayload: "这个版本没内置前端安装包，请到 Release 页面下载",
     powerTitle: "性能",
     powerBody: "调节整机功耗上限。",
     tdp: "TDP",
@@ -555,7 +572,7 @@ export const en: Catalog = {
     focusTools: "D-pad to New / Add",
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
-    frontend: "Start toggles the overlay; in-game use Back+Start or Ctrl+H to quit the running game",
+    frontend: "The frontend is a separate app: tray-resident, toggle with Ctrl+H / Back+Start",
   },
   settings: {
     title: "Settings",
@@ -600,6 +617,15 @@ export const en: Catalog = {
     title: "Frontend",
     close: "Close frontend",
     hint: "Quick handheld controls live here. Try the 5–40W TDP presets first.",
+    tdpNoLauncher: "The launcher isn't running — TDP is unavailable, everything else still works.",
+    tdpDriverInLauncher: "Installing the TDP driver needs admin: use the launcher's toolbox.",
+    frontendTitle: "Frontend (separate app)",
+    frontendBody:
+      "The frontend is its own app: tray-resident, toggle the overlay with Ctrl+H or Back+Start. This card only installs/updates it — it never opens or closes it.",
+    frontendStatusInstalled: (version) => `Installed ${version}`,
+    frontendStatusMissing: "Not installed yet",
+    frontendAction: "Install / update",
+    frontendNoPayload: "This build ships no frontend installer — grab it from Releases",
     powerTitle: "Performance",
     powerBody: "Adjust the package power limit.",
     tdp: "TDP",

@@ -1,0 +1,37 @@
+# 独立前端自己的命令权限（命令都在本 crate 里声明，见 main.rs 的 invoke_handler）。
+# 与启动器同样的写法：逐条声明、再由 capabilities 放给窗口。
+
+[[permission]]
+identifier = "allow-set-locale"
+description = "Choose Chinese or English for messages."
+commands.allow = ["set_locale"]
+
+[[permission]]
+identifier = "allow-tdp-status"
+description = "Read TDP state through the launcher's local IPC."
+commands.allow = ["tdp_status"]
+
+[[permission]]
+identifier = "allow-set-tdp"
+description = "Set TDP watts through the launcher's local IPC."
+commands.allow = ["set_tdp"]
+
+[[permission]]
+identifier = "allow-toolbox-tdp-driver-status"
+description = "Read whether the TDP driver is ready (read-only; installing it stays in the launcher)."
+commands.allow = ["toolbox_tdp_driver_status"]
+
+[[permission]]
+identifier = "allow-running-games"
+description = "List which library games are running — this process scans on its own."
+commands.allow = ["running_games"]
+
+[[permission]]
+identifier = "allow-quit-game"
+description = "Quit a running library game — this process kills it on its own."
+commands.allow = ["quit_game"]
+
+[[permission]]
+identifier = "allow-library-read"
+description = "Read the library list published by the launcher (read-only file)."
+commands.allow = ["library_read"]
