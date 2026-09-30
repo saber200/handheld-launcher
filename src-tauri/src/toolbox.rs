@@ -953,7 +953,9 @@ mod windows {
                 continue;
             }
             // 已有的 OptiScaler.ini 是用户配置，重装时保留。
-            if name_str.eq_ignore_ascii_case("OptiScaler.ini") && to.join("OptiScaler.ini").is_file()
+            // 用 rel 而不是写死文件名：子目录（如 D3D12_Optiscaler/）里的 INI 也要查对位置，
+            // 根目录时 rel 就是 OptiScaler.ini，行为不变。
+            if name_str.eq_ignore_ascii_case("OptiScaler.ini") && to.join(rel).is_file()
             {
                 continue;
             }

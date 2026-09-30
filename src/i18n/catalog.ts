@@ -106,6 +106,8 @@ export type Catalog = {
     optiscalerInstalled: string;
     optiscalerHint: string;
     optiscalerNoGame: string;
+    backToLauncher: string;
+    backToLauncherHint: string;
     later: string;
     soon: string;
   };
@@ -289,7 +291,7 @@ export const zh: Catalog = {
     focusTools: "方向键移到新建 / 添加",
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
-    frontend: "Start 开/关浮层；游戏中也可用 Back+Start 或 Ctrl+H",
+    frontend: "Start 开/关浮层；游戏中 Back+Start 或 Ctrl+H 呼出，选「回到启动器」回库",
   },
   settings: {
     title: "设置",
@@ -371,6 +373,8 @@ export const zh: Catalog = {
     optiscalerInstalled: "该游戏目录已检测到 OptiScaler，可再次覆盖安装。",
     optiscalerHint: "安装到所选游戏主程序所在目录。",
     optiscalerNoGame: "游戏库里还没有可安装的游戏，先在主界面添加或扫描。",
+    backToLauncher: "回到启动器",
+    backToLauncherHint: "游戏继续在后台跑，启动器会重新铺满屏幕",
     later: "展开",
     soon: "即将推出",
   },
@@ -555,7 +559,7 @@ export const en: Catalog = {
     focusTools: "D-pad to New / Add",
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
-    frontend: "Start toggles overlay; in-game also Back+Start or Ctrl+H",
+    frontend: "Start toggles the overlay; in-game use Back+Start or Ctrl+H, then pick \"Back to launcher\"",
   },
   settings: {
     title: "Settings",
@@ -637,6 +641,8 @@ export const en: Catalog = {
     optiscalerInstalled: "OptiScaler already detected; you can overwrite it.",
     optiscalerHint: "Installs next to the selected game executable.",
     optiscalerNoGame: "No games in the library yet. Add or scan some on the main screen.",
+    backToLauncher: "Back to launcher",
+    backToLauncherHint: "The game keeps running; the launcher fills the screen again",
     later: "Later",
     soon: "Soon",
   },

@@ -125,6 +125,13 @@ export function FrontendPage({ active }: Props) {
     }
   };
 
+  const backToLauncher = () => {
+    playSfx("click");
+    if (!inTauri()) return;
+    // The shell may be hidden behind a fullscreen game — this is the way home.
+    void invoke("reveal_launcher").catch(() => {});
+  };
+
   const presets = tdp?.presets?.length ? tdp.presets : FALLBACK_PRESETS;
   const minW = tdp?.minW ?? FALLBACK_MIN;
   const maxW = tdp?.maxW ?? FALLBACK_MAX;
@@ -227,6 +234,15 @@ export function FrontendPage({ active }: Props) {
             <strong>{m.fan}</strong>
           </span>
           <span className="switch">{m.later}</span>
+        </button>
+        {/* 全屏 / FSE 下主窗会隐起来去让游戏，且没有任务栏可以找回来；
+            这一行是游戏里唯一可靠的回家入口（Back+Start 呼出浮层后选它）。 */}
+        <button type="button" className="setting-row" data-focusable onClick={backToLauncher}>
+          <span>
+            <strong>{m.backToLauncher}</strong>
+            <small>{m.backToLauncherHint}</small>
+          </span>
+          <span className="switch">{m.backToLauncher}</span>
         </button>
       </section>
     </div>

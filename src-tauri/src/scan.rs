@@ -75,6 +75,52 @@ pub fn rehide_shell_if_away(app: &tauri::AppHandle) {
     }
 }
 
+/// Watch the process we just yielded to and bring the shell back when it exits.
+/// The shell hides itself on launch and fullscreen / FSE offers no task list, so
+/// without this the user would quit the game onto a bare desktop. Only a game we
+/// have actually seen running may "disappear" — a slow first start, a launcher
+/// hand-off or a level reload must never pop the library back over the game.
+#[cfg(windows)]
+pub fn watch_game_exit(app: &tauri::AppHandle, launch_path: &str, install_path: &str) {
+    static WATCHING: AtomicBool = AtomicBool::new(false);
+    if WATCHING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let launch_path = launch_path.to_string();
+    let install_path = install_path.to_string();
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut seen_running = false;
+        let mut missing = 0u32;
+        let started = std::time::Instant::now();
+        // Bounded so a broken probe cannot leave a thread polling forever.
+        while started.elapsed() < std::time::Duration::from_secs(8 * 60 * 60) {
+            std::thread::sleep(std::time::Duration::from_millis(2000));
+            // User came back on their own, or the app is quitting.
+            if crate::startup::quit_allowed() || !away_session_active() {
+                break;
+            }
+            match windows::activate_game(&launch_path, &install_path) {
+                GamePresence::Absent => {
+                    if seen_running {
+                        missing = missing.saturating_add(1);
+                        if missing >= 2 {
+                            crate::logutil::write_line("game exited: reveal shell");
+                            crate::reveal_shell(&app);
+                            break;
+                        }
+                    }
+                }
+                GamePresence::Focused | GamePresence::Running => {
+                    seen_running = true;
+                    missing = 0;
+                }
+            }
+        }
+        WATCHING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScannedGame {
@@ -201,8 +247,14 @@ pub fn launch_item(
                 GamePresence::Absent if launched_recently(&id) => return Ok("running".into()),
                 GamePresence::Absent => {}
                 GamePresence::Focused | GamePresence::Running => {
-                    begin_away_session(&app);
                     let switched = windows::reveal_game(&id, &launch_path, &install_path);
+                    // Only yield the shell once the game really owns the screen. Under
+                    // fullscreen / FSE a hidden shell has no task list to come back from,
+                    // so a switch that failed must leave the library where it is.
+                    if switched {
+                        begin_away_session(&app);
+                        watch_game_exit(&app, &launch_path, &install_path);
+                    }
                     return Ok(if switched { "focused".into() } else { "running".into() });
                 }
             }
@@ -214,6 +266,8 @@ pub fn launch_item(
             return Err(err);
         }
         remember_launch(&id);
+        // The shell just hid itself and FSE has no task list, so watch the game for us.
+        watch_game_exit(&app, &launch_path, &install_path);
         return Ok("launched".into());
     }
     #[cfg(not(windows))]
@@ -221,6 +275,14 @@ pub fn launch_item(
         let _ = (app, id, launch_path, install_path, switch_if_running);
         Err(pick("只能在 Windows 上启动", "Launching only works on Windows.").into())
     }
+}
+
+/// Bring the library back after a game (or another app) took the screen.
+/// The floating overlay calls this from its 「回到启动器」 row; desktop mode can
+/// use it too. It is also the recovery path when nothing else is reachable.
+#[tauri::command]
+pub fn reveal_launcher(app: tauri::AppHandle) {
+    crate::reveal_shell(&app);
 }
 
 #[cfg(windows)]

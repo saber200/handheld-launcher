@@ -106,6 +106,13 @@ pub fn frontend_visible(_app: &AppHandle) -> bool {
     FRONTEND_OPEN.load(Ordering::SeqCst)
 }
 
+/// Hide the floating overlay — the library shell is taking over again.
+pub fn hide_overlay(app: &AppHandle) {
+    if FRONTEND_OPEN.load(Ordering::SeqCst) {
+        schedule_set_open(app.clone(), false, "reveal launcher");
+    }
+}
+
 pub fn install_hotkeys(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(desktop)]
     {

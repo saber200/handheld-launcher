@@ -80,7 +80,13 @@ fn attach_main(window: &tauri::WebviewWindow, app: &tauri::AppHandle) {
     });
 }
 
-fn reveal_running_window(app: &tauri::AppHandle) {
+/// Bring the hidden shell back. The single-instance relaunch, the overlay's
+/// 「回到启动器」 row and the post-game watcher in scan.rs all land here.
+/// Fullscreen / FSE hides the shell with no task list to come back from, so
+/// this is the one place that has to stay reliable.
+pub(crate) fn reveal_shell(app: &tauri::AppHandle) {
+    // The floating overlay is a game-time surface; the library takes over now.
+    frontend::hide_overlay(app);
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -89,6 +95,7 @@ fn reveal_running_window(app: &tauri::AppHandle) {
     let _ = window.show();
     let _ = window.set_focus();
     startup::fill_screen(&window);
+    logutil::write_line("shell revealed");
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -98,7 +105,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            reveal_running_window(app);
+            reveal_shell(app);
         }));
     }
     builder = builder
@@ -112,6 +119,7 @@ pub fn run() {
             scan::launch_item,
             scan::running_games,
             scan::quit_game,
+            scan::reveal_launcher,
             scan::cache_covers,
             scan::steam_library_cover,
             frontend::toggle_frontend,
