@@ -43,6 +43,7 @@
     "allow-library-publish",
     "allow-frontend-status",
     "allow-frontend-install",
+    "allow-overlay-open",
     "allow-tdp-status",
     "allow-set-tdp",
     "allow-toolbox-runtimes",

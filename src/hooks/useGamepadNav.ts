@@ -10,6 +10,19 @@ type Options = {
   onView?: () => void;
   /** Xbox Menu/Start，PS Options。标准映射里都是 9 号键。 */
   onStart?: () => void;
+  /**
+   * View（8 号键）的动作怎么触发。默认 `"press"`：按下就触发；`"double"`：**双击**才触发，
+   * 单击什么都不做。
+   *
+   * 启动器用 `"double"`：独立前端浮层的 `Back+Start` 和弦里就有 Back 这一半，按下即触发就是
+   * 「浮层出来的同时设置抽屉也被拉开」；而押后判定（按下后等几十毫秒看 Menu 是否也按下）会
+   * 让设置键肉眼可见地变慢 —— 和弦是**按住两个键**，不会出现两次点按，双击既零延迟又天然
+   * 分得开。双击模式下 Menu 也跟着守：第一次点按之后的一小段时间里 Menu 不算独立按下，
+   * 第二次点按时若 Menu 还按着就整串吞掉（那正是和弦）。
+   *
+   * 一次按键只有一个响应者，规则见仓库根 FRONTEND.md §10。
+   */
+  viewGesture?: "press" | "double";
   /** Xbox LT / PS L2。 */
   onTriggerLeft?: () => void;
   /** Xbox RT / PS R2。 */
@@ -56,6 +69,9 @@ function rangeTarget(): HTMLInputElement | null {
 
 /** Pages listen for this on a slider: A asks for the value to be written now. */
 export const GAMEPAD_COMMIT = "gamepad-commit";
+
+/** 双击 View 的最大间隔：手柄点两下比鼠标双击慢，给足一点（见 Options.viewGesture）。 */
+const VIEW_DOUBLE_MS = 450;
 
 /**
  * One step on a focused slider. Left / right used to walk the focus ring, so the
@@ -366,6 +382,7 @@ export function useGamepadNav({
   onTriggerRight,
   onFaceTop,
   onFaceLeft,
+  viewGesture = "press",
   enabled = true,
 }: Options) {
   const lastAxis = useRef({ x: 0, y: 0 });
@@ -373,6 +390,7 @@ export function useGamepadNav({
   const bumpers = useRef({ l: false, r: false });
   const triggers = useRef({ l: false, r: false });
   const viewHeld = useRef(false);
+  const viewTappedAt = useRef(0);
   const startHeld = useRef(false);
   const faceTopHeld = useRef(false);
   const faceLeftHeld = useRef(false);
@@ -455,10 +473,27 @@ export function useGamepadNav({
       // Standard Gamepad button 8: the left utility key.
       // Xbox View/Back, PlayStation Share. Menu/Start is button 9.
       const view = !!pad.buttons[8]?.pressed;
-      if (view && !viewHeld.current) onView?.();
-      viewHeld.current = view;
       const start = !!pad.buttons[9]?.pressed;
-      if (start && !startHeld.current) onStart?.();
+      if (view && !viewHeld.current) {
+        if (viewGesture === "double") {
+          // 双击才触发：**单击什么都不做**，所以「按下那一下」不会被算成设置 ——
+          // 独立前端浮层的 Back+Start 和弦里正好有 Back 这一半（见 Options.viewGesture）。
+          if (now - viewTappedAt.current <= VIEW_DOUBLE_MS) {
+            viewTappedAt.current = 0;
+            // 第二次按下时 Menu 还按着 = 和弦（不是双击），整串吞掉。
+            if (!start) onView?.();
+          } else {
+            viewTappedAt.current = now;
+          }
+        } else {
+          onView?.();
+        }
+      }
+      viewHeld.current = view;
+      // 刚点过 View 的那一小会儿里，Menu 不算独立按下：它多半是和弦的另一半。
+      const chord =
+        viewGesture === "double" && now - viewTappedAt.current <= VIEW_DOUBLE_MS;
+      if (start && !startHeld.current && !chord) onStart?.();
       startHeld.current = start;
 
       const lt = !!pad.buttons[6]?.pressed;
@@ -527,5 +562,5 @@ export function useGamepadNav({
       keyboard?.removeEventListener("geometrychange", onKeyboard);
       viewport?.removeEventListener("resize", onViewport);
     };
-  }, [enabled, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onStart, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft]);
+  }, [enabled, viewGesture, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onStart, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft]);
 }

@@ -4,6 +4,8 @@ mod frontend_tool;
 mod i18n;
 mod library;
 mod media;
+// 手柄归属：浮层在屏上时启动器不吃手柄（见 FRONTEND.md §10）。
+mod overlay_watch;
 // 日志实现搬进了共享内核（独立前端也要用）。这里 re-export，
 // 让仓库里所有 `crate::logutil::...` 调用点保持原样。
 pub use fh_core::logutil;
@@ -150,6 +152,8 @@ pub fn run() {
             // 工具箱前端卡片：看安装状态、跑随包的安装包（不含任何窗口/进程控制）。
             frontend_tool::frontend_status,
             frontend_tool::frontend_install,
+            // 前端浮层在屏上时把手柄让出去（见 overlay_watch.rs / FRONTEND.md §10）。
+            overlay_watch::overlay_open,
             i18n::set_locale,
             files::file_places,
             files::file_list,
@@ -174,6 +178,8 @@ pub fn run() {
             }
             // 独立前端要 TDP 时来找这里（只有它提权、装着 WinRing0）。
             tdp_ipc::start();
+            // 浮层在屏上时把手柄让给它：两边读的是同一份 XInput 状态。
+            overlay_watch::start(app.handle().clone());
             Ok(())
         });
     let app = builder

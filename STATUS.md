@@ -1,9 +1,19 @@
-# 进度对照（v0.1.47）
+# 进度对照（v0.1.49）
 
 > **发布基准：`v0.1.0` 稳定版** — 内容与内部构建 0.1.38 一致（见 `v0.1.0` 标签 / `release/0.1.0` 分支）。
-> `0.1.31`–`0.1.47` 均为测试版，仅内部验证用，不作为发布版。
+> `0.1.31`–`0.1.49` 均为测试版，仅内部验证用，不作为发布版。
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
+
+## 0.1.49 这一版
+
+修「**一次按键，两边都响应**」：前端浮层与启动器的界面读的是**同一份**手柄状态（XInput 每个进程都能只读轮询，Windows 不给「独占」，只能在逻辑上仲裁），谁都不设闸就有两个响应者 —— 呼出浮层的 `Back+Start` 里的 `Back` 正好是启动器的设置键，**浮层出来的同时设置抽屉也被拉开**；浮层开着时启动器的方向键 / A 键仍在身后生效（A 甚至会把身后的游戏启动起来）。
+
+- **闸一（稳态）：浮层在屏上时，启动器彻底停止消费手柄**。新增 `src-tauri/src/overlay_watch.rs`：每 200 ms **只读**观察「有没有属于 `FantasyHubFrontend.exe` 的**可见**顶层窗口」（`EnumWindows` + `IsWindowVisible`，再用 `PROCESS_QUERY_LIMITED_INFORMATION` + `QueryFullProcessImageNameW` 比对影像名；找到的句柄缓存，每轮再确认「还在、还属于前端程序」—— 窗口句柄会被系统回收，只认句柄可能盯上别的窗口 —— 前端重启才重新枚举），只在状态变化时记一行 `overlay watch: frontend overlay visible → launcher pad off` 并 `emit("overlay-state")`；界面据此 `useGamepadNav({ enabled: intro === "done" && !overlayOpen })`。停的只是手柄：键鼠与 Esc 照旧（键盘事件只进焦点窗口，浮层抢了焦点就不会漏回启动器）；重新启用复用 0.1.45 就有的 `seedHeld()`（把按着的键记为已按住），关浮层那一下不会顺手触发动作
+- 为什么是「启动器自己看窗口」而不是「让前端上报」（新 IPC 命令 / `frontend.json`）：后者要两个程序同时升级、老前端不写就没信号，前端被杀 / 崩溃之后状态还会卡在「开着」→ 启动器手柄**永久失灵**；看窗口对**已经装好的前端立刻生效**，前端退出即自动复位，也不给「前端 → 启动器」加新通道（FRONTEND.md §2 的边界）。判定用**可见性**不用焦点：§3 说 `TAKE_FOCUS` 以后要变成设置项，浮层不抢焦点时焦点判断正好失灵；「浮层在屏上」才是「谁该用手柄」的语义
+- **闸二（瞬态）：设置键从「单击 View / Share」改成双击**。和弦里的 `Back` 按下那一下就是启动器的设置键，而浮层正在这时才刚出现（闸一的 200 ms 还来不及生效）。`useGamepadNav` 新增 `viewGesture: "press" | "double"`：450 ms 内两次点按才触发，**单击什么都不做**；第二次按下时若 Menu 还按着就整串吞掉（那正是和弦），第一次点按之后的一小段时间里 Menu 也不算独立按下。和弦是**按住两个键**、不会出现两次点按，所以双击既零延迟又天然分得开 —— 押后判定（按下后等几十毫秒看 Menu 是否也按下）会让设置键肉眼可见地变慢（这一步是刻意选的）。`viewGesture` 默认 `"press"`，键盘 Esc 与不用手柄的场景不变，前端自己的界面也不受影响
+- 文档：新增 FRONTEND.md §10「手柄归属」（谁在什么时候吃手柄，含两道闸的取舍与边界），并改掉 `frontend/src-tauri/src/chord.rs` 顶部「阶段 3 删掉了启动器自己的和弦监听，一次按键只会有前端响应」这句**已经不对**的话（删掉的是启动器 Rust 侧的 XInput 监听，界面侧走的 Gamepad API 读的仍是同一份手柄）；README 与页脚提示同步成「双击 Back / Share 设置」
+- 验证：`tsc` + Vite 构建通过；工作区 `cargo clippy --workspace --all-targets` 零**错误**、未新增警告（本机是 macOS，`#[cfg(windows)]` 专属代码在被编译掉的路径上的 dead_code 是老账，与本次无关）；新 Win32 代码抽进一个只依赖 `windows-sys` 的临时 crate，用 `--target x86_64-pc-windows-msvc` 真编 + clippy（干净）。**掌机冒烟仍待做**：① 启动器里按 `Back+Start` → 只出浮层、不拉设置抽屉，日志出现 `overlay watch: frontend overlay visible → launcher pad off`；② 浮层开着时方向键 / A 只作用于浮层，身后不响应；③ 关掉浮层日志出现 `pad on`，手柄立刻回到启动器、设置抽屉也不弹（`seedHeld`）；④ 单独双击 `Back` → 设置照常开关；⑤ 游戏内呼出浮层表现相同
 
 ## 0.1.47 这一版
 
@@ -97,7 +107,7 @@
 | 游戏库 / 软件库 | 可用 |
 | 文件管理 | 可用 |
 | 工具箱 | **0.1.41** 独立成标签页；0.1.44 起只留运行库，OptiScaler 走游戏卡片菜单；实机装包待掌机验证 |
-| 前端浮层 | **0.1.46** 起是独立程序（托盘常驻 + 贴右置顶浮层，`Ctrl+H` / 手柄 `Back+Start`）；**0.1.47** 修正式包里加载错页面（启动器整屏界面）与可见性日志说谎；**0.1.48** 补回大屏模式（FSE）下的置顶/抢前台手法与 Z 序现场日志；掌机冒烟仍是最后一道关 |
+| 前端浮层 | **0.1.46** 起是独立程序（托盘常驻 + 贴右置顶浮层，`Ctrl+H` / 手柄 `Back+Start`）；**0.1.47** 修正式包里加载错页面（启动器整屏界面）与可见性日志说谎；**0.1.48** 补回大屏模式（FSE）下的置顶/抢前台手法与 Z 序现场日志；**0.1.49** 手柄归属两道闸（浮层在屏上时启动器不消费手柄、设置键改双击）；掌机冒烟仍是最后一道关 |
 
 ## 待完成 / 已知缺口
 
@@ -111,6 +121,7 @@
 
 ## 近期改动备忘
 
+- 0.1.49：修「**一次按键，两边都响应**」。前端浮层与启动器读的是**同一份**手柄状态（XInput 每个进程都能只读轮询，Windows 不给独占），于是 0.1.48 之前同时有两个症状：① 用 `Back+Start` 呼出浮层时，和弦里的 `Back`（View / 8 号键）正好是启动器的设置键 —— **浮层出来的同时设置抽屉也被拉开**；② 浮层开着时启动器的方向键 / A 键仍在身后生效（A 甚至会把身后的游戏启动起来）。两道闸：**闸一（稳态）** 新增 `src-tauri/src/overlay_watch.rs`，启动器每 200 ms **只读**观察「有没有属于 `FantasyHubFrontend.exe` 的**可见**顶层窗口」（`EnumWindows` + `IsWindowVisible`，再用 `PROCESS_QUERY_LIMITED_INFORMATION` + `QueryFullProcessImageNameW` 比对影像名；找到的句柄缓存、每轮再确认「还在、还属于前端程序」，前端重启才重找），只在状态变化时记一行 `overlay watch: frontend overlay visible → launcher pad off` 并 `emit("overlay-state")`，界面据此 `useGamepadNav({ enabled: … && !overlayOpen })` 彻底停止手柄消费（键鼠 / Esc 照旧）；重新启用时复用 0.1.45 就有的 `seedHeld()`（把按着的键记为已按住），关浮层那一下不会顺手触发动作。判定用**可见性**不用焦点（FRONTEND.md §3 的 `TAKE_FOCUS` 以后要变成设置项，浮层不抢焦点时焦点判断正好失灵）；由启动器自己看窗口而不是让前端上报，是因为后者要两个程序同时升级、老前端不写就没信号、前端崩了状态还会「卡在开着」。**闸二（瞬态）** 启动器的设置键从「单击 View / Share」改成**双击**（`useGamepadNav` 新增 `viewGesture: "double"`：450 ms 内两次点按，单击什么都不做；第二次按下时若 Menu 也按着就整串吞掉，那正是和弦）：和弦是按住两个键、不会出现两次点按，所以零延迟也不会误触，`onView` 那串「收起文件菜单 / 关对话框 / 开关设置」整体搬到双击上；键盘 Esc 与不用手柄的场景不变。前端一行未改；文档新增 FRONTEND.md §10「手柄归属」，并改掉 `chord.rs` 顶部「阶段 3 删掉了启动器自己的和弦监听，一次按键只会有前端响应」这句**已经不对**的话（删掉的是启动器 Rust 侧的 XInput 监听，界面侧 Gamepad API 照样读同一份手柄）、README 与页脚提示的手柄键位说明（「双击 Back / Share 设置」）
 - 0.1.48：修「**桌面模式下正常、一进大屏模式前端就呼不出来**」。0.1.47 的日志已经排除了页面与位置：`frontend show begin (...) url=.../frontend.html`、`frontend place x=1260 y=0 w=660 h=1200`、`frontend show end (...) is_visible=true` 全对 —— 只剩一种可能：窗口确实在屏上，但**压在铺满整屏的启动器下面**。这正是 0.1.33 记过的老账（「第二窗已 shown 但被全屏挡住」），0.1.39–0.1.45 的解法是启动器 `frontend.rs` 里那三件 Win32 手法：`detach_owner`（清 `GW_OWNER`、补 `WS_EX_TOOLWINDOW`）、`force_topmost`（`SetWindowPos(HWND_TOPMOST)`，把窗口推到置顶层**最上面**）、`steal_foreground`（`VK_MENU` 按下/抬起解锁前台锁 → `AttachThreadInput` + `BringWindowToTop` + `SetForegroundWindow` + `SetActiveWindow`）。0.1.46 把前端拆成独立程序时**没有把它们搬过来**（只剩一句 `set_always_on_top` —— 它只保证窗口**属于**置顶层，同层里谁压谁由激活顺序决定；而后台进程的 `show()`/`set_focus()` 会被 Windows 的前台锁静默挡掉，于是窗口永远差一层）。新增 `frontend/src-tauri/src/topmost.rs` 按 0.1.45 的顺序搬回这三件事，`overlay.rs` 在 `show()` 前后各调一次；同时补两条**现场日志**，下次无论成不成都不用再猜：前端每次显示记 `frontend layer (...) fg=<类名"标题"(pid)> | ours topmost=.. fg=.. rect=.. | above=<压在我们上面的可见窗口>`（`above` 里出现 `FantasyHub` = 被全屏启动器压住；`topmost=false` = 置顶没写进去；`fg=true` = 前台也抢到了），启动器进/出大屏模式时记 `big-screen mode (fill screen)` / `desktop mode (leave fullscreen + start explorer)`（此前日志完全看不出当时是哪种模式）。验证方式：本机无 Windows C 工具链、整仓交叉编译不可行（0.1.47 的结论），于是把新 Win32 代码抽进一个只依赖 `windows-sys` 的临时 crate，用 `--target x86_64-pc-windows-msvc` 真编 + clippy（干净）；工作区 `cargo clippy --workspace --all-targets` 零错误，Windows 专属代码仍由每次推送的 Lint 作业兜底
 - 0.1.47：修 0.1.46 的两个 bug —— ① 前端窗口漏写 `"url": "frontend.html"`（`WebviewUrl` 默认 `index.html`，`devUrl` 里带了 `/frontend.html` 所以只在安装包里露出来）：正式包的前端窗口加载的是启动器的整屏界面，那页一挂载就 `setFullscreen(true)`；② `frontend/src-tauri/src/overlay.rs` 的 `toggle` 只读静态 `VISIBLE`，`show()` 又吞掉 `window.show()` 的返回值后无条件写 `frontend shown` —— 于是「窗口没出来」和成功在日志里长得一样。两处都补了现场日志：显示时记**实际加载的 URL** 与真实 `is_visible()`，说了要显示却仍不可见时补记窗口位置/尺寸。另补四个 lint 门（`.vscode/`、`.githooks/pre-commit`、`.github/workflows/lint.yml`、`build-windows.yml` 的 `Compile check`）+ 清 14 条 clippy 警告；`--all-targets` 暴露的 4 个测试编译错误（`files.rs` 里 async 的 `file_move`/`file_delete` 漏 `.await`）一并修掉
 - 0.1.44：修「切标签 / 退回主应用后整机卡住」——**所有重活都从主线程搬到工作线程**（Tauri 的同步 `#[tauri::command] fn` 跑在主线程，即消息循环所在线程：一次盘符探测、图标提取或封面下载超时会把**所有窗口**一起冻住，Back+Start 也要等超时结束才反应；这也解释了「频繁切页后卡一会儿又自己好」）。具体：`files.rs`（盘符/列目录/读写/图标/打开）、`scan.rs`（扫描/运行中探测/封面/启动/退出）、`tdp.rs`、`toolbox.rs`、`startup.rs` 全部改 `async` + `spawn_blocking`；盘符改用 `GetLogicalDrives` + `GetDriveTypeW`（不再对 A–Z 逐个 `Path::exists()` 做真 I/O，空读卡器不再拖住列表）；封面下载失败记 10 分钟冷却，不再每次进页重试；`running_games` 轮询加在途保护。另：`key={tab}` 重挂载导致的重复加载 —— 文件管理记住本次会话的目录与列表（回页即出、3 秒内不重列），扫描结果的封面/图标跟进改成 10 分钟内不重跑。前端状态事件 `{open, surface}` 之前被当成布尔读，浮层会永远「自认已激活」，已按 `payload.open` 解析。另：工具箱去掉「OptiScaler + 选游戏」那一块 —— 卡片菜单「安装 Mod / 工具」本来就是同一件事的入口（原来还先跳标签页、再选一次游戏，纯重复），现在卡片菜单直接下载安装并把结果写在库页面提示行（`installLibraryGameMods`，带并发保护），工具箱只剩运行库；`optiscaler*` i18n 键、`toolbox-select` 样式和 `focusGameId` 预选链路一并删掉。另三处前端逻辑：① 启动游戏 / 软件不再隐藏主窗 —— Windows 会把焦点给新开的程序，我们只要别抢即可，`launch_item` 的隐藏 + `watch_game_exit` 自动回壳 + `reveal_launcher` 命令 + `AWAY_SESSION` / `away_suppress` 状态与 `Focused` 里的抢焦拦截全部删除；② 浮层「回到启动器」换成「退出游戏」，只在库里的游戏正在运行时出现（软件 / 主应用不显示），点一下 `quit_game` 立刻结束；③ TDP 滑条支持手柄：`steerFocus` 遇到 range 输入就 ±1 W 调整（按住由 320/140 ms 连发驱动），页面按 260 ms 合并写入并在写入在途时保留最新值，A 发 `gamepad-commit` 立即提交，↑ / ↓ 仍离开滑条；同时去掉「写入时禁用滑条 / 预设」——禁用会把焦点丢回 body，下一次方向键就跳回列表顶部。

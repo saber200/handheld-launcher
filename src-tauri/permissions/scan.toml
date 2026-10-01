@@ -94,6 +94,11 @@ description = "Run the bundled frontend installer (file-level install/update onl
 commands.allow = ["frontend_install"]
 
 [[permission]]
+identifier = "allow-overlay-open"
+description = "Read whether the standalone frontend overlay is on screen (the launcher then leaves the gamepad to it)."
+commands.allow = ["overlay_open"]
+
+[[permission]]
 identifier = "allow-quit-launcher"
 description = "Exit the launcher and return to the Windows desktop."
 commands.allow = ["quit_launcher"]
