@@ -24,7 +24,7 @@
 - 现场日志（`%APPDATA%\handheld-launcher\fantasyhub.log`）读出来的结论：托盘 / `Ctrl+H` / 手柄 `Back+Start` / 自启全部正常（`tray installed autostart=true`、`global shortcut Control+H registered`、`chord watch started (Back+Start)`、`frontend ready (visible=false, autostart=true)`）；`frontend place x=1260 y=0 w=660 h=1200 scale=1.5` 与历代老浮层**逐字相同**（全物理单位：1920×1200 @150% 贴右、整高，placement 数学没毛病）；23 秒内被点了 4 次托盘。唯一断掉的就是窗口里的页面
 - **工程：补上四个人能看到问题的门**。0.1.46 之前仓库里**一个本地检查都没有**（没有 `.vscode/`、没有 clippy、没有 pre-commit，CI 又只在打标签时 `cargo build`、从不跑测试）：
   - 编辑器：`.vscode/settings.json`（rust-analyzer 走 clippy）+ `.vscode/extensions.json`
-  - 提交：`.githooks/pre-commit`（`cargo fmt --check` + `clippy --all-targets`，非零就拦）
+  - 提交：`.githooks/pre-commit`（**只检查这次提交碰过的语言**：碰到 `.ts/.tsx/.html` 跑 `tsc --noEmit`，碰到 `Cargo.toml/lock` 或 `.rs` 跑 `clippy --workspace --all-targets`，非零就拦 —— 这里**没有** `cargo fmt`）
   - 推送 / PR：`.github/workflows/lint.yml`（Windows runner，分钟级）
   - 打标签：`build-windows.yml` 里加 `Compile check` 步骤（打包前先编译）
 - 清掉 14 条跨平台 clippy 警告（全在非 Windows 的 stub 分支：12 条 `useless_conversion`、2 条 `needless_return`，外加 `manual_range_contains`、`collapsible_match`）；`--all-targets` 一开就暴露 `files.rs` 测试里 4 个**真编译错误**（async 的 `file_move` / `file_delete` 漏 `.await`）—— 这类错误 CI 以前永远看不到

@@ -188,7 +188,7 @@
 
 两道闸：
 
-1. **稳态：浮层在屏上 → 启动器不吃手柄**。`src-tauri/src/overlay_watch.rs` 每 200 ms **只读**观察「有没有属于 `FantasyHubFrontend.exe` 的**可见**顶层窗口」（`EnumWindows` + `IsWindowVisible` + 取影像名比对；找到的句柄缓存、用 `IsWindow` 校验，前端重启才重找），状态变化时记一行 `overlay watch: frontend overlay visible → launcher pad off` 并 `emit("overlay-state", open)`；`src/App.tsx` 据此 `useGamepadNav({ enabled: intro === "done" && !overlayOpen })`，挂载时用 `overlay_open` 命令先问一次。
+1. **稳态：浮层在屏上 → 启动器不吃手柄**。`src-tauri/src/overlay_watch.rs` 每 200 ms **只读**观察「有没有属于 `FantasyHubFrontend.exe` 的**可见**顶层窗口」（`EnumWindows` + `IsWindowVisible` + 取影像名比对；找到的句柄缓存，每轮再确认「还在、**还属于前端程序**」—— 窗口句柄会被系统回收，只认句柄可能盯上别的窗口 —— 前端重启才重找），状态变化时记一行 `overlay watch: frontend overlay visible → launcher pad off` 并 `emit("overlay-state", open)`；`src/App.tsx` 据此 `useGamepadNav({ enabled: intro === "done" && !overlayOpen })`，挂载时用 `overlay_open` 命令先问一次。
    - 停的只是**手柄消费**：键鼠、Esc、点击照旧。键盘事件只进焦点窗口，浮层抢了焦点就不会漏回启动器。
    - 重新启用时 `useGamepadNav` 的 `seedHeld()` 会把按着的键记为已按住，所以关浮层那一下不会顺手触发一次动作（这段是 0.1.45 为「浮层刚显示时 Start 还按着」写的，正好复用）。
    - 判定用**可见性**而不是焦点：§3 说 `TAKE_FOCUS` 以后要变成设置项，浮层「不抢焦点」时焦点判断正好会失灵；「浮层在屏上」才是「谁该用手柄」的语义。
