@@ -44,14 +44,23 @@ pub fn start(app: tauri::AppHandle) {
         const DEADZONE: i32 = 16000;
 
         let mut held = false;
+        // 手柄「在不在」：XInput 读到哪个 index 就算哪个在（循环只用第一个读到的，见下面的 break）。
+        // 呼不出浮层时先排除这一条 —— 手柄读不到的话按键根本进不来，日志里只会是一片安静。
+        // 初值给一个不可能的值（`u32::MAX`）：保证**第一轮**一定打印一条「读到 / 读不到」，
+        // 从此「日志里什么都没有」这个状态只可能意味着「前端没在跑」。
+        let mut pad_index: Option<u32> = Some(u32::MAX);
+        // 5 分钟一条「我还活着」：足够回答「手柄轮询线程到底在不在转」。
+        let mut heartbeat = std::time::Instant::now();
         while !crate::overlay::quitting() {
             let mut pressed = false;
             let mut pad = PadState::default();
+            let mut alive: Option<u32> = None;
             for index in 0..4u32 {
                 let mut state = unsafe { std::mem::zeroed::<XINPUT_STATE>() };
                 if unsafe { XInputGetState(index, &mut state) } != 0 {
                     continue;
                 }
+                alive = Some(index);
                 let buttons = state.Gamepad.wButtons;
                 if buttons & XINPUT_GAMEPAD_BACK != 0 && buttons & XINPUT_GAMEPAD_START != 0 {
                     pressed = true;
@@ -84,7 +93,18 @@ pub fn start(app: tauri::AppHandle) {
                 break;
             }
 
+            if alive != pad_index {
+                pad_index = alive;
+                fh_core::logutil::write_line(&match pad_index {
+                    Some(index) => format!("chord pad connected index={index}"),
+                    None => "chord pad none（读不到手柄：Back+Start 不会有反应）".to_string(),
+                });
+            }
+
             if pressed && !held {
+                // 「按键到了前端」也要留痕迹：只有它和后面的 show/hide 一起，才能把
+                // 「没按」「手柄没读到」「按了但没开」这三件事分开。
+                fh_core::logutil::write_line("chord fired (Back+Start)");
                 crate::overlay::toggle(&app, "chord Back+Start");
             }
             held = pressed;
@@ -93,6 +113,20 @@ pub fn start(app: tauri::AppHandle) {
                 if let Some(window) = app.get_webview_window(crate::overlay::WINDOW_LABEL) {
                     let _ = window.emit("frontend-pad", &pad);
                 }
+            }
+            // 「我还活着」的心跳：日志里全是「什么都没有」时，这一行是唯一能证明
+            // 手柄轮询线程还在转的证据（配合启动器那边的 `frontend process up/down`：
+            // 进程在 + 心跳在 + 手柄读到了 = 那问题只剩「按键没进来」一种）。
+            if heartbeat.elapsed() >= Duration::from_secs(300) {
+                heartbeat = std::time::Instant::now();
+                let pad = match pad_index {
+                    Some(index) => format!("index={index}"),
+                    None => "none".to_string(),
+                };
+                fh_core::logutil::write_line(&format!(
+                    "chord alive pad={pad} visible={}",
+                    crate::overlay::is_visible()
+                ));
             }
             std::thread::sleep(Duration::from_millis(40));
         }
@@ -103,4 +137,3 @@ pub fn start(app: tauri::AppHandle) {
 /// 非 Windows 只保留签名，方便本机 `cargo check`。
 #[cfg(not(windows))]
 pub fn start(_app: tauri::AppHandle) {}
-

@@ -36,6 +36,35 @@ pub fn init() {
     init_for("FantasyHub");
 }
 
+/// 把 panic 也写进这个日志文件。
+///
+/// 两个程序都是 GUI（`windows_subsystem = "windows"`，没有控制台），默认的 panic 输出去了
+/// stderr —— 在掌机上**谁也看不见**。于是「进程起来两秒后自己没了」在日志里就是一片空白：
+/// 0.1.50 真机排查正好卡在这里，前端起来之后一条记录都没有，分不清是「没在跑」「跑着跑着
+/// 崩了」还是「按键没进来」这三种完全不同的情况。
+///
+/// 装一次就够（两个程序各在自己的 `main` 里装）。**哪个线程、哪一行、panic 原文**都会留下
+/// 一行 `panic (…)`，之后照旧交给默认钩子：stderr 行为不变，debug 下照样有完整回溯。
+///
+/// `tag` 用 `'static`：钩子是全局的，活到进程结束，借用的字符串必须先静态化。
+pub fn install_panic_hook(tag: &'static str) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let thread = std::thread::current()
+            .name()
+            .map(str::to_string)
+            .unwrap_or_else(|| "unnamed".to_string());
+        write_line(&format!(
+            "{tag} panic ({location}, thread={thread}): {info}"
+        ));
+        previous(info);
+    }));
+}
+
 /// 现场文件目录（`%APPDATA%\handheld-launcher`，非 Windows 是临时目录）：
 /// 日志在这里，浮层的截图也写这里 —— 让用户一次就能把整份现场一起拷回来。
 pub fn dir() -> PathBuf {

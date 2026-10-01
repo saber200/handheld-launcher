@@ -71,6 +71,12 @@ pub fn start(app: tauri::AppHandle) {
         let mut known = false;
         // 壳体原本是不是置顶的：只在浮层上来时让位，浮层走了按原样还回去（见 `stand_back`）。
         let mut shell_was_topmost: Option<bool> = None;
+        // 前端**进程**在不在 —— 和「浮层在不在屏上」是两件事，但它是「按键有没有人接」的前提。
+        // 0.1.50 的真机日志正卡在这里：前端起来之后一条记录都没有，分不清它是没在跑、崩了，
+        // 还是按键没进来（三种情况的下一步完全不同）。每 5 秒扫一次（200 ms 一轮 × 25），
+        // 只在状态变化时记一行 —— 第一轮也会记，所以「日志里没有这一行」本身就是异常。
+        let mut frontend_up: Option<bool> = None;
+        let mut ticks: u32 = 0;
         loop {
             let open = watch(&mut cached);
             if open != known {
@@ -91,6 +97,18 @@ pub fn start(app: tauri::AppHandle) {
                 }
                 stand_back(open, cached as HWND, &mut shell_was_topmost);
                 let _ = app.emit("overlay-state", open);
+            }
+            ticks += 1;
+            if ticks % 25 == 0 {
+                let up = frontend_process_alive();
+                if frontend_up != Some(up) {
+                    frontend_up = Some(up);
+                    fh_core::logutil::write_line(if up {
+                        "overlay watch: frontend process up"
+                    } else {
+                        "overlay watch: frontend process down（前端没在跑：Back+Start 不会有反应）"
+                    });
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
         }
@@ -139,9 +157,7 @@ fn watch(cached: &mut isize) -> bool {
 #[cfg(windows)]
 fn find_overlay() -> Option<windows_sys::Win32::Foundation::HWND> {
     use windows_sys::Win32::Foundation::{HWND, LPARAM};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowThreadProcessId,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId};
 
     // 前端的窗口**一直存在**（开局 `visible: false`，关掉只是 hide），所以「窗口在」不等于
     // 「在屏上」—— 只认可见的；而「可见」还不够，前端程序里还有系统给的 0×0 隐形窗口，
@@ -362,8 +378,8 @@ fn stand_back(
     shell_was_topmost: &mut Option<bool>,
 ) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_ASYNCWINDOWPOS,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST,
+        GetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST,
+        SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST,
     };
 
     let Some(shell) = own_shell_window() else {
@@ -434,4 +450,43 @@ fn is_frontend_process(pid: u32) -> bool {
     path.rsplit(['\\', '/'])
         .next()
         .is_some_and(|name| name.eq_ignore_ascii_case(FRONTEND_EXE))
+}
+
+/// 前端**进程**还在不在（按可执行文件名扫一遍进程表）。
+///
+/// 为什么不复用上面那套「按窗口找」：这里要的正是「前端可能连窗口都还没建」也要答对，
+/// 进程扫描不依赖窗口存活；而且它不碰别的程序的状态，仍然是只读的（§2 的边界）。
+/// 代价是一次 `CreateToolhelp32Snapshot` + 一次遍历，5 秒才做一次。名字比对规则与
+/// `is_frontend_process` 完全一致（`FantasyHub.exe` 是它的前缀，必须整名相等）。
+#[cfg(windows)]
+fn frontend_process_alive() -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return false;
+    }
+    let mut entry = unsafe { std::mem::zeroed::<PROCESSENTRY32W>() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let mut alive = false;
+    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
+    while ok != 0 {
+        // `szExeFile` 是定长数组 + `\0` 结尾，按第一个 0 截断（找不到 0 就用整个数组）。
+        let end = entry
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(entry.szExeFile.len());
+        if String::from_utf16_lossy(&entry.szExeFile[..end]).eq_ignore_ascii_case(FRONTEND_EXE) {
+            alive = true;
+            break;
+        }
+        ok = unsafe { Process32NextW(snapshot, &mut entry) };
+    }
+    unsafe { CloseHandle(snapshot) };
+    alive
 }

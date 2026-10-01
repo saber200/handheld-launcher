@@ -60,6 +60,9 @@ fn watch_update_handshake(app: tauri::AppHandle) {
 
 fn main() {
     fh_core::logutil::init_for("FantasyHubFrontend");
+    // 前端是托盘常驻程序，**崩了没人看得见**（GUI 子系统没有控制台）。装钩子之后
+    // 「起来两秒后自己没了」会留下一行 `panic (…)`；没有这一行就是「没在跑 / 按键没进来」。
+    fh_core::logutil::install_panic_hook("FantasyHubFrontend");
     // 告诉启动器（和用户）"我装在哪、什么版本"：工具箱的安装状态读这个文件，
     // 比猜 NSIS 的安装目录可靠（见 fh_core::presence）。
     if let Err(err) = fh_core::presence::record(env!("CARGO_PKG_VERSION")) {

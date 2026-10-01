@@ -110,6 +110,9 @@ pub(crate) fn reveal_shell(app: &tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logutil::init();
+    // 紧跟着 init 装 panic 钩子：崩在启动早期（插件初始化、托盘、FSE 注册）也要留下一行，
+    // 否则「起来了又没了」在日志里只能看到半截启动记录，分不清是崩了还是正常退出。
+    logutil::install_panic_hook("FantasyHub");
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
     {
