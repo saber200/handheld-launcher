@@ -39,6 +39,9 @@ pub async fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
     let _ = window.set_fullscreen(false);
     let _ = window.unminimize();
     let _ = window.show();
+    // 记一行「现在是什么模式」：浮层在两种模式下的 Z 序完全不同（大屏时启动器是
+    // 铺满整屏的前台窗口，桌面时它只是窗口化的普通窗口），前端那行 layer 日志要跟它对表。
+    crate::logutil::write_line("desktop mode (leave fullscreen + start explorer)");
     #[cfg(windows)]
     {
         windows::start_explorer();
@@ -50,6 +53,7 @@ pub async fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 pub fn enter_fullscreen(window: tauri::WebviewWindow) -> Result<(), String> {
+    crate::logutil::write_line("big-screen mode (fill screen)");
     fill_screen(&window);
     Ok(())
 }

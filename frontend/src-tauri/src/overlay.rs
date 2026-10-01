@@ -67,11 +67,17 @@ pub fn show(app: &AppHandle, reason: &str) {
     if let Err(err) = window.set_always_on_top(true) {
         fh_core::logutil::write_line(&format!("frontend always-on-top failed: {err}"));
     }
+    // 大屏模式（FSE）下 Tauri 的置顶不够：全屏的启动器是前台窗口，它的前台锁
+    // 会让后台进程的 show()/set_focus() 静默失败，窗口就永远压在启动器下面 ——
+    // 「桌面模式正常、大屏模式呼不出来」是 0.1.33 记过的老账，见 topmost.rs。
+    crate::topmost::prepare(&window);
     // 以前这里的返回值被吞了：窗口没出来，日志却照样写着 "frontend shown"，
     // 现场只剩「按了没反应」。现在失败要留话，成功也要把真实可见性写回来。
     if let Err(err) = window.show() {
         fh_core::logutil::write_line(&format!("frontend show failed ({reason}): {err}"));
     }
+    // 显示之后再顶一次并抢前台（与 0.1.45 经掌机验证的顺序一致）。
+    crate::topmost::grab(&window);
     if TAKE_FOCUS {
         if let Err(err) = window.set_focus() {
             fh_core::logutil::write_line(&format!("frontend focus failed: {err}"));
@@ -80,6 +86,11 @@ pub fn show(app: &AppHandle, reason: &str) {
     let visible = window_visible(app).unwrap_or(true);
     VISIBLE.store(visible, Ordering::SeqCst);
     fh_core::logutil::write_line(&format!("frontend show end ({reason}) is_visible={visible}"));
+    // 「已显示」不等于「看得见」：把前台是谁、我们在 Z 序的哪一层一起记下来，
+    // 下一轮现场就不用再猜是页面、位置还是被全屏窗口压住。
+    if let Some(layer) = crate::topmost::probe(&window) {
+        fh_core::logutil::write_line(&format!("frontend layer ({reason}) {layer}"));
+    }
     if !visible {
         // 说了要显示却还是不可见：把窗口的真实位置/尺寸记下来，否则现场只剩一句「没反应」。
         let pos = window
