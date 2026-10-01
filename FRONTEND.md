@@ -33,7 +33,10 @@
 - **TDP：走本地 IPC 问启动器**（见 §4）。启动器没跑时，TDP 区显示「启动器未运行」/「需要管理员」，其余功能照常，绝不阻塞打开。
 - 手柄输入：自带 XInput 轮询（不依赖窗口焦点），所以在游戏里、在启动器全屏上都能唤出。
 - **大屏模式（FSE）下的层级**：全屏的启动器是**前台窗口**，而 `set_always_on_top` 只保证窗口**属于**置顶层 —— 同层里谁压谁看**激活顺序**，后台进程的 `show()` / `set_focus()` 又会被 Windows 的前台锁静默挡掉（不报错）。三件事凑一起就是「窗口已显示、位置也对、`is_visible()` 也是 true，人却看不见」。0.1.39–0.1.45 的解法是 `detach_owner` + `force_topmost` + `steal_foreground` 这三件 Win32 手法，0.1.46 拆成独立程序时漏掉了（只剩一句 `set_always_on_top`），0.1.48 补回。现在它们住在 `frontend/src-tauri/src/topmost.rs`，由 `overlay.rs::show()` 在显示前后各调一次，**不要删**。桌面模式看不出差别（启动器只是窗口化的普通窗口），只有大屏模式会露。
-- **排查层级问题**：每次显示都会记一行 `frontend layer (...) fg=<前台窗口> | ours topmost=.. fg=.. rect=.. | above=<压在我们上面的可见窗口>`。`above` 里出现 `FantasyHub` = 被全屏启动器压住；`topmost=false` = 置顶没写进去；`fg=true` = 前台也抢到了。启动器那边另有 `big-screen mode (fill screen)` / `desktop mode (leave fullscreen + start explorer)` 标明当时是哪种模式 —— 否则日志根本看不出按下快捷键时身处哪一屏。
+- **排查层级问题**：每次显示都会记一行 `frontend layer (...) on_top=.. hwnd=.. visible=.. | fg=<前台窗口> | ours topmost=.. fg=.. rect=.. | above=<压在我们上面的可见窗口>`。`above` 里出现 `FantasyHub` = 被全屏启动器压住；`topmost=false` = 置顶没写进去；`fg=true` = 前台也抢到了；`hwnd=none` = 连窗口句柄都没拿到（那么置顶那几步全是空操作）。启动器那边另有 `big-screen mode (fill screen)` / `desktop mode (leave fullscreen + start explorer)` 标明当时是哪种模式 —— 否则日志根本看不出按下快捷键时身处哪一屏。
+  - **这一行必须永远出现（0.1.50）**：0.1.48 的现场快照挂在 `if let Some(..)` 后面，而它在真机上一次都没打印出来 —— 于是既不知道 Z 序、也不知道前台、更没有像素。现在无论成功失败都写（`hwnd=none visible=? — no handle` 也是一种结论）。
+  - **截图取证（0.1.50）**：显示之后（含自检重试）会把浮层那块屏幕区域用 `GetDC(NULL)` + `BitBlt` 拷成一张 24 位 BMP，写在日志同目录 `%APPDATA%\handheld-launcher\overlay-shot.bmp`（每次显示覆盖上一张），并记一行 `frontend shot ok overlay-shot.bmp 660x1200 nonBlack=…% path=…`。「窗口说自己在屏上」和「屏上真有它」是两件事，**像素**是唯一分得开「被压住 / 画到别处 / 页面没渲染」的证据：图里有那块深色面板 = 真画上去了；`nonBlack=0%` = 没画上去，或者那一片抓不到（独占全屏 / 受保护内容抓下来也是黑的，与「没画上去」仍要分开判断）。
+  - **自检 + 重试（0.1.50）**：显示之后每 120 ms 问一次 `IsWindowVisible` + `WS_EX_TOPMOST`（`topmost::on_top`，**不是** Tauri 的 `is_visible()` —— 那个被压住时照样 true），最多 5 轮；没到位就再顶一次（`retry_top`，**不碰前台锁**，不像 `grab` 那样补按 Alt），每次重试记 `frontend show retry n/5 (…)`。这段跑在**后台线程**上（托盘菜单与第二实例的回调都在主线程，连等 600 ms 会冻住界面），并且每次显示 / 隐藏都会把代数 `GENERATION` 加一，让上一轮作废 —— 否则它的 `SetWindowPos(..., SWP_SHOWWINDOW)` 会把用户刚关掉的窗口又显示出来。
 - 键盘输入：`Ctrl+H` 是系统级全局热键（不依赖焦点）；浮窗内的方向键/AB 需要焦点，因此提供设置项「打开时抢焦点（默认）/ 不抢焦点（只用手柄）」。
 
 ## 4. TDP 的本地 IPC 约定
@@ -171,7 +174,7 @@
 - 启动器 `build.rs`：给 `payload/frontend-setup.exe` 补一个空占位（和 FSE 身份文件同一套做法），本地/dev 构建不会因为 bundler 找不到资源而失败；`.gitignore` 忽略 `src-tauri/payload/`。
 - CI：新增显式 `npm run build`（Web 只构建一次、两个程序共用）；顺序改成 **前端安装包 → stage 成 payload → 启动器安装包**；Artifacts 与 Release 依旧同时带两个安装包。
 
-## 10. 手柄归属（谁在什么时候吃手柄，0.1.49）
+## 10. 手柄归属（谁在什么时候吃手柄；0.1.49 立规矩，0.1.50 修误判）
 
 手柄是**共享资源**：XInput 每个进程都能只读轮询，Windows 不给「独占」，所以只能在**逻辑上**仲裁。两边读的是同一份状态，谁都不设闸，一次按键就会有两个响应者 —— 0.1.48 之前同时存在两个症状：
 
@@ -188,7 +191,9 @@
 
 两道闸：
 
-1. **稳态：浮层在屏上 → 启动器不吃手柄**。`src-tauri/src/overlay_watch.rs` 每 200 ms **只读**观察「有没有属于 `FantasyHubFrontend.exe` 的**可见**顶层窗口」（`EnumWindows` + `IsWindowVisible` + 取影像名比对；找到的句柄缓存，每轮再确认「还在、**还属于前端程序**」—— 窗口句柄会被系统回收，只认句柄可能盯上别的窗口 —— 前端重启才重找），状态变化时记一行 `overlay watch: frontend overlay visible → launcher pad off` 并 `emit("overlay-state", open)`；`src/App.tsx` 据此 `useGamepadNav({ enabled: intro === "done" && !overlayOpen })`，挂载时用 `overlay_open` 命令先问一次。
+1. **稳态：浮层在屏上 → 启动器不吃手柄**。`src-tauri/src/overlay_watch.rs` 每 200 ms **只读**观察「有没有属于 `FantasyHubFrontend.exe`、**而且长得像浮层**的顶层窗口」（`EnumWindows` + 影像名比对 + 形状判据；找到的句柄缓存，每轮再确认「还在、**还属于前端程序**」—— 窗口句柄会被系统回收，只认句柄可能盯上别的窗口 —— 前端重启才重找），状态变化时记一行 `overlay watch: frontend overlay visible → launcher pad off`、一行 `overlay target: <类名 "标题"(pid) rect=WxH ex=0x…>`（**认的是哪个窗口**，判错的现场全靠它回看），并 `emit("overlay-state", open)`；`src/App.tsx` 据此 `useGamepadNav({ enabled: intro === "done" && !overlayOpen })`，挂载时用 `overlay_open` 命令先问一次。
+   - **「可见」不等于「像浮层」（0.1.50 修的一个真问题）**：前端进程里还有**系统给的另一个窗口** —— `tauri-plugin-single-instance` 为了收「又启动了一次」的消息，会创建那个 0×0 的 `-sic` 消息窗口（`WS_VISIBLE | WS_POPUP` + `WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`）。它 `IsWindowVisible()` **为真**、也属于前端程序，于是 0.1.49 的两条判据在前端一开机就成立：浮层明明没开，启动器却把手柄让出去，而且是**永久**让出去（那个窗口不会消失）。真机日志里的样子很好认：`overlay watch: frontend overlay visible → launcher pad off` 出现在任何按键**之前**。所以判据必须是**形状**：`IsWindowVisible` + 没有 owner（`GetWindow(hwnd, GW_OWNER)` 为空）+ **不是点击穿透**（`WS_EX_TRANSPARENT`）+ **有真实尺寸**（≥160×160；浮层是 660×1200，那个是 0×0）。
+   - **同一处顺带「壳体让位」（0.1.50）**：浮层真的上屏时，启动器把自己的窗口退出置顶层（`SetWindowPos(shell, HWND_NOTOPMOST)`）并**替浮层**再顶一次（`SetWindowPos(overlay, HWND_TOPMOST)`），浮层收起后按原样还回去；每次记 `overlay yield: shell notopmost ok=… err=…` / `overlay raise: frontend topmost ok=… err=…`。**为什么由启动器动手**：UIPI 规定低完整性进程不能动高完整性进程的窗口（反过来可以），而开机自启时启动器是提权的（日志 `elevated=true`）、前端是普通权限 —— 前端自己那一下有可能根本排不上来，而且失败**不报错**。这仍然只用「有个窗口在屏上」这一个事实，动的只有两个窗口的 Z 序（§2 的边界不变）。
    - 停的只是**手柄消费**：键鼠、Esc、点击照旧。键盘事件只进焦点窗口，浮层抢了焦点就不会漏回启动器。
    - 重新启用时 `useGamepadNav` 的 `seedHeld()` 会把按着的键记为已按住，所以关浮层那一下不会顺手触发一次动作（这段是 0.1.45 为「浮层刚显示时 Start 还按着」写的，正好复用）。
    - 判定用**可见性**而不是焦点：§3 说 `TAKE_FOCUS` 以后要变成设置项，浮层「不抢焦点」时焦点判断正好会失灵；「浮层在屏上」才是「谁该用手柄」的语义。

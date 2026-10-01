@@ -15,6 +15,7 @@ mod chord;
 mod games;
 mod library;
 mod overlay;
+mod shot;
 mod tdp_client;
 mod text;
 mod topmost;

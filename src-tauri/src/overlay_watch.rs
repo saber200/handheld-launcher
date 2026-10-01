@@ -19,6 +19,19 @@
 //!
 //! 开销：前端在跑时每轮只问一个句柄（几次系统调用）；前端完全没在跑时每轮要枚举一遍顶层
 //! 窗口（百次级系统调用，200 ms 一次，量级可以忽略）。
+//!
+//! **「可见」不等于「像浮层」**（0.1.50 修）：前端程序里还有**系统给的另一个窗口** ——
+//! `tauri-plugin-single-instance` 为了收「又启动了一次」的消息会 `CreateWindowExW` 一个
+//! 0×0 的窗口，样式是 `WS_VISIBLE | WS_POPUP` + `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT |
+//! WS_EX_LAYERED | WS_EX_TOOLWINDOW`。它 `IsWindowVisible()` **为真**、也属于前端程序，
+//! 于是「可见 + 属于前端」两条判据在前端一开机就成立：浮层明明关着，启动器却把手柄让出去，
+//! 而且**永久**让出去（那条窗口不会消失）。所以判据必须是形状：浮层是 660×1200 的实心
+//! 顶层窗口，那个是 0×0 的点击穿透窗口 —— 见 `looks_like_overlay`。
+//!
+//! 这个观察线程还顺带干一件**跨程序**的活儿：看到浮层真的上屏，壳体自己让位、并**替浮层**
+//! 把它顶到最前（见 `stand_back`）。理由在 UIPI：开机自启时启动器是提权的、前端是普通
+//! 权限，低完整性进程**排不到**高完整性窗口上面，而且失败不报错 —— 让有权限的一方动手，
+//! 方向永远是允许的那一侧。
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -35,6 +48,12 @@ const FRONTEND_EXE: &str = "FantasyHubFrontend.exe";
 #[cfg(windows)]
 const POLL_MS: u64 = 200;
 
+/// 浮层的**最小**边长（物理像素）：用来把「系统给前端程序的那个 0×0 隐形窗口」挡在外面。
+/// 浮层实际是 660×1200（1920 宽屏 @150% 贴右整高），阈值取 160 是给缩放系数留足余地，
+/// 同时离 0 足够远 —— 判据是「有真实尺寸」而不是「正好这个尺寸」。
+#[cfg(windows)]
+const MIN_SIDE: i32 = 160;
+
 /// 界面挂载时问一次，省得漏掉「页面加载时浮层已经开着」这种边角。
 #[tauri::command]
 pub fn overlay_open() -> bool {
@@ -44,11 +63,14 @@ pub fn overlay_open() -> bool {
 #[cfg(windows)]
 pub fn start(app: tauri::AppHandle) {
     use tauri::Emitter;
+    use windows_sys::Win32::Foundation::HWND;
 
     std::thread::spawn(move || {
         // 找到过的句柄：前端重启会换句柄，失效了再去找（见 `watch`）。
         let mut cached = 0isize;
         let mut known = false;
+        // 壳体原本是不是置顶的：只在浮层上来时让位，浮层走了按原样还回去（见 `stand_back`）。
+        let mut shell_was_topmost: Option<bool> = None;
         loop {
             let open = watch(&mut cached);
             if open != known {
@@ -59,6 +81,15 @@ pub fn start(app: tauri::AppHandle) {
                     if open { "visible" } else { "hidden" },
                     if open { "off" } else { "on" }
                 ));
+                // 「认的是哪个窗口」也记下来：0.1.49 就是在这儿认错了窗口，而日志只说了
+                // 「浮层可见」，没法回看它到底认了谁。
+                if open {
+                    fh_core::logutil::write_line(&format!(
+                        "overlay target: {}",
+                        describe(cached as HWND)
+                    ));
+                }
+                stand_back(open, cached as HWND, &mut shell_was_topmost);
                 let _ = app.emit("overlay-state", open);
             }
             std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
@@ -97,29 +128,30 @@ fn watch(cached: &mut isize) -> bool {
     match find_overlay() {
         Some(hwnd) => {
             *cached = hwnd as isize;
-            // 找的就是可见的顶层窗口，所以找到即「在屏上」。
+            // 找的就是「可见 + 形状像浮层」的顶层窗口，所以找到即「在屏上」。
             true
         }
         None => false,
     }
 }
 
-/// 找「属于前端主程序的可见顶层窗口」。找不到 = 浮层没在屏上。
+/// 找「属于前端主程序、并且长得像浮层」的顶层窗口。找不到 = 浮层没在屏上。
 #[cfg(windows)]
 fn find_overlay() -> Option<windows_sys::Win32::Foundation::HWND> {
     use windows_sys::Win32::Foundation::{HWND, LPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
+        EnumWindows, GetWindowThreadProcessId,
     };
 
     // 前端的窗口**一直存在**（开局 `visible: false`，关掉只是 hide），所以「窗口在」不等于
-    // 「在屏上」—— 只认可见的。`EnumWindows` 只回调顶层窗口，浮层就是顶层窗口。
+    // 「在屏上」—— 只认可见的；而「可见」还不够，前端程序里还有系统给的 0×0 隐形窗口，
+    // 见 `looks_like_overlay`。`EnumWindows` 只回调顶层窗口，浮层就是顶层窗口。
     unsafe extern "system" fn each(hwnd: HWND, param: LPARAM) -> i32 {
         let found = &mut *(param as *mut Option<HWND>);
         if found.is_some() {
             return 0;
         }
-        if IsWindowVisible(hwnd) == 0 {
+        if !looks_like_overlay(hwnd) {
             return 1;
         }
         let mut pid = 0u32;
@@ -136,6 +168,240 @@ fn find_overlay() -> Option<windows_sys::Win32::Foundation::HWND> {
         EnumWindows(Some(each), &mut found as *mut Option<HWND> as LPARAM);
     }
     found
+}
+
+/// 这个窗口像不像「画在屏上的浮层」。
+///
+/// 为什么不能只判「可见 + 属于前端程序」：前端程序里除了浮层，还有一个**系统给的隐形窗口**
+/// （`tauri-plugin-single-instance` 的 `-sic` 消息窗口：0×0、`WS_VISIBLE|WS_POPUP`、
+/// `WS_EX_TRANSPARENT|WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW`）。它
+/// `IsWindowVisible()` 为真，前端一开机就把前两条判据凑齐了 —— 0.1.49 的手柄因此永久失灵。
+///
+/// 判据（任一条不满足就不是浮层）：
+/// - `IsWindowVisible`：关掉的浮层只是 hide，不可见；那个隐形窗口在这里就已经被筛掉了？不，
+///   它是「可见」的 —— 所以下面几条才是关键。
+/// - **不是点击穿透**（`WS_EX_TRANSPARENT`）：浮层要收点击、键盘和手柄；那个隐形窗口正是
+///   点击穿透的。
+/// - **有真实尺寸**（≥ `MIN_SIDE` × `MIN_SIDE`）：隐形窗口是 0×0，浮层是 660×1200。
+///   这一条单独就足以把它挡在外面，另外两条是顺手把「别的程序的辅助窗口」也排除掉。
+/// - 没有 owner：有 owner 的窗口在 Z 序上跟着 owner 走，浮层不该有 owner。这条**安全**的前提
+///   是前端每次显示都先 `detach_owner`（`topmost.rs`，`force_topmost` 带 `SWP_SHOWWINDOW`，
+///   而清 owner 排在它前面）——所以浮层**从来没有带着 owner 出现在屏上**过。
+#[cfg(windows)]
+unsafe fn looks_like_overlay(hwnd: windows_sys::Win32::Foundation::HWND) -> bool {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindow, GetWindowLongW, GetWindowRect, IsWindowVisible, GWL_EXSTYLE, GW_OWNER,
+        WS_EX_TRANSPARENT,
+    };
+
+    if IsWindowVisible(hwnd) == 0 {
+        return false;
+    }
+    if !GetWindow(hwnd, GW_OWNER).is_null() {
+        return false;
+    }
+    let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if ex & WS_EX_TRANSPARENT != 0 {
+        return false;
+    }
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    if GetWindowRect(hwnd, &mut rect) == 0 {
+        return false;
+    }
+    rect.right - rect.left >= MIN_SIDE && rect.bottom - rect.top >= MIN_SIDE
+}
+
+/// 窗口 → `类名 "标题"(pid=…) rect=WxH ex=0x…`，只留一眼能认出来的长度。
+/// 判错窗口时，这一行就是全部证据。
+#[cfg(windows)]
+fn describe(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextW,
+        GetWindowThreadProcessId, GWL_EXSTYLE, GW_OWNER,
+    };
+
+    if hwnd.is_null() {
+        return "none".into();
+    }
+    unsafe {
+        let mut class = [0u16; 64];
+        let class_len = GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32);
+        let mut title = [0u16; 96];
+        let title_len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32);
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        GetWindowRect(hwnd, &mut rect);
+        let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        let class = String::from_utf16_lossy(&class[..class_len.max(0) as usize]);
+        let title = String::from_utf16_lossy(&title[..title_len.max(0) as usize]);
+        // `owner=` 也写出来：万一哪天浮层被判据里的「无 owner」挡在外面，这一行就能直接解释。
+        let owner = if GetWindow(hwnd, GW_OWNER).is_null() {
+            "no"
+        } else {
+            "yes"
+        };
+        format!(
+            "{class} \"{}\"(pid={pid}) rect={}x{} ex=0x{ex:08x} owner={owner}",
+            tidy(&title),
+            rect.right - rect.left,
+            rect.bottom - rect.top
+        )
+    }
+}
+
+/// 标题清洗：控制字符和引号会破坏一行一条的日志格式。
+#[cfg(windows)]
+fn tidy(text: &str) -> String {
+    let cleaned: String = text
+        .chars()
+        .map(|c| if c.is_control() || c == '"' { ' ' } else { c })
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.chars().count() > 40 {
+        let head: String = trimmed.chars().take(40).collect();
+        format!("{head}...")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 本进程那个「铺满整屏的壳窗口」：自己 pid 的顶层可见窗口里面积最大的那个。
+///
+/// 为什么不用 `window.hwnd()`：这里跑在观察线程上，句柄取一次就够；枚举还顺手排除了本进程
+/// 自己那个 0×0 的单实例消息窗口（和浮层那边的 `looks_like_overlay` 同一个道理）。
+#[cfg(windows)]
+fn own_shell_window() -> Option<windows_sys::Win32::Foundation::HWND> {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindow, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER,
+    };
+
+    struct Pick {
+        pid: u32,
+        hwnd: HWND,
+        area: i64,
+    }
+    unsafe extern "system" fn each(hwnd: HWND, param: LPARAM) -> i32 {
+        let pick = &mut *(param as *mut Pick);
+        if IsWindowVisible(hwnd) == 0 || !GetWindow(hwnd, GW_OWNER).is_null() {
+            return 1;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid != pick.pid {
+            return 1;
+        }
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        if GetWindowRect(hwnd, &mut rect) == 0 {
+            return 1;
+        }
+        let area = i64::from(rect.right.saturating_sub(rect.left))
+            * i64::from(rect.bottom.saturating_sub(rect.top));
+        if area > pick.area {
+            pick.hwnd = hwnd;
+            pick.area = area;
+        }
+        1
+    }
+
+    let mut pick = Pick {
+        pid: unsafe { GetCurrentProcessId() },
+        hwnd: std::ptr::null_mut(),
+        area: 0,
+    };
+    unsafe {
+        EnumWindows(Some(each), &mut pick as *mut Pick as LPARAM);
+    }
+    (!pick.hwnd.is_null() && pick.area > 0).then_some(pick.hwnd)
+}
+
+/// 失败才读 `GetLastError`：**成功**的调用不会清掉这个值，无条件读会读回别的调用的旧错误，
+/// 日志里就会出现「ok=true err=183」这种自相矛盾的行。
+#[cfg(windows)]
+unsafe fn err_of(ok: i32) -> u32 {
+    if ok == 0 {
+        windows_sys::Win32::Foundation::GetLastError()
+    } else {
+        0
+    }
+}
+
+/// 浮层在屏上时：壳自己让位，并**替浮层**把它顶到最前；浮层收起后按原样还回去。
+///
+/// 为什么由启动器来做这两下 —— UIPI：低完整性进程不能动高完整性进程的窗口（高 → 低可以）。
+/// 开机自启时启动器是提权的（日志里的 `elevated=true`）、前端是普通权限，所以
+/// **前端自己**的 `SetWindowPos(HWND_TOPMOST)` 有可能根本排不到整屏的壳上面，而且失败不报错。
+/// 让有权限的一方动手，方向永远是允许的那一侧。这同时把 0.1.33 记的那条老账
+/// （「全屏启动器压住浮层」，当年靠 `steal_foreground` 抢前台来绕）换成「壳自己让开」。
+///
+/// 边界（FRONTEND.md §2）：只动**自己窗口**和**目标浮层窗口**的 Z 序，不读写前端任何数据，
+/// 也不给两个程序之间加通道 —— 这里仍然只用到"有个窗口在屏上"这一个事实。
+#[cfg(windows)]
+fn stand_back(
+    open: bool,
+    overlay: windows_sys::Win32::Foundation::HWND,
+    shell_was_topmost: &mut Option<bool>,
+) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_ASYNCWINDOWPOS,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST,
+    };
+
+    let Some(shell) = own_shell_window() else {
+        fh_core::logutil::write_line("overlay yield: no shell window");
+        return;
+    };
+    // `SWP_ASYNCWINDOWPOS`：这两次调用都跨线程（窗口归主线程，这里跑在观察线程上），
+    // 万一主线程正忙或卡住，同步调用会把**仲裁线程**一起拖住 —— 手柄归属就不响应了。
+    // 加上它，请求直接投递、立刻返回（拿不到「结果」的代价在这一步可以接受，日志照样记）。
+    let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
+    unsafe {
+        let topmost_now = GetWindowLongW(shell, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0;
+        // 第一次翻转时记下壳体原本的样子：只按原样恢复，不凭空给它加置顶。
+        let original = *shell_was_topmost.get_or_insert(topmost_now);
+        if open {
+            let ok = SetWindowPos(shell, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+            fh_core::logutil::write_line(&format!(
+                "overlay yield: shell notopmost ok={} err={}",
+                ok != 0,
+                err_of(ok)
+            ));
+            if !overlay.is_null() {
+                let ok = SetWindowPos(overlay, HWND_TOPMOST, 0, 0, 0, 0, flags);
+                fh_core::logutil::write_line(&format!(
+                    "overlay raise: frontend topmost ok={} err={}",
+                    ok != 0,
+                    err_of(ok)
+                ));
+            }
+        } else if original {
+            let ok = SetWindowPos(shell, HWND_TOPMOST, 0, 0, 0, 0, flags);
+            fh_core::logutil::write_line(&format!(
+                "overlay yield: shell topmost back ok={} err={}",
+                ok != 0,
+                err_of(ok)
+            ));
+        }
+    }
 }
 
 /// 这个进程号的可执行文件名是不是前端主程序。

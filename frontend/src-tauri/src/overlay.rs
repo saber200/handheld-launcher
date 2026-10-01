@@ -2,8 +2,14 @@
 //!
 //! 这里**只关心自己的窗口**：没有「启动器是否在前台」这种跨程序状态，
 //! 所以不会出现 0.1.45 那种「窗口在屏上、状态却是关的、于是关不掉」的组合。
+//!
+//! **「showed」不等于「看得见」**（0.1.50）：Tauri 的 `is_visible()` 只是在问「系统认为这个
+//! 窗口可见没有」——被整屏窗口压住时它照样返回 true，日志就成了一路正常而人看不见。
+//! 所以每次显示都多走一段：**自检 → 必要时重试 → 无条件留现场**（一行 `frontend layer …`
+//! 告诉 Z 序和前台在谁手上，一张 `overlay-shot.bmp` 告诉屏幕那一片到底是什么）。
+//! 这一段在后台线程里跑，见 `settle`；动手的 Win32 部分在 `topmost.rs` / `shot.rs`。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
@@ -16,8 +22,18 @@ const WIDTH_LOGICAL: f64 = 440.0;
 /// 阶段 3/4 接上共享设置文件后改成可配置项。
 const TAKE_FOCUS: bool = true;
 
+/// 自检重试几次、每次间隔多久：窗口刚 show 出来时 DWM 还要一帧，立刻问可能是假阴性；
+/// 5 × 120 ms 足够覆盖这个延迟，又短到用户察觉不出来。
+const RETRY_MAX: u32 = 5;
+const RETRY_GAP_MS: u64 = 120;
+
 static VISIBLE: AtomicBool = AtomicBool::new(false);
 static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// 「第几次显示」：每次显示 / 隐藏都加一。后台的自检线程据此判断自己那一轮是否还有效 ——
+/// 否则用户快速开关两次时，前一轮的收尾会对着已经关掉的窗口继续动作（而它的重试带着
+/// `SWP_SHOWWINDOW`，会把窗口又显示出来）。
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub fn quitting() -> bool {
     QUITTING.load(Ordering::SeqCst)
@@ -86,11 +102,6 @@ pub fn show(app: &AppHandle, reason: &str) {
     let visible = window_visible(app).unwrap_or(true);
     VISIBLE.store(visible, Ordering::SeqCst);
     fh_core::logutil::write_line(&format!("frontend show end ({reason}) is_visible={visible}"));
-    // 「已显示」不等于「看得见」：把前台是谁、我们在 Z 序的哪一层一起记下来，
-    // 下一轮现场就不用再猜是页面、位置还是被全屏窗口压住。
-    if let Some(layer) = crate::topmost::probe(&window) {
-        fh_core::logutil::write_line(&format!("frontend layer ({reason}) {layer}"));
-    }
     if !visible {
         // 说了要显示却还是不可见：把窗口的真实位置/尺寸记下来，否则现场只剩一句「没反应」。
         let pos = window
@@ -103,9 +114,59 @@ pub fn show(app: &AppHandle, reason: &str) {
             .unwrap_or_else(|_| "?".into());
         fh_core::logutil::write_line(&format!("frontend still hidden: pos={pos} size={size}"));
     }
+    // 收尾（自检 / 重试 / 留现场）交给后台线程：`show()` 也会从托盘菜单、第二实例的回调里
+    // 被调用，那些都在**主线程**上，在这里连等 5 × 120 ms 会把界面冻住。
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    settle(window, reason.to_string(), generation);
+}
+
+/// 显示之后的收尾：**自检 → 必要时重试 → 无条件留现场**。
+///
+/// 「无条件」是这一版的重点：0.1.48 把现场快照挂在 `if let Some(..)` 上，而那条路径在真机上
+/// 一次都没打印出来 —— 于是既不知道 Z 序、也不知道前台还在不在我们手上，更没有像素证据。
+/// 现在自检结果、Z 序快照和截屏**每次都写**，成败都写。
+///
+/// 重试用 `retry_top`（能再顶一次置顶，但**不碰前台锁**）：它带 `SWP_SHOWWINDOW`，所以在
+/// 真正动手之前先确认「这一轮还算数」（`GENERATION`）并且「窗口现在还是开着的」。
+fn settle(window: WebviewWindow, reason: String, generation: u64) {
+    std::thread::spawn(move || {
+        let current = || GENERATION.load(Ordering::SeqCst) == generation;
+        let mut on_top = false;
+        for attempt in 1..=RETRY_MAX {
+            if !current() {
+                return;
+            }
+            on_top = crate::topmost::on_top(&window);
+            if on_top || attempt == RETRY_MAX {
+                break;
+            }
+            // 用户可能正好在这一刻把它关掉：`force_topmost` 带着 `SWP_SHOWWINDOW`，
+            // 对着已经隐藏的窗口调用会把它又显示出来（0.1.45 的老坑）。先问一句。
+            if !window.is_visible().unwrap_or(true) {
+                return;
+            }
+            fh_core::logutil::write_line(&format!(
+                "frontend show retry {attempt}/{RETRY_MAX} ({reason}): not on top yet"
+            ));
+            crate::topmost::retry_top(&window);
+            std::thread::sleep(std::time::Duration::from_millis(RETRY_GAP_MS));
+        }
+        if !current() {
+            return;
+        }
+        let layer =
+            crate::topmost::probe(&window).unwrap_or_else(|| "probe unavailable".to_string());
+        fh_core::logutil::write_line(&format!("frontend layer ({reason}) on_top={on_top} {layer}"));
+        match crate::shot::capture(&window) {
+            Ok(note) => fh_core::logutil::write_line(&format!("frontend shot ok {note}")),
+            Err(err) => fh_core::logutil::write_line(&format!("frontend shot failed: {err}")),
+        }
+    });
 }
 
 pub fn hide(app: &AppHandle, reason: &str) {
+    // 让还在跑的那轮自检作废：它的重试带着 `SWP_SHOWWINDOW`，别把刚关掉的窗口又显示出来。
+    GENERATION.fetch_add(1, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         if let Err(err) = window.hide() {
             fh_core::logutil::write_line(&format!("frontend hide failed: {err}"));

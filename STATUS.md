@@ -1,9 +1,28 @@
-# 进度对照（v0.1.49）
+# 进度对照（v0.1.50）
 
 > **发布基准：`v0.1.0` 稳定版** — 内容与内部构建 0.1.38 一致（见 `v0.1.0` 标签 / `release/0.1.0` 分支）。
-> `0.1.31`–`0.1.49` 均为测试版，仅内部验证用，不作为发布版。
+> `0.1.31`–`0.1.50` 均为测试版，仅内部验证用，不作为发布版。
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
+
+## 0.1.50 这一版
+
+修「**前端浮层打不开**」（其余功能正常）：先修掉 0.1.49 带回来的一处**误判**，再把「窗口说自己在屏上」和「屏上真有它」这两件事彻底分开取证 —— 这一次不再靠猜。
+
+- **闸一误判（真 bug，日志已证实）**：`src-tauri/src/overlay_watch.rs` 原先只认「可见 + 属于 `FantasyHubFrontend.exe`」，而**前端进程里还有第二个窗口** —— `tauri-plugin-single-instance` 为了收「又启动了一次」的消息会建一个 0×0 的消息窗口（`WS_VISIBLE | WS_POPUP` + `WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`）。它 `IsWindowVisible()` 为真、也属于前端程序，于是**前端一开机**启动器就把自己的手柄关掉（真机日志里 `overlay watch: frontend overlay visible → launcher pad off` 出现在任何按键之前 —— 浮层那时根本没开），而且是**永久**的。现在判据是**形状**：可见 + 没有 owner（`GetWindow(hwnd, GW_OWNER)` 为空）+ **不是点击穿透**（`WS_EX_TRANSPARENT`）+ **有真实尺寸**（≥160×160；浮层 660×1200，那个是 0×0），并在状态翻转时记一行 `overlay target: <类名 "标题"(pid) rect=WxH ex=0x…>` —— 判错窗口时这行就是全部证据
+- **同一处：壳体让位，并替浮层顶到最前**：浮层真的上屏时，启动器 `SetWindowPos(自己的壳, HWND_NOTOPMOST)` 再 `SetWindowPos(浮层, HWND_TOPMOST)`，浮层收起后按原样还回去；每次记 `overlay yield: shell notopmost ok=… err=…` / `overlay raise: frontend topmost ok=… err=…`。**为什么由启动器动手**：UIPI 只允许「高完整性 → 低完整性」，开机自启时启动器提权（日志 `elevated=true`）、前端不提权 —— 前端自己那一下有可能根本排不上来，而且**失败不报错**；这也让「全屏壳压住浮层」（0.1.33 的老账）不再只有「抢前台」一条路
+- **前端：句柄兜底 + 每步查返回值 + 自检**（`frontend/src-tauri/src/topmost.rs`）：
+  - 0.1.48 里第一句是 `window.hwnd().ok()?`，拿不到句柄就整个返回 —— 置顶 / 清 owner / 抢前台**全部静默变成空操作**，日志里一个字都没有。现在兜底用 `EnumWindows` 枚举本进程顶层窗口（挑面积最大的那个），并且 `probe` 每次都写清楚句柄是从哪条路来的（`hwnd=tauri|enum|none`）
+  - `SetWindowPos` / `SetWindowLongPtrW` 的返回值与 `GetLastError` 都进日志（`ok=false err=…`）；「成功就不读 `GetLastError`」—— 它不会被成功的调用清掉，无条件读只会写出自相矛盾的行
+  - 新增 `on_top()`：问的是 `IsWindowVisible` + `WS_EX_TOPMOST`，**不是** Tauri 的 `is_visible()` —— 后者被整屏窗口压住时照样返回 true（0.1.48 的日志就是这么「一路正常」的）
+- **前端：显示后自检 + 重试 + 现场取证**（`overlay.rs` 新增 `settle`，新增 `shot.rs`）：
+  - 每次显示后每 120 ms 自检一次、最多 5 轮；没到位就 `retry_top`（只再顶一次，**不碰前台锁** —— 不带 `grab` 里那记 `VK_MENU` 补按），每轮记 `frontend show retry n/5 (…)`。这段跑在**后台线程**上（托盘菜单、第二实例的回调都在主线程，连等 600 ms 会冻住界面），并且显示 / 隐藏都会把代数 `GENERATION` 加一让上一轮作废 —— 否则它的 `SWP_SHOWWINDOW` 会把用户刚关掉的窗口又显示出来（0.1.45 的老坑）
+  - `frontend layer …` 现在**无条件打印**：0.1.48 那条挂在 `if let Some(..)` 后面，而它在真机上一次都没出来过，于是既不知道 Z 序、也不知道前台，更没有像素
+  - **新增截屏**：`GetDC(NULL)` + `BitBlt` 抓浮层那块区域 → 24 位 BMP 写 `%APPDATA%\handheld-launcher\overlay-shot.bmp`（每次显示覆盖上一张），日志记 `frontend shot ok overlay-shot.bmp 660x1200 nonBlack=…% path=…`。四种症状终于分得开：`above=FantasyHub…` = 被压住；`topmost=false` = 置顶没写进去；`hwnd=none` = 置顶那几步压根没做；`nonBlack=0%` = 那一片是黑的（没画上去，或者抓不到 —— 独占全屏 / 受保护内容也是黑的，要分开看）
+- **日志带版本号**：`crates/fh-core/src/logutil.rs` 的首行改成 `<tag> start pid=… v<版本>`。这次排查卡住的正是「日志里从来没有版本号」—— 同一条 `frontend show end` 在 0.1.47 与 0.1.48 里逐字相同，分不出用户装的到底是哪一版
+- 文档：FRONTEND.md §10 补「可见 ≠ 像浮层」与「壳体让位」两条，§3 补截图取证 / 自检重试 / 无条件打印的理由
+- 验证：本机（macOS）`npm run build` 通过；`cargo clippy --workspace --all-targets` 零错误、未新增警告。**Windows 目标这次拿到了真正的类型检查**：把两个 `build.rs` 临时换成空壳绕过 `tauri-winres`（本机没有 `llvm-rc`），`cargo check -p fantasyhub-frontend --target x86_64-pc-windows-msvc` 把 `main.rs / overlay.rs / topmost.rs / shot.rs` 整套编过；并且**用一个故意写错的类型验证过这次检查确实在检查这份代码**（E0308 当场被抓到，随后删掉）。启动器侧仍受 `ring` 的 C 代码限制（交叉编译不可行，见 0.1.47），`overlay_watch.rs` 的 Win32 部分另抽进 `/tmp/win-probe4`（只依赖 `windows-sys`）交叉编译通过，剩下的胶水由每次推送的 Windows Lint 作业兜底
+- **掌机验证仍待做**：装 0.1.50 → 进大屏模式 → `Back+Start` **只按一次** → 回传 `%APPDATA%\handheld-launcher\fantasyhub.log` 末尾与 `overlay-shot.bmp`（有的话）。判读表：`overlay target: … rect=660x1200 …` = 认对了窗口；`overlay yield: shell notopmost ok=true` + `overlay raise: frontend topmost ok=true` = 权限方向没问题；`frontend layer … topmost=false` 或 `above=FantasyHub…` = Z 序没拿到（那时才做「壳留 1 px 缝 / 兼容标志 / 透明整屏浮层」B 组）；BMP 那一片全黑 = 根本没画上去（那是页面 / 合成层的问题，与 Z 序无关）
 
 ## 0.1.49 这一版
 
@@ -107,7 +126,7 @@
 | 游戏库 / 软件库 | 可用 |
 | 文件管理 | 可用 |
 | 工具箱 | **0.1.41** 独立成标签页；0.1.44 起只留运行库，OptiScaler 走游戏卡片菜单；实机装包待掌机验证 |
-| 前端浮层 | **0.1.46** 起是独立程序（托盘常驻 + 贴右置顶浮层，`Ctrl+H` / 手柄 `Back+Start`）；**0.1.47** 修正式包里加载错页面（启动器整屏界面）与可见性日志说谎；**0.1.48** 补回大屏模式（FSE）下的置顶/抢前台手法与 Z 序现场日志；**0.1.49** 手柄归属两道闸（浮层在屏上时启动器不消费手柄、设置键改双击）；掌机冒烟仍是最后一道关 |
+| 前端浮层 | **0.1.46** 起是独立程序（托盘常驻 + 贴右置顶浮层，`Ctrl+H` / 手柄 `Back+Start`）；**0.1.47** 修正式包里加载错页面（启动器整屏界面）与可见性日志说谎；**0.1.48** 补回大屏模式（FSE）下的置顶/抢前台手法与 Z 序现场日志；**0.1.49** 手柄归属两道闸（浮层在屏上时启动器不消费手柄、设置键改双击）；**0.1.50** 修闸一误判（别把系统给前端的 0×0 消息窗口当成浮层）+ 壳体让位 + 显示后自检重试与截屏取证；掌机冒烟仍是最后一道关 |
 
 ## 待完成 / 已知缺口
 
@@ -121,6 +140,7 @@
 
 ## 近期改动备忘
 
+- 0.1.50：修「**前端浮层打不开**」。两件事。**一、0.1.49 的闸一认错了窗口**：它只认「可见 + 属于 `FantasyHubFrontend.exe`」，而前端进程里**还有第二个窗口** —— `tauri-plugin-single-instance` 为了收「又启动了一次」会建一个 0×0 的消息窗口（`WS_VISIBLE | WS_POPUP`，样式上 `WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`）。`IsWindowVisible()` 对它为真、它也属于前端程序 —— 于是**前端一开机**启动器就把自己的手柄关掉（真机日志：`overlay watch: frontend overlay visible → launcher pad off` 出现在任何按键之前），而且是永久的。判据改成**形状**：可见 + 无 owner（`GetWindow(hwnd, GW_OWNER)`）+ 不是点击穿透（`WS_EX_TRANSPARENT`）+ 有真实尺寸（≥160×160：浮层 660×1200，那个是 0×0），状态翻转时多记一行 `overlay target: <类名 "标题"(pid) rect=WxH ex=0x…>`；**二、把「窗口说自己在屏上」和「屏上真有它」分开取证**（0.1.48 的前端现场快照挂在 `if let Some(..)` 后面，真机上一次都没打印出来，于是只能猜）：`frontend/src-tauri/src/topmost.rs` 给 `window.hwnd()` 加了不依赖 Tauri 运行时的兜底（`EnumWindows` 枚举本进程顶层窗口挑最大的，`probe` 每次都写 `hwnd=tauri|enum|none`）、每个 Win32 调用失败都记 `err=`、新增 `on_top()`（`IsWindowVisible` + `WS_EX_TOPMOST`，不用被压住也说 true 的 `is_visible()`）；`overlay.rs` 显示后每 120 ms 自检、最多 5 轮，没到位就 `retry_top`（**不碰前台锁**，不带 `grab` 那记 Alt），跑在后台线程并用代数让过期的一轮作废（否则它的 `SWP_SHOWWINDOW` 会把刚关掉的窗口又显示出来），`frontend layer …` 无条件打印；新增 `shot.rs` 用 `GetDC(NULL)` + `BitBlt` 把浮层那块区域抓成 `%APPDATA%\handheld-launcher\overlay-shot.bmp`（`frontend shot ok … nonBlack=…%`）。启动器的观察线程还顺手做「壳体让位」：浮层上屏时 `SetWindowPos(壳, HWND_NOTOPMOST)` + `SetWindowPos(浮层, HWND_TOPMOST)`（UIPI 只允许高完整性动低完整性的窗口，开机自启时提权的是启动器），浮层收起按原样还回去，每次记 `overlay yield:` / `overlay raise:` 的成败与错误码。日志首行现在带版本号（`<tag> start pid=… v0.1.50`）。验证：本机 `npm run build` 通过、`cargo clippy --workspace --all-targets` 零错误未新增警告；Windows 侧这次拿到**真的类型检查** —— 两个 `build.rs` 临时换成空壳绕过 `tauri-winres`（本机没有 `llvm-rc`）后 `cargo check -p fantasyhub-frontend --target x86_64-pc-windows-msvc` 编过整套前端（并用一个故意写错的类型确认这次检查确实在检查代码），启动器的 Win32 部分抽进只依赖 `windows-sys` 的探针 crate 交叉编译通过，余下胶水交给 Windows Lint 作业
 - 0.1.49：修「**一次按键，两边都响应**」。前端浮层与启动器读的是**同一份**手柄状态（XInput 每个进程都能只读轮询，Windows 不给独占），于是 0.1.48 之前同时有两个症状：① 用 `Back+Start` 呼出浮层时，和弦里的 `Back`（View / 8 号键）正好是启动器的设置键 —— **浮层出来的同时设置抽屉也被拉开**；② 浮层开着时启动器的方向键 / A 键仍在身后生效（A 甚至会把身后的游戏启动起来）。两道闸：**闸一（稳态）** 新增 `src-tauri/src/overlay_watch.rs`，启动器每 200 ms **只读**观察「有没有属于 `FantasyHubFrontend.exe` 的**可见**顶层窗口」（`EnumWindows` + `IsWindowVisible`，再用 `PROCESS_QUERY_LIMITED_INFORMATION` + `QueryFullProcessImageNameW` 比对影像名；找到的句柄缓存、每轮再确认「还在、还属于前端程序」，前端重启才重找），只在状态变化时记一行 `overlay watch: frontend overlay visible → launcher pad off` 并 `emit("overlay-state")`，界面据此 `useGamepadNav({ enabled: … && !overlayOpen })` 彻底停止手柄消费（键鼠 / Esc 照旧）；重新启用时复用 0.1.45 就有的 `seedHeld()`（把按着的键记为已按住），关浮层那一下不会顺手触发动作。判定用**可见性**不用焦点（FRONTEND.md §3 的 `TAKE_FOCUS` 以后要变成设置项，浮层不抢焦点时焦点判断正好失灵）；由启动器自己看窗口而不是让前端上报，是因为后者要两个程序同时升级、老前端不写就没信号、前端崩了状态还会「卡在开着」。**闸二（瞬态）** 启动器的设置键从「单击 View / Share」改成**双击**（`useGamepadNav` 新增 `viewGesture: "double"`：450 ms 内两次点按，单击什么都不做；第二次按下时若 Menu 也按着就整串吞掉，那正是和弦）：和弦是按住两个键、不会出现两次点按，所以零延迟也不会误触，`onView` 那串「收起文件菜单 / 关对话框 / 开关设置」整体搬到双击上；键盘 Esc 与不用手柄的场景不变。前端一行未改；文档新增 FRONTEND.md §10「手柄归属」，并改掉 `chord.rs` 顶部「阶段 3 删掉了启动器自己的和弦监听，一次按键只会有前端响应」这句**已经不对**的话（删掉的是启动器 Rust 侧的 XInput 监听，界面侧 Gamepad API 照样读同一份手柄）、README 与页脚提示的手柄键位说明（「双击 Back / Share 设置」）
 - 0.1.48：修「**桌面模式下正常、一进大屏模式前端就呼不出来**」。0.1.47 的日志已经排除了页面与位置：`frontend show begin (...) url=.../frontend.html`、`frontend place x=1260 y=0 w=660 h=1200`、`frontend show end (...) is_visible=true` 全对 —— 只剩一种可能：窗口确实在屏上，但**压在铺满整屏的启动器下面**。这正是 0.1.33 记过的老账（「第二窗已 shown 但被全屏挡住」），0.1.39–0.1.45 的解法是启动器 `frontend.rs` 里那三件 Win32 手法：`detach_owner`（清 `GW_OWNER`、补 `WS_EX_TOOLWINDOW`）、`force_topmost`（`SetWindowPos(HWND_TOPMOST)`，把窗口推到置顶层**最上面**）、`steal_foreground`（`VK_MENU` 按下/抬起解锁前台锁 → `AttachThreadInput` + `BringWindowToTop` + `SetForegroundWindow` + `SetActiveWindow`）。0.1.46 把前端拆成独立程序时**没有把它们搬过来**（只剩一句 `set_always_on_top` —— 它只保证窗口**属于**置顶层，同层里谁压谁由激活顺序决定；而后台进程的 `show()`/`set_focus()` 会被 Windows 的前台锁静默挡掉，于是窗口永远差一层）。新增 `frontend/src-tauri/src/topmost.rs` 按 0.1.45 的顺序搬回这三件事，`overlay.rs` 在 `show()` 前后各调一次；同时补两条**现场日志**，下次无论成不成都不用再猜：前端每次显示记 `frontend layer (...) fg=<类名"标题"(pid)> | ours topmost=.. fg=.. rect=.. | above=<压在我们上面的可见窗口>`（`above` 里出现 `FantasyHub` = 被全屏启动器压住；`topmost=false` = 置顶没写进去；`fg=true` = 前台也抢到了），启动器进/出大屏模式时记 `big-screen mode (fill screen)` / `desktop mode (leave fullscreen + start explorer)`（此前日志完全看不出当时是哪种模式）。验证方式：本机无 Windows C 工具链、整仓交叉编译不可行（0.1.47 的结论），于是把新 Win32 代码抽进一个只依赖 `windows-sys` 的临时 crate，用 `--target x86_64-pc-windows-msvc` 真编 + clippy（干净）；工作区 `cargo clippy --workspace --all-targets` 零错误，Windows 专属代码仍由每次推送的 Lint 作业兜底
 - 0.1.47：修 0.1.46 的两个 bug —— ① 前端窗口漏写 `"url": "frontend.html"`（`WebviewUrl` 默认 `index.html`，`devUrl` 里带了 `/frontend.html` 所以只在安装包里露出来）：正式包的前端窗口加载的是启动器的整屏界面，那页一挂载就 `setFullscreen(true)`；② `frontend/src-tauri/src/overlay.rs` 的 `toggle` 只读静态 `VISIBLE`，`show()` 又吞掉 `window.show()` 的返回值后无条件写 `frontend shown` —— 于是「窗口没出来」和成功在日志里长得一样。两处都补了现场日志：显示时记**实际加载的 URL** 与真实 `is_visible()`，说了要显示却仍不可见时补记窗口位置/尺寸。另补四个 lint 门（`.vscode/`、`.githooks/pre-commit`、`.github/workflows/lint.yml`、`build-windows.yml` 的 `Compile check`）+ 清 14 条 clippy 警告；`--all-targets` 暴露的 4 个测试编译错误（`files.rs` 里 async 的 `file_move`/`file_delete` 漏 `.await`）一并修掉
