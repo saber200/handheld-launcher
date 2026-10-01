@@ -32,6 +32,8 @@
 - **进程检测 / 退出游戏：前端自己实现**。纯用户态即可（`CreateToolhelp32Snapshot` 枚举 + `TerminateProcess` 结束），**不需要提权**，所以脱离启动器也能用。
 - **TDP：走本地 IPC 问启动器**（见 §4）。启动器没跑时，TDP 区显示「启动器未运行」/「需要管理员」，其余功能照常，绝不阻塞打开。
 - 手柄输入：自带 XInput 轮询（不依赖窗口焦点），所以在游戏里、在启动器全屏上都能唤出。
+- **大屏模式（FSE）下的层级**：全屏的启动器是**前台窗口**，而 `set_always_on_top` 只保证窗口**属于**置顶层 —— 同层里谁压谁看**激活顺序**，后台进程的 `show()` / `set_focus()` 又会被 Windows 的前台锁静默挡掉（不报错）。三件事凑一起就是「窗口已显示、位置也对、`is_visible()` 也是 true，人却看不见」。0.1.39–0.1.45 的解法是 `detach_owner` + `force_topmost` + `steal_foreground` 这三件 Win32 手法，0.1.46 拆成独立程序时漏掉了（只剩一句 `set_always_on_top`），0.1.48 补回。现在它们住在 `frontend/src-tauri/src/topmost.rs`，由 `overlay.rs::show()` 在显示前后各调一次，**不要删**。桌面模式看不出差别（启动器只是窗口化的普通窗口），只有大屏模式会露。
+- **排查层级问题**：每次显示都会记一行 `frontend layer (...) fg=<前台窗口> | ours topmost=.. fg=.. rect=.. | above=<压在我们上面的可见窗口>`。`above` 里出现 `FantasyHub` = 被全屏启动器压住；`topmost=false` = 置顶没写进去；`fg=true` = 前台也抢到了。启动器那边另有 `big-screen mode (fill screen)` / `desktop mode (leave fullscreen + start explorer)` 标明当时是哪种模式 —— 否则日志根本看不出按下快捷键时身处哪一屏。
 - 键盘输入：`Ctrl+H` 是系统级全局热键（不依赖焦点）；浮窗内的方向键/AB 需要焦点，因此提供设置项「打开时抢焦点（默认）/ 不抢焦点（只用手柄）」。
 
 ## 4. TDP 的本地 IPC 约定
