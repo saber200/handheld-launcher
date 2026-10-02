@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "fantasyhub-frontend"
-version = "0.1.53"
+version = "0.1.54"
 dependencies = [
  "fh-core",
  "serde",
@@ -1114,8 +1114,9 @@ dependencies = [
 
 [[package]]
 name = "fh-core"
-version = "0.1.53"
+version = "0.1.54"
 dependencies = [
+ "getrandom 0.2.17",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
@@ -1611,7 +1612,7 @@ dependencies = [
 
 [[package]]
 name = "handheld-launcher"
-version = "0.1.53"
+version = "0.1.54"
 dependencies = [
  "fh-core",
  "image",

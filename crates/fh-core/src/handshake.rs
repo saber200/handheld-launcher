@@ -41,12 +41,43 @@ pub fn request_quit() -> Result<(), String> {
     std::fs::write(&path, "quit-for-update\n").map_err(|err| err.to_string())
 }
 
-/// 前端侧：有没有人在请我们退出。
-pub fn quitting_requested() -> bool {
-    marker_path().exists()
+/// 前端侧：只响应本进程启动之后发布的请求。
+/// 以文件写入时间作为请求代际，兼容旧安装器的标记内容；新实例忽略残留请求。
+pub fn quitting_requested_since(started: std::time::SystemTime) -> bool {
+    marker_path()
+        .metadata()
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|requested| request_targets_instance(requested, started))
 }
 
-/// 安装器侧：装完收尾。
-pub fn clear() {
-    let _ = std::fs::remove_file(marker_path());
+fn request_targets_instance(
+    requested: std::time::SystemTime,
+    started: std::time::SystemTime,
+) -> bool {
+    requested > started
+}
+
+/// 安装器侧：装完收尾，清理失败不能假装成功。
+pub fn clear() -> Result<(), String> {
+    match std::fs::remove_file(marker_path()) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("更新退出标记清理失败：{err}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_targets_instance;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn update_request_only_targets_older_instances() {
+        let old = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        let request = old + Duration::from_secs(1);
+        let new = request + Duration::from_secs(1);
+        assert!(request_targets_instance(request, old));
+        assert!(!request_targets_instance(request, new));
+        assert!(!request_targets_instance(request, request));
+    }
 }

@@ -5,8 +5,15 @@
 //! 实际动作在这里。暴露的能力只有：读 TDP 状态、写 TDP 瓦数、读驱动状态 —— 没有任何
 //! 窗口或进程控制，前端开关浮层完全不经过启动器。
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+const MAX_REQUEST: u64 = 4096;
+const MAX_CLIENTS: usize = 4;
+const TIMEOUT: Duration = Duration::from_millis(1500);
 
 use fh_core::ipc::{self, Discovery, Request, Response};
 
@@ -26,7 +33,7 @@ fn serve() -> Result<(), String> {
         .local_addr()
         .map_err(|err| err.to_string())?
         .port();
-    let token = ipc::random_token();
+    let token = ipc::random_token()?;
     ipc::write_discovery(&Discovery {
         proto: ipc::PROTO,
         port,
@@ -39,27 +46,35 @@ fn serve() -> Result<(), String> {
         ipc::PROTO
     ));
 
-    // 一问一答、串行处理：请求很轻（读/写一次 MSR），不值得为它上连接池。
+    // Bound concurrent clients so an idle/slow peer cannot stall all TDP requests.
+    let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => handle(stream, &token),
+            Ok(stream) => {
+                if active.fetch_add(1, Ordering::AcqRel) >= MAX_CLIENTS {
+                    active.fetch_sub(1, Ordering::AcqRel);
+                    continue;
+                }
+                let active = Arc::clone(&active);
+                let token = token.clone();
+                std::thread::spawn(move || {
+                    handle(stream, &token);
+                    active.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
             Err(err) => crate::logutil::write_line(&format!("tdp ipc accept failed: {err}")),
         }
     }
-    ipc::clear_discovery();
+    ipc::clear_discovery_if_pid(std::process::id());
     Ok(())
 }
 
 fn handle(mut stream: TcpStream, token: &str) {
-    let reader = match stream.try_clone() {
-        Ok(reader) => reader,
-        Err(_) => return,
-    };
-    let mut line = String::new();
-    if BufReader::new(reader).read_line(&mut line).is_err() {
-        return;
-    }
-    let response = match ipc::parse_request(&line, token) {
+    let _ = stream.set_read_timeout(Some(TIMEOUT));
+    let _ = stream.set_write_timeout(Some(TIMEOUT));
+    let Ok(bytes) = read_request(&mut stream) else { return };
+    let Ok(line) = std::str::from_utf8(&bytes) else { return };
+    let response = match ipc::parse_request(line, token) {
         Ok(request) => dispatch(request),
         Err(err) => {
             crate::logutil::write_line(&format!("tdp ipc rejected: {err}"));
@@ -71,6 +86,37 @@ fn handle(mut stream: TcpStream, token: &str) {
         let _ = stream.flush();
     }
 }
+
+// A per-read timeout is not a total deadline: a slow sender must not hold
+// a privileged worker indefinitely.
+fn read_request(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        stream.set_read_timeout(Some(remaining))?;
+        let limit = chunk.len().min((MAX_REQUEST + 1 - bytes.len() as u64) as usize);
+        let count = stream.read(&mut chunk[..limit])?;
+        if count == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+        if bytes.len() as u64 > MAX_REQUEST {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+        if let Some(end) = bytes.iter().position(|&byte| byte == b'\n') {
+            if end + 1 != bytes.len() {
+                return Err(std::io::ErrorKind::InvalidData.into());
+            }
+            return Ok(bytes);
+        }
+    }
+}
+
 
 fn dispatch(request: Request) -> Response {
     let id = request.id;
@@ -99,5 +145,35 @@ fn dispatch(request: Request) -> Response {
             crate::logutil::write_line(&format!("tdp ipc id={id} failed: {error}"));
             Response::err(id, error)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{read_request, MAX_REQUEST};
+    use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
+    use std::time::{Duration, Instant};
+
+    fn with_client(send: impl FnOnce(&mut TcpStream)) -> std::io::Result<Vec<u8>> {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        send(&mut client);
+        read_request(&mut server)
+    }
+
+    #[test]
+    fn accepts_one_line_and_rejects_incomplete_or_oversized() {
+        assert_eq!(with_client(|client| client.write_all(b"{}\n").unwrap()).unwrap(), b"{}\n");
+        assert!(with_client(|client| { client.write_all(b"{}").unwrap(); client.shutdown(std::net::Shutdown::Write).unwrap(); }).is_err());
+        assert!(with_client(|client| client.write_all(&vec![b'a'; MAX_REQUEST as usize + 1]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn idle_client_times_out() {
+        let started = Instant::now();
+        assert!(with_client(|_| {}).is_err());
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 }

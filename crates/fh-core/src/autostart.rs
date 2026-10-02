@@ -46,18 +46,19 @@ pub fn stopped_marker() -> PathBuf {
     std::env::temp_dir().join("fantasyhub-frontend-stopped")
 }
 
-/// 前端从托盘点「退出」时写一个（`tray.rs::quit_now`）。
-pub fn mark_stopped() {
-    let path = stopped_marker();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&path, "user quit the frontend from the tray\n");
+/// 前端从托盘点「退出」时写一个；失败必须由调用方反馈，不能假装已记录意图。
+pub fn mark_stopped() -> Result<(), String> {
+    write_marker(&stopped_marker(), "user quit the frontend from the tray\n")
 }
 
-/// 前端由自启（计划任务 `--autostart`）拉起时删掉它：新的一次登录 = 新的意图。
-pub fn clear_stopped() {
-    let _ = std::fs::remove_file(stopped_marker());
+/// 自启新会话清除退出标记；只有文件本来不存在可以忽略。
+pub fn clear_stopped() -> Result<(), String> {
+    let path = stopped_marker();
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("删除标记 {} 失败：{err}", path.display())),
+    }
 }
 
 /// 这一轮登录里用户是不是主动退过前端。
@@ -65,31 +66,55 @@ pub fn stopped_by_user() -> bool {
     stopped_marker().exists()
 }
 
-/// 托盘里那个「开机自启」勾选框的状态。
-///
-/// 为什么不直接问任务：`schtasks /query` 的输出字段名**跟着系统语言变**（中文 Windows 上是
-/// 中文），解析它等于给自己埋一个只在中英文之外的机器上炸的坑。所以自己记一份：
-/// 缺失时按「开」算 —— 任务创建出来默认就是启用的。
-pub fn autostart_switch() -> Option<bool> {
-    let text = std::fs::read_to_string(switch_path()).ok()?;
-    match text.trim() {
-        "on" => Some(true),
-        "off" => Some(false),
-        _ => None,
+/// 本地用户意图，仅供任务缺失时参考；已有任务必须以 task_state 为准。
+/// 文件缺失、合法开关、读取失败/损坏分别返回 None、Some、Err。
+pub fn autostart_switch() -> Result<Option<bool>, String> {
+    let path = switch_path();
+    match std::fs::read_to_string(&path) {
+        Ok(text) => match text.trim() {
+            "on" => Ok(Some(true)),
+            "off" => Ok(Some(false)),
+            _ => Err(format!("自启标记 {} 内容无效", path.display())),
+        },
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(format!("读取自启标记 {} 失败：{err}", path.display())),
     }
 }
 
-/// 写托盘勾选框的状态（`tray::set_autostart` 会调）。
-pub fn set_autostart_switch(on: bool) {
-    let path = switch_path();
+/// 写入本地用户意图；不能代替实际任务状态。
+pub fn set_autostart_switch(on: bool) -> Result<(), String> {
+    write_marker(&switch_path(), if on { "on\n" } else { "off\n" })
+}
+
+fn write_marker(path: &Path, content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("创建标记目录 {} 失败：{err}", parent.display()))?;
     }
-    let _ = std::fs::write(&path, if on { "on\n" } else { "off\n" });
+    std::fs::write(path, content)
+        .map_err(|err| format!("写入标记 {} 失败：{err}", path.display()))
 }
 
 fn switch_path() -> PathBuf {
     stopped_marker().with_file_name("frontend-autostart")
+}
+
+/// 实际计划任务配置状态；查询失败通过 Result::Err 独立表示。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskState {
+    Missing,
+    Enabled,
+    Disabled,
+}
+
+#[cfg(any(windows, test))]
+fn parse_task_state(text: &str) -> Result<TaskState, String> {
+    match text.trim() {
+        "Missing" => Ok(TaskState::Missing),
+        "Enabled" => Ok(TaskState::Enabled),
+        "Disabled" => Ok(TaskState::Disabled),
+        other => Err(format!("无法识别计划任务状态：{other:?}")),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -115,12 +140,60 @@ mod win {
             .output()
     }
 
-    /// 任务在不在。`/query` 的退出码就是答案 —— **不解析任何本地化文本**：
-    /// 中文 Windows 上 `schtasks` 的输出字段名是中文，解析它等于给自己挖坑。
-    pub fn task_exists() -> bool {
-        schtasks(&["/query", "/tn", TASK_NAME])
-            .map(|out| out.status.success())
-            .unwrap_or(false)
+    /// 系统 PowerShell 仅桥接 COM；stdout 是固定协议，不解析本地化 schtasks 文本。
+    fn powershell(script: &str) -> Result<String, String> {
+        use std::os::windows::process::CommandExt;
+        let system_root = std::env::var_os("SystemRoot")
+            .ok_or_else(|| "读不到 SystemRoot".to_string())?;
+        let exe = PathBuf::from(system_root)
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let script = format!(
+            "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); try {{ {script} }} catch {{ [Console]::Error.WriteLine($_.Exception.ToString()); exit 1 }}"
+        );
+        let out = Command::new(exe)
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
+            .env("FH_AUTOSTART_TASK", TASK_NAME)
+            .creation_flags(0x0800_0000)
+            .output()
+            .map_err(|err| format!("启动 Task Scheduler 桥接失败：{err}"))?;
+        if !out.status.success() {
+            return Err(format!("自启操作失败（退出码 {:?}）：{}", out.status.code(), stderr_of(&out)));
+        }
+        String::from_utf8(out.stdout)
+            .map(|text| text.trim().to_string())
+            .map_err(|err| format!("自启状态输出编码错误：{err}"))
+    }
+
+    fn with_task(body: &str, missing: &str) -> Result<String, String> {
+        powershell(&format!(r#"
+$service = New-Object -ComObject 'Schedule.Service'
+$service.Connect()
+$folder = $service.GetFolder('\')
+try {{ $task = $folder.GetTask($env:FH_AUTOSTART_TASK) }} catch {{
+    $errorObject = $_.Exception
+    $notFound = $false
+    while ($null -ne $errorObject) {{
+        if ($errorObject.HResult -eq -2147024894) {{ $notFound = $true }}
+        $errorObject = $errorObject.InnerException
+    }}
+    if ($notFound) {{ {missing}; return }}
+    throw
+}}
+{body}
+"#))
+    }
+
+    pub fn task_state() -> Result<super::TaskState, String> {
+        let text = with_task(
+            "if ($task.Definition.Settings.Enabled) { 'Enabled' } else { 'Disabled' }",
+            "'Missing'",
+        )?;
+        super::parse_task_state(&text)
+    }
+
+    /// 兼容存在性查询，但不再吞掉查询错误；决策应优先使用 task_state。
+    pub fn task_exists() -> Result<bool, String> {
+        task_state().map(|state| state != super::TaskState::Missing)
     }
 
     /// 按任务启动一次（`schtasks /run`）。**即使由提权的启动器调用，起来的也仍然是普通权限** ——
@@ -141,17 +214,14 @@ mod win {
     /// 托盘菜单里那个「开机自启」勾选框：开 / 关任务。关掉之后启动器与前端都不会再拉它
     /// （下次登录也不起来），但**不影响**前端此刻的运行。
     pub fn set_task_enabled(on: bool) -> Result<String, String> {
-        let flag = if on { "/enable" } else { "/disable" };
-        let out = schtasks(&["/change", "/tn", TASK_NAME, flag]).map_err(|err| err.to_string())?;
-        if out.status.success() {
-            Ok(format!("set enabled={on} ok"))
-        } else {
-            Err(format!(
-                "set enabled={on} failed（退出码 {:?}）{}",
-                out.status.code(),
-                stderr_of(&out)
-            ))
+        let enabled = if on { "$true" } else { "$false" };
+        let result = with_task(&format!(
+            "$task.Enabled = {enabled}; if ([bool]$folder.GetTask($env:FH_AUTOSTART_TASK).Definition.Settings.Enabled -ne {enabled}) {{ throw 'Task enabled verification failed' }}; 'Updated'"
+        ), "throw 'Task does not exist'")?;
+        if result != "Updated" {
+            return Err(format!("未知任务切换结果：{result:?}"));
         }
+        Ok(format!("set enabled={on} ok"))
     }
 
     /// 删除任务（卸载 / 清理时用）。
@@ -168,16 +238,78 @@ mod win {
         }
     }
 
-    /// 任务不存在就建一个（启动器启动时调一次）。存在就 `Ok(None)` 什么也不动 ——
-    /// 无条件 `/create /f` 会把用户从托盘关掉的自启又打开。
+    /// 只在确认缺失时新建；已有任务仅迁移限制，不改变动作、主体、触发器或禁用意图。
+    /// Some 表示新建或迁移，None 表示无需修改。任何查询/迁移失败均返回 Err。
     pub fn ensure_task_if_missing(exe: &Path) -> Result<Option<String>, String> {
-        if task_exists() {
-            return Ok(None);
+        let outcome = match task_state()? {
+            super::TaskState::Missing => {
+                if super::autostart_switch()? == Some(false) {
+                    return Ok(None);
+                }
+                if !exe.is_file() {
+                    return Err(format!("前端不在 {}", exe.display()));
+                }
+                create_task(exe).map(Some)
+            }
+            super::TaskState::Enabled | super::TaskState::Disabled => migrate_task_settings(),
+        }?;
+        cleanup_legacy_run()
+            .map_err(|err| format!("任务已确认/迁移，但旧 Run 清理失败：{err}"))?;
+        Ok(outcome)
+    }
+
+    fn migrate_task_settings() -> Result<Option<String>, String> {
+        let result = with_task(r#"
+$definition = $task.Definition
+$settings = $definition.Settings
+$enabled = [bool]$settings.Enabled
+$changed = $settings.DisallowStartIfOnBatteries -or $settings.StopIfGoingOnBatteries -or
+    $settings.RunOnlyIfIdle -or $settings.IdleSettings.StopOnIdleEnd -or
+    $settings.IdleSettings.RestartOnIdle -or ($settings.ExecutionTimeLimit -ne 'PT0S')
+if (-not $changed) { 'Unchanged'; return }
+$settings.DisallowStartIfOnBatteries = $false
+$settings.StopIfGoingOnBatteries = $false
+$settings.RunOnlyIfIdle = $false
+$settings.IdleSettings.StopOnIdleEnd = $false
+$settings.IdleSettings.RestartOnIdle = $false
+$settings.ExecutionTimeLimit = 'PT0S'
+$settings.Enabled = $enabled
+$principal = $definition.Principal
+$logonType = [int]$principal.LogonType
+if ($logonType -eq 1 -or $logonType -eq 6) {
+    throw 'Cannot migrate a password-based task without its credentials'
+}
+$identity = $principal.UserId
+if ($logonType -eq 4) { $identity = $principal.GroupId }
+# UPDATE only + DONT_ADD_PRINCIPAL_ACE + IGNORE_REGISTRATION_TRIGGERS.
+# Keep the existing definition and security descriptor; never create on a race.
+$null = $folder.RegisterTaskDefinition($task.Name, $definition, 52, $identity, $null, $logonType, $null)
+$verified = $folder.GetTask($env:FH_AUTOSTART_TASK).Definition.Settings
+if ([bool]$verified.Enabled -ne $enabled -or $verified.DisallowStartIfOnBatteries -or
+    $verified.StopIfGoingOnBatteries -or $verified.RunOnlyIfIdle -or
+    $verified.IdleSettings.StopOnIdleEnd -or $verified.IdleSettings.RestartOnIdle -or
+    $verified.ExecutionTimeLimit -ne 'PT0S') { throw 'Task migration verification failed' }
+'Migrated'
+"#, "throw 'Task disappeared during migration'")?;
+        match result.as_str() {
+            "Unchanged" => Ok(None),
+            "Migrated" => Ok(Some("migrated battery/idle/timeout settings; enabled state preserved".to_string())),
+            _ => Err(format!("未知迁移结果：{result:?}")),
         }
-        if !exe.exists() {
-            return Err(format!("前端不在 {}", exe.display()));
-        }
-        create_task(exe).map(Some)
+    }
+
+    /// 只删除前端历史 HKCU Run 值，不碰启动器、其他值或 StartupApproved。
+    pub fn cleanup_legacy_run() -> Result<(), String> {
+        let result = powershell(r#"
+$key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
+if ($null -eq $key) { 'Clean'; return }
+try {
+    $key.DeleteValue('FantasyHubFrontend', $false)
+    if ($key.GetValueNames() -contains 'FantasyHubFrontend') { throw 'Legacy Run cleanup verification failed' }
+} finally { $key.Dispose() }
+'Clean'
+"#)?;
+        if result == "Clean" { Ok(()) } else { Err(format!("未知旧 Run 清理结果：{result:?}")) }
     }
 
     /// 建立任务：登录后延迟 10 秒，以当前用户、**不提权**启动 `exe --autostart`。
@@ -189,7 +321,6 @@ mod win {
         let path_text = path.display().to_string();
         let out = schtasks(&[
             "/create",
-            "/f",
             "/tn",
             TASK_NAME,
             "/xml",
@@ -321,12 +452,25 @@ mod win {
 }
 
 #[cfg(windows)]
-pub use win::{create_task, delete_task, ensure_task_if_missing, run_task, set_task_enabled, task_exists};
+pub use win::{
+    cleanup_legacy_run, create_task, delete_task, ensure_task_if_missing, run_task,
+    set_task_enabled, task_exists, task_state,
+};
 
-/// 非 Windows：没有计划任务这回事（本机 `cargo check` 也编得过）。
+/// 非 Windows 不支持任务查询，不伪装为 Windows 上的任务缺失。
 #[cfg(not(windows))]
-pub fn task_exists() -> bool {
-    false
+pub fn task_state() -> Result<TaskState, String> {
+    Err("非 Windows 上没有计划任务".to_string())
+}
+
+#[cfg(not(windows))]
+pub fn task_exists() -> Result<bool, String> {
+    task_state().map(|state| state != TaskState::Missing)
+}
+
+#[cfg(not(windows))]
+pub fn cleanup_legacy_run() -> Result<(), String> {
+    Err("非 Windows 上没有 HKCU Run".to_string())
 }
 
 #[cfg(not(windows))]
@@ -352,4 +496,23 @@ pub fn delete_task() -> Result<String, String> {
 #[cfg(not(windows))]
 pub fn create_task(_exe: &Path) -> Result<String, String> {
     Err("非 Windows 上没有计划任务".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_task_state, TaskState};
+
+    #[test]
+    fn task_state_protocol_preserves_disabled_and_missing() {
+        assert_eq!(parse_task_state("Missing\r\n"), Ok(TaskState::Missing));
+        assert_eq!(parse_task_state("Enabled"), Ok(TaskState::Enabled));
+        assert_eq!(parse_task_state("Disabled\r\n"), Ok(TaskState::Disabled));
+    }
+
+    #[test]
+    fn task_state_protocol_never_treats_errors_as_missing() {
+        for output in ["", "False", "Access denied", "Ready", "Missing\nEnabled"] {
+            assert!(parse_task_state(output).is_err(), "{output:?}");
+        }
+    }
 }

@@ -238,7 +238,7 @@ mod windows {
         if enabled {
             enable_login()?;
         } else {
-            disable_autostart();
+            disable_autostart()?;
         }
         Ok(())
     }
@@ -246,21 +246,32 @@ mod windows {
     /// Drop a shell takeover from 0.1.6/0.1.7, then keep a normal login start if the user had opted in.
     pub fn prepare() {
         clear_suppress();
-        let opted_in = shell_is_ours() || keep_alive_exists() || old_launch_exists() || run_value_exists();
-        release_shell();
-        if !opted_in {
-            return;
+        let opted_in = if shell_is_ours() || keep_alive_exists() || run_value_exists() {
+            Ok(true)
+        } else {
+            old_launch_exists()
+        };
+        // Always recover the Windows shell, even if migration cannot proceed.
+        recover_shell();
+        let result = opted_in.and_then(|opted_in| {
+            if opted_in {
+                enable_login()
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(err) = result {
+            eprintln!("[startup::prepare] Login startup migration failed; cleanup stopped: {err}");
         }
-        let _ = write_run_value();
-        delete_task(OLD_TASK);
-        remove_shortcut();
     }
 
     pub fn hold_until_next_sign_in() {
         if let Some(dir) = state_dir() {
             let _ = std::fs::write(dir.join("suppress"), "");
         }
-        release_shell();
+        if let Err(err) = release_shell() {
+            eprintln!("[startup::hold_until_next_sign_in] Legacy startup cleanup failed: {err}");
+        }
     }
 
     pub fn start_explorer() {
@@ -568,37 +579,41 @@ mod windows {
     }
 
     fn enable_login() -> Result<(), String> {
-        release_shell();
+        recover_shell();
         write_run_value()?;
-        delete_task(OLD_TASK);
-        remove_shortcut();
+        release_shell()?;
+        delete_task(OLD_TASK)?;
+        remove_shortcut()?;
         Ok(())
     }
 
-    fn disable_autostart() {
-        release_shell();
+    fn disable_autostart() -> Result<(), String> {
+        release_shell()?;
         if let Some(dir) = state_dir() {
             let _ = std::fs::remove_file(dir.join("suppress"));
         }
-        delete_task(OLD_TASK);
-        remove_shortcut();
+        delete_task(OLD_TASK)?;
+        remove_shortcut()?;
         clear_run_values();
+        Ok(())
     }
 
     /// Winlogon Shell must stay the Windows shell. Replacing it stops Xbox Game Bar and the Xbox button.
-    fn release_shell() {
-        let was_shell = shell_is_ours();
-        if was_shell {
+    fn recover_shell() {
+        if shell_is_ours() {
             restore_shell();
+            start_explorer();
         }
+    }
+
+    fn release_shell() -> Result<(), String> {
+        recover_shell();
+        delete_task(WATCH_TASK)?;
         if let Some(dir) = state_dir() {
             let _ = std::fs::remove_file(dir.join("keep-alive"));
             let _ = std::fs::remove_file(dir.join("watch.ps1"));
         }
-        delete_task(WATCH_TASK);
-        if was_shell {
-            start_explorer();
-        }
+        Ok(())
     }
 
     fn write_run_value() -> Result<(), String> {
@@ -610,7 +625,16 @@ mod windows {
         let quoted = format!("\"{}\"", exe.display());
         key.set_value("FantasyHub", &quoted)
             .map_err(|err| pick(&format!("无法开启开机自启：{err}"), &format!("Couldn't turn on startup: {err}")))?;
-        let _ = key.delete_value("handheld-launcher");
+        let actual: String = key.get_value("FantasyHub")
+            .map_err(|err| format!("Couldn't verify login startup entry: {err}"))?;
+        if actual != quoted {
+            return Err("Login startup entry verification failed: value does not match".into());
+        }
+        match key.delete_value("handheld-launcher") {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("Couldn't remove legacy login startup value: {err}")),
+        }
         Ok(())
     }
 
@@ -649,8 +673,8 @@ mod windows {
         state_dir().is_some_and(|dir| dir.join("keep-alive").is_file())
     }
 
-    fn old_launch_exists() -> bool {
-        task_exists(OLD_TASK) || task_exists(WATCH_TASK) || shortcut_path().is_some_and(|path| path.is_file()) || run_value_exists()
+    fn old_launch_exists() -> Result<bool, String> {
+        Ok(task_exists(OLD_TASK)? || task_exists(WATCH_TASK)? || shortcut_path().is_some_and(|path| path.is_file()) || run_value_exists())
     }
 
     fn shell_value() -> Option<String> {
@@ -697,24 +721,75 @@ mod windows {
         }
     }
 
-    fn task_exists(name: &str) -> bool {
-        hidden(&mut Command::new("schtasks"))
-            .args(["/Query", "/TN", name])
+    fn task_exists(name: &str) -> Result<bool, String> {
+        let system_root = std::env::var_os("SystemRoot")
+            .ok_or_else(|| "Couldn't query startup task: SystemRoot is missing".to_string())?;
+        let exe = PathBuf::from(system_root)
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        // Only HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) means missing.
+        // Do not interpret localized schtasks errors as task absence.
+        let script = r#"
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+try {
+    $service = New-Object -ComObject 'Schedule.Service'
+    $service.Connect()
+    $folder = $service.GetFolder('\')
+    try { $task = $folder.GetTask($env:FH_STARTUP_TASK) } catch {
+        $errorObject = $_.Exception
+        $notFound = $false
+        while ($null -ne $errorObject) {
+            if ($errorObject.HResult -eq -2147024894) { $notFound = $true }
+            $errorObject = $errorObject.InnerException
+        }
+        if ($notFound) { 'Missing'; exit 0 }
+        throw
+    }
+    'Exists'
+} catch {
+    [Console]::Error.WriteLine($_.Exception.ToString())
+    exit 1
+}
+"#;
+        let output = hidden(&mut Command::new(exe))
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+            .env("FH_STARTUP_TASK", name)
             .output()
-            .is_ok_and(|output| output.status.success())
+            .map_err(|err| format!("Couldn't query startup task {name}: {err}"))?;
+        if !output.status.success() {
+            return Err(format!("Couldn't query startup task {name} (exit {:?}): {}",
+                output.status.code(), String::from_utf8_lossy(&output.stderr)));
+        }
+        match String::from_utf8_lossy(&output.stdout).trim() {
+            "Exists" => Ok(true),
+            "Missing" => Ok(false),
+            text => Err(format!("Unexpected startup task query response for {name}: {text}")),
+        }
     }
 
-    fn delete_task(name: &str) {
-        let _ = hidden(&mut Command::new("schtasks"))
+    fn delete_task(name: &str) -> Result<(), String> {
+        if !task_exists(name)? {
+            return Ok(());
+        }
+        let output = hidden(&mut Command::new("schtasks"))
             .args(["/Delete", "/F", "/TN", name])
-            .output();
+            .output()
+            .map_err(|err| format!("Couldn't delete startup task {name}: {err}"))?;
+        if !output.status.success() {
+            return Err(format!("Couldn't delete startup task {name} (exit {:?}): {} {}",
+                output.status.code(), String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)));
+        }
+        Ok(())
     }
 
-    fn remove_shortcut() {
-        if let Some(path) = shortcut_path() {
-            if path.is_file() {
-                let _ = std::fs::remove_file(path);
-            }
+    fn remove_shortcut() -> Result<(), String> {
+        let path = shortcut_path()
+            .ok_or_else(|| "Couldn't locate legacy startup shortcut: APPDATA is missing".to_string())?;
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(format!("Couldn't delete startup shortcut {}: {err}", path.display())),
         }
     }
 

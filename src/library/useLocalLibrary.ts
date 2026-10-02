@@ -309,7 +309,12 @@ function markScanChecked(command: string) {
   }
 }
 
+const scanMemory = new Map<string, unknown[]>();
+const pendingScans = new Map<string, Promise<unknown[]>>();
+
 function readScanCache<TRaw>(command: string): TRaw[] | null {
+  const memory = scanMemory.get(command);
+  if (memory) return memory as TRaw[];
   try {
     const raw = localStorage.getItem(scanCacheKey(command));
     if (raw == null) return null;
@@ -321,7 +326,33 @@ function readScanCache<TRaw>(command: string): TRaw[] | null {
 }
 
 function writeScanCache<TRaw>(command: string, rows: TRaw[]) {
-  localStorage.setItem(scanCacheKey(command), JSON.stringify(rows));
+  scanMemory.set(command, rows);
+  try {
+    localStorage.setItem(scanCacheKey(command), JSON.stringify(rows));
+  } catch {
+    // A full / disabled persistent cache must not discard a successful scan.
+  }
+}
+
+function requestScan<TRaw>(command: string): Promise<TRaw[]> {
+  const pending = pendingScans.get(command);
+  if (pending) return pending as Promise<TRaw[]>;
+  if (pendingScans.size === 0) startLoadingSfx();
+  let succeeded = false;
+  const request = invoke<TRaw[]>(command)
+    .then((rows) => {
+      writeScanCache(command, rows);
+      succeeded = true;
+      return rows;
+    })
+    .finally(() => {
+      pendingScans.delete(command);
+      // Sound belongs to the shared request, not to a page that can unmount.
+      if (pendingScans.size === 0) stopLoadingSfx(succeeded);
+      else if (succeeded) playSfx("done");
+    });
+  pendingScans.set(command, request);
+  return request;
 }
 
 function useScanned<TRaw, T extends { name: string }>(
@@ -345,12 +376,12 @@ function useScanned<TRaw, T extends { name: string }>(
   });
   const [error, setError] = useState("");
   const [scanning, setScanning] = useState(false);
+  const activeScan = useRef<{ current: boolean } | null>(null);
 
   const finish = useCallback(
     (rows: TRaw[], cancel: { current: boolean }) => {
-      writeScanCache(command, rows);
-      const next = rows.map(map).sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
       if (cancel.current) return;
+      const next = rows.map(map).sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
       setItems(next);
       setError("");
       markScanChecked(command);
@@ -363,19 +394,17 @@ function useScanned<TRaw, T extends { name: string }>(
 
   const run = useCallback(
     (cancel: { current: boolean }) => {
+      if (activeScan.current && activeScan.current !== cancel) activeScan.current.current = true;
+      activeScan.current = cancel;
       setScanning(true);
-      startLoadingSfx();
       setError("");
-      invoke<TRaw[]>(command)
+      void requestScan<TRaw>(command)
         .then((rows) => finish(rows, cancel))
         .catch((err: unknown) => {
           if (!cancel.current) setError(formatError(err));
         })
         .finally(() => {
-          if (!cancel.current) {
-            setScanning(false);
-            stopLoadingSfx(true);
-          }
+          if (!cancel.current) setScanning(false);
         });
     },
     [command, finish],
@@ -385,8 +414,21 @@ function useScanned<TRaw, T extends { name: string }>(
     if (!native) return;
     const cached = readScanCache<TRaw>(command);
     const cancel = { current: false };
+    activeScan.current = cancel;
+    const cleanup = () => {
+      cancel.current = true;
+      if (activeScan.current) activeScan.current.current = true;
+      activeScan.current = null;
+    };
+    // Rejoin a manual scan too, even when an older cache is already available.
+    if (pendingScans.has(command)) {
+      run(cancel);
+      return cleanup;
+    }
     if (cached) {
       const mapped = cached.map(map).sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
+      setItems(mapped);
+      setScanning(false);
       // Cached rows already carry the covers/icons a previous follow-up saved.
       // Only redo that work when it is stale — switching tabs must not re-fetch
       // every missing cover (each one waits out its own network timeout).
@@ -396,14 +438,10 @@ function useScanned<TRaw, T extends { name: string }>(
           if (!cancel.current) setItems(updated);
         });
       }
-      return () => {
-        cancel.current = true;
-      };
+      return cleanup;
     }
     run(cancel);
-    return () => {
-      cancel.current = true;
-    };
+    return cleanup;
   }, [afterLoad, command, map, native, run]);
 
   const rescan = useCallback(() => {

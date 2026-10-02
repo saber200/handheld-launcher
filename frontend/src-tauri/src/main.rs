@@ -46,9 +46,9 @@ fn set_locale(locale: String) {
 /// 安装/更新前，安装器（或启动器工具箱）会写一个标记文件请前端退出
 /// （见 `fh_core::handshake`）：看到就**真正退出进程**，好让安装器覆盖 exe。
 /// 每隔两秒看一眼，代价可以忽略。
-fn watch_update_handshake(app: tauri::AppHandle) {
+fn watch_update_handshake(app: tauri::AppHandle, started: std::time::SystemTime) {
     std::thread::spawn(move || loop {
-        if fh_core::handshake::quitting_requested() {
+        if fh_core::handshake::quitting_requested_since(started) {
             fh_core::logutil::write_line("quit for update (asked by installer)");
             overlay::request_quit();
             app.exit(0);
@@ -59,6 +59,7 @@ fn watch_update_handshake(app: tauri::AppHandle) {
 }
 
 fn main() {
+    let started = std::time::SystemTime::now();
     fh_core::logutil::init_for("FantasyHubFrontend");
     // 前端是托盘常驻程序，**崩了没人看得见**（GUI 子系统没有控制台）。装钩子之后
     // 「起来两秒后自己没了」会留下一行 `panic (…)`；没有这一行就是「没在跑 / 按键没进来」。
@@ -75,7 +76,9 @@ fn main() {
     // 单实例必须第一个注册：第二次启动只把已经在跑的实例叫出来，不会多一个托盘图标。
     builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
         handle_args(app, &args);
-        overlay::show(app, "second instance");
+        if !args.iter().any(|arg| matches!(arg.as_str(), "--autostart" | "--enable-autostart" | "--disable-autostart" | "--show")) {
+            overlay::show(app, "second instance");
+        }
     }));
     builder = builder
         .plugin(tauri_plugin_autostart::init(
@@ -112,9 +115,9 @@ fn main() {
                 fh_core::logutil::write_line(&format!("global shortcut unavailable: {err}"));
             }
             chord::start(app.handle().clone());
-            watch_update_handshake(app.handle().clone());
+            watch_update_handshake(app.handle().clone(), started);
             fh_core::logutil::write_line(&format!(
-                "frontend ready (visible={}, autostart={})",
+                "frontend ready (visible={}, autostart={:?})",
                 overlay::is_visible(),
                 tray::autostart_enabled(app.handle())
             ));
@@ -149,13 +152,15 @@ fn handle_args(app: &tauri::AppHandle, args: &[String]) {
         fh_core::logutil::write_line("launched by autostart");
         // 新的一次登录：上一次「用户主动退出前端」的意图不再适用
         // （启动器启动时会读这个标记，决定要不要补拉起前端，见 fh_core::autostart）。
-        fh_core::autostart::clear_stopped();
+        if let Err(err) = fh_core::autostart::clear_stopped() {
+            fh_core::logutil::write_line(&format!("autostart clear stopped failed: {err}"));
+        }
     }
     if has("--enable-autostart") {
-        tray::set_autostart(app, true);
+        let _ = tray::set_autostart(app, true);
     }
     if has("--disable-autostart") {
-        tray::set_autostart(app, false);
+        let _ = tray::set_autostart(app, false);
     }
     if has("--show") {
         overlay::show(app, "argv --show");

@@ -75,6 +75,9 @@ pub async fn file_copy(from: String, dest_dir: String) -> Result<(), String> {
 fn copy_entry(from: String, dest_dir: String) -> Result<(), String> {
     let from = PathBuf::from(from);
     let dest_dir = PathBuf::from(dest_dir);
+    if is_drive_root(&from) {
+        return Err(pick("不能复制磁盘根目录", "Can't copy a volume root."));
+    }
     if !from.exists() {
         return Err(pick("找不到要复制的项目", "Couldn't find the item to copy."));
     }
@@ -99,13 +102,14 @@ pub async fn file_delete(path: String) -> Result<(), String> {
 }
 
 fn delete_entry(path: String) -> Result<(), String> {
-    let path = PathBuf::from(path.trim());
-    if is_drive_root(&path) {
-        return Err(pick("不能删除盘符", "A drive can't be deleted."));
+    let path = PathBuf::from(path);
+    if is_drive_root(&path) || std::fs::canonicalize(&path).is_ok_and(|p| is_drive_root(&p)) {
+        return Err(pick("不能删除盘符或共享根目录", "Can't delete a volume or share root."));
     }
     if !path.exists() {
         return Err(pick("找不到要删除的项目", "Couldn't find the item to delete."));
     }
+    reject_reparse_dir(&path)?;
     let removed = if path.is_dir() {
         std::fs::remove_dir_all(&path)
     } else {
@@ -115,9 +119,45 @@ fn delete_entry(path: String) -> Result<(), String> {
 }
 
 fn is_drive_root(path: &Path) -> bool {
+    if path.parent().is_none() && path.has_root() {
+        return true;
+    }
+    // Windows Path::components handles drive, UNC and verbatim share prefixes.
+    // The textual check also protects Windows paths in cross-platform unit tests.
     let text = path.to_string_lossy().replace('/', "\\");
+    let text = text.strip_prefix("\\\\?\\").unwrap_or(&text);
+    let text = text.strip_prefix("\\\\.\\").unwrap_or(text);
     let trimmed = text.trim_end_matches('\\');
-    trimmed.len() == 2 && trimmed.as_bytes().get(1) == Some(&b':')
+    let bytes = trimmed.as_bytes();
+    if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return true;
+    }
+    if let Some(share) = trimmed.strip_prefix("UNC\\").or_else(|| trimmed.strip_prefix("\\\\")) {
+        let mut parts = share.split('\\');
+        return parts.next().is_some_and(|s| !s.is_empty())
+            && parts.next().is_some_and(|s| !s.is_empty())
+            && parts.next().is_none();
+    }
+    false
+}
+
+fn reject_reparse_dir(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        // Reject directory junctions/symlinks anywhere in the tree: recursively
+        // deleting or copying through a junction must never reach another volume.
+        if path.is_dir() {
+            let metadata = std::fs::symlink_metadata(path).map_err(|err| err.to_string())?;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return Err(pick("不能操作目录链接", "Can't operate on a directory link."));
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = path;
+    Ok(())
 }
 
 #[tauri::command]
@@ -131,9 +171,13 @@ pub async fn file_move(from: String, dest_dir: String) -> Result<(), String> {
 fn move_entry(from: String, dest_dir: String) -> Result<(), String> {
     let from = PathBuf::from(from);
     let dest_dir = PathBuf::from(dest_dir);
+    if is_drive_root(&from) || std::fs::canonicalize(&from).is_ok_and(|p| is_drive_root(&p)) {
+        return Err(pick("不能移动磁盘根目录", "Can't move a volume root."));
+    }
     if !from.exists() {
         return Err(pick("找不到要移动的项目", "Couldn't find the item to move."));
     }
+    reject_reparse_dir(&from)?;
     if !dest_dir.is_dir() {
         return Err(pick("只能移动到文件夹里", "Move into a folder."));
     }
@@ -149,16 +193,36 @@ fn move_entry(from: String, dest_dir: String) -> Result<(), String> {
     if dest.exists() {
         return Err(pick("目标里已经有同名项目", "That name is already here."));
     }
-    if std::fs::rename(&from, &dest).is_ok() {
-        return Ok(());
+    match std::fs::rename(&from, &dest) {
+        Ok(()) => return Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::CrossesDevices => {}
+        Err(err) => return Err(pick(&format!("无法移动：{err}"), &format!("Couldn't move: {err}"))),
     }
-    copy_path(&from, &dest).map_err(|err| pick(&format!("无法移动：{err}"), &format!("Couldn't move: {err}")))?;
-    let removed = if from.is_dir() {
-        std::fs::remove_dir_all(&from)
-    } else {
-        std::fs::remove_file(&from)
-    };
-    removed.map_err(|err| pick(&format!("已经复制到目标，但原位置没删掉：{err}"), &format!("Copied, but the original is still there: {err}")))
+    // Reserve the staging name atomically; never clean up another process's path.
+    let is_dir = from.is_dir();
+    let staged = (0u32..100).find_map(|attempt| {
+        let candidate = dest_dir.join(format!(".fantasyhub-move-{}-{attempt}-{name}", std::process::id()));
+        let result = if is_dir {
+            std::fs::create_dir(&candidate)
+        } else {
+            std::fs::OpenOptions::new().write(true).create_new(true).open(&candidate).map(|_| ())
+        };
+        match result {
+            Ok(()) => Some(Ok(candidate)),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => None,
+            Err(err) => Some(Err(err)),
+        }
+    }).ok_or_else(|| "无法分配移动临时位置".to_string())?
+      .map_err(|err| err.to_string())?;
+    if let Err(err) = copy_path(&from, &staged) {
+        let _ = remove_path(&staged);
+        return Err(pick(&format!("无法移动：{err}"), &format!("Couldn't move: {err}")));
+    }
+    if let Err(err) = std::fs::rename(&staged, &dest) {
+        let _ = remove_path(&staged);
+        return Err(pick(&format!("无法完成移动：{err}"), &format!("Couldn't finish move: {err}")));
+    }
+    remove_path(&from).map_err(|err| pick(&format!("已经复制到目标，但原位置可能只删了一部分：{err}"), &format!("Copied, but the original may be partially removed: {err}")))
 }
 
 #[tauri::command]
@@ -442,7 +506,18 @@ fn same_path(a: &Path, b: &Path) -> bool {
     }
 }
 
+fn remove_path(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) }
+}
+
 fn copy_path(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    if from.is_dir() {
+        use std::os::windows::fs::MetadataExt;
+        if std::fs::symlink_metadata(from)?.file_attributes() & 0x400 != 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "directory reparse point"));
+        }
+    }
     if from.is_dir() {
         std::fs::create_dir_all(to)?;
         for item in std::fs::read_dir(from)? {
@@ -573,6 +648,11 @@ mod tests {
         assert!(is_drive_root(std::path::Path::new("C:\\")));
         assert!(is_drive_root(std::path::Path::new("D:")));
         assert!(!is_drive_root(std::path::Path::new("C:\\Games")));
+        assert!(is_drive_root(std::path::Path::new(r"\\server\share\")));
+        assert!(is_drive_root(std::path::Path::new(r"\\?\UNC\server\share\")));
+        assert!(is_drive_root(std::path::Path::new(r"\\?\C:\")));
+        assert!(!is_drive_root(std::path::Path::new(r"\\server\share\Games")));
+        assert!(!is_drive_root(std::path::Path::new(r"\\?\C:\Games")));
         let dir = std::env::temp_dir().join(format!("hl-del-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

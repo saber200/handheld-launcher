@@ -77,8 +77,8 @@ fn payload_path(app: &tauri::AppHandle) -> Option<PathBuf> {
 ///   1. **先补齐计划任务**：前端装着、任务不在就建一个（把老版本写的 HKCU Run 迁过来）。
 ///      这是「FSE 会话里前端压根不会被启动」的根治 —— Run 键由 explorer 处理，Xbox 模式
 ///      的会话里没有 explorer。任务也顺带管「崩溃后被拉回来」（见任务 XML 的 RestartOnFailure）。
-///   2. **优先用任务启动**（`schtasks /run`）：任务写的是普通权限，而这里直接 spawn 会继承
-///      启动器的**管理员**权限 —— 同一个前端两种权限，UIPI 会让它在 FSE 下的表现不一致。
+///   2. **仅用任务启动**（`schtasks /run`）：任务写的是普通权限，直接 spawn 会继承
+///      启动器的**管理员**权限；任务不可用则让用户从普通权限前端手动启动。
 ///   3. **尊重用户意图**：这一轮登录里用户从托盘点过「退出前端」，就不补启动
 ///      （`fh_core::autostart::stopped_by_user`）；下一次登录任务会重新拉起它。
 ///
@@ -90,7 +90,9 @@ pub fn ensure_running() {
 
     let exe = frontend_exe(FRONTEND_EXE);
 
-    // 1) 自启任务：装着但任务不在就建（不覆盖已存在的 —— 用户可能在托盘关掉过自启）。
+    // 已有任务以系统状态为准；本地意图只在确认任务缺失时由共享层读取。
+    // 查询错误不能当成任务缺失，也不能直接提权启动前端。
+    // 1) 补齐任务并迁移旧限制，保留禁用状态。
     if let Some(path) = exe.as_ref() {
         match fh_core::autostart::ensure_task_if_missing(path) {
             Ok(Some(note)) => {
@@ -98,7 +100,7 @@ pub fn ensure_running() {
             }
             Ok(None) => {}
             Err(err) => crate::logutil::write_line(&format!(
-                "frontend autostart task failed: {err}（不影响这次启动，退回直接启动）"
+                "frontend autostart task failed: {err}（不直接启动，避免继承管理员权限）"
             )),
         }
     }
@@ -115,7 +117,18 @@ pub fn ensure_running() {
     }
 
     // 2) 优先让计划任务来启动：普通权限、且以后崩了有人拉。
-    if fh_core::autostart::task_exists() {
+    let task_state = match fh_core::autostart::task_state() {
+        Ok(state) => state,
+        Err(err) => {
+            crate::logutil::write_line(&format!("frontend ensure: task query failed: {err}"));
+            return;
+        }
+    };
+    if task_state == fh_core::autostart::TaskState::Disabled {
+        crate::logutil::write_line("frontend ensure: task disabled; skip start");
+        return;
+    }
+    if task_state == fh_core::autostart::TaskState::Enabled {
         match fh_core::autostart::run_task() {
             Ok(note) => {
                 crate::logutil::write_line(&format!(
@@ -123,9 +136,12 @@ pub fn ensure_running() {
                 ));
                 return;
             }
-            Err(err) => crate::logutil::write_line(&format!(
-                "frontend ensure: task run failed: {err}（退回直接启动）"
-            )),
+            Err(err) => {
+                crate::logutil::write_line(&format!(
+                    "frontend ensure: task run failed: {err}（不直接启动，避免继承管理员权限）"
+                ));
+                return;
+            }
         }
     }
 
@@ -135,17 +151,10 @@ pub fn ensure_running() {
         );
         return;
     };
-    match std::process::Command::new(&exe).spawn() {
-        Ok(child) => crate::logutil::write_line(&format!(
-            "frontend ensure: started pid={} path={}",
-            child.id(),
-            exe.display()
-        )),
-        Err(err) => crate::logutil::write_line(&format!(
-            "frontend ensure: start failed: {err} path={}",
-            exe.display()
-        )),
-    }
+    crate::logutil::write_line(&format!(
+        "frontend ensure: task unavailable; skip elevated direct start path={}",
+        exe.display()
+    ));
 }
 
 /// 前端 exe 在哪：先问它自己写的 `frontend.json`，再退回默认安装目录。
@@ -193,7 +202,14 @@ fn run_installer(payload: &PathBuf) -> Result<String, String> {
         Ok(status) => InstallOutcome::Failed(format!("安装器退出码 {}", status.code().unwrap_or(-1))),
         Err(err) => InstallOutcome::Failed(err.to_string()),
     };
-    fh_core::handshake::clear();
+    if let Err(err) = fh_core::handshake::clear() {
+        let detail = match &outcome {
+            InstallOutcome::Installed => format!("安装器已完成，但{err}"),
+            InstallOutcome::Failed(reason) => format!("安装失败：{reason}；{err}"),
+        };
+        crate::logutil::write_line(&detail);
+        return Err(detail);
+    }
 
     match outcome {
         InstallOutcome::Installed => {

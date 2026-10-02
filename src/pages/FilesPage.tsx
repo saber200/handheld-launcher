@@ -226,7 +226,7 @@ export function FilesPage() {
   const menuTargets =
     menu == null
       ? []
-      : files.entries.filter((entry) => picked.includes(entry.path)).length > 0
+      : picked.includes(menu.path)
         ? files.entries.filter((entry) => picked.includes(entry.path))
         : [menu];
 

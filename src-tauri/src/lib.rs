@@ -197,11 +197,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     app.run(|app, event| {
-        if let tauri::RunEvent::ExitRequested { api, .. } = event {
-            if !startup::quit_allowed() {
+        match event {
+            tauri::RunEvent::ExitRequested { api, .. } if !startup::quit_allowed() => {
                 api.prevent_exit();
                 reopen_main(app.clone());
             }
+            tauri::RunEvent::Exit => fh_core::ipc::clear_discovery_if_pid(std::process::id()),
+            _ => {}
         }
     });
 }

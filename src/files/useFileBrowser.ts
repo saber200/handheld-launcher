@@ -281,10 +281,10 @@ export function useFileBrowser() {
           : await invoke<FileEntry[]>("file_list", { path });
       rememberRows(path, rows);
       setNativeEntries(rows);
-      setNote("");
     } catch (err) {
       setNativeEntries([]);
-      setNote(formatError(err));
+      const message = formatError(err);
+      setNote((current) => current ? `${current}\n${message}` : message);
     }
   }, []);
 
@@ -301,7 +301,6 @@ export function useFileBrowser() {
         if (!cancel) {
           rememberRows(location, rows);
           setNativeEntries(rows);
-          setNote("");
         }
       } catch (err) {
         if (!cancel) {
@@ -320,12 +319,14 @@ export function useFileBrowser() {
   const enter = useCallback((entry: FileEntry) => {
     if (entry.kind !== "dir") return;
     setLocation(entry.path);
+    setNote("");
     setPendingFocus("");
   }, []);
 
   const up = useCallback(() => {
     if (location == null) return false;
     setLocation(parentPath(location));
+    setNote("");
     setPendingFocus("");
     return true;
   }, [location]);

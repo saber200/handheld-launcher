@@ -127,8 +127,10 @@ pub fn write_discovery(info: &Discovery) -> Result<(), String> {
 }
 
 /// 启动器退出时收掉公布文件，免得前端一直去连一个没人听的端口。
-pub fn clear_discovery() {
-    let _ = std::fs::remove_file(discovery_path());
+pub fn clear_discovery_if_pid(pid: u32) {
+    if read_discovery().is_ok_and(|info| info.pid == pid) {
+        let _ = std::fs::remove_file(discovery_path());
+    }
 }
 
 pub fn read_discovery() -> Result<Discovery, String> {
@@ -137,24 +139,12 @@ pub fn read_discovery() -> Result<Discovery, String> {
     serde_json::from_str(&body).map_err(|err| err.to_string())
 }
 
-/// 32 位十六进制的随机 token。
-///
-/// `RandomState` 的哈希键取自操作系统的随机数，拿它凑出 16 字节，足够防“随便一个本地
-/// 进程就能调功耗”，也省掉一个 rand 依赖。
-pub fn random_token() -> String {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-
-    let mut out = String::with_capacity(32);
-    while out.len() < 32 {
-        let mut hasher = RandomState::new().build_hasher();
-        hasher.write_u64(std::process::id() as u64 ^ out.len() as u64);
-        hasher.write_u64(0x9e37_79b9_7f4a_7c15);
-        let value = hasher.finish();
-        out.push_str(&format!("{value:016x}"));
-    }
-    out.truncate(32);
-    out
+/// 由操作系统安全随机源生成的 256 位十六进制 token。
+/// 注意：同用户可读取发现文件的进程也能读取 token；它不是同用户隔离机制。
+pub fn random_token() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).map_err(|err| format!("无法生成 IPC 密钥：{err}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// 前端侧：发一个请求，返回 `data`。

@@ -44,7 +44,7 @@ pub fn start(app: tauri::AppHandle) {
         const DEADZONE: i32 = 16000;
 
         let mut held = false;
-        // 手柄「在不在」：XInput 读到哪个 index 就算哪个在（循环只用第一个读到的，见下面的 break）。
+        // 手柄「在不在」：XInput 读到哪个 index 就算哪个在；组合键检查所有手柄。
         // 呼不出浮层时先排除这一条 —— 手柄读不到的话按键根本进不来，日志里只会是一片安静。
         // 初值给一个不可能的值（`u32::MAX`）：保证**第一轮**一定打印一条「读到 / 读不到」，
         // 从此「日志里什么都没有」这个状态只可能意味着「前端没在跑」。
@@ -60,7 +60,9 @@ pub fn start(app: tauri::AppHandle) {
                 if unsafe { XInputGetState(index, &mut state) } != 0 {
                     continue;
                 }
-                alive = Some(index);
+                if alive.is_none() {
+                    alive = Some(index);
+                }
                 let buttons = state.Gamepad.wButtons;
                 if buttons & XINPUT_GAMEPAD_BACK != 0 && buttons & XINPUT_GAMEPAD_START != 0 {
                     pressed = true;
@@ -83,14 +85,16 @@ pub fn start(app: tauri::AppHandle) {
                 } else if buttons & XINPUT_GAMEPAD_DPAD_DOWN != 0 || ly < -DEADZONE {
                     dy = 1;
                 }
-                pad = PadState {
-                    dx,
-                    dy,
-                    a: buttons & XINPUT_GAMEPAD_A != 0,
-                    b: buttons & XINPUT_GAMEPAD_B != 0,
-                    start: buttons & XINPUT_GAMEPAD_START != 0,
-                };
-                break;
+                // First connected pad owns UI navigation; every pad may toggle.
+                if alive == Some(index) {
+                    pad = PadState {
+                        dx,
+                        dy,
+                        a: buttons & XINPUT_GAMEPAD_A != 0,
+                        b: buttons & XINPUT_GAMEPAD_B != 0,
+                        start: buttons & XINPUT_GAMEPAD_START != 0,
+                    };
+                }
             }
 
             if alive != pad_index {

@@ -81,19 +81,6 @@ export function SettingsPage({ active }: Props) {
     }
   };
 
-  const enterFullscreen = async () => {
-    if (!isTauri) {
-      setMessage(text().settings.fullscreenPreview);
-      return;
-    }
-    try {
-      await invoke("enter_fullscreen");
-      setMessage(text().settings.fullscreenDone);
-    } catch (e) {
-      setMessage(text().settings.fullscreenFailed(String(e)));
-    }
-  };
-
   const registerFse = async () => {
     if (!isTauri) {
       setMessage(text().settings.fsePreview);
@@ -198,20 +185,6 @@ export function SettingsPage({ active }: Props) {
           <span className={`switch ${autostart ? "on" : ""}`}>
             {autostart ? m.on : m.off}
           </span>
-        </button>
-
-        <button
-          type="button"
-          className="setting-row"
-          data-focusable
-          disabled={busy}
-          onClick={() => void enterFullscreen()}
-        >
-          <span>
-            <strong>{m.fullscreen}</strong>
-            <small>{m.fullscreenHint}</small>
-          </span>
-          <span className="chev">▣</span>
         </button>
 
         <button
