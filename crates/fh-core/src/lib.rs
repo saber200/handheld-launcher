@@ -7,6 +7,7 @@
 //! 铁律：本 crate 不放 `#[tauri::command]`。命令留在各自 app 里，
 //! 否则构建时按 app 源码生成 `allow-<命令名>` 权限会扫不到，capability 直接报错。
 
+pub mod autostart;
 pub mod handshake;
 pub mod i18n;
 pub mod ipc;

@@ -27,6 +27,12 @@ const TAKE_FOCUS: bool = true;
 const RETRY_MAX: u32 = 5;
 const RETRY_GAP_MS: u64 = 120;
 
+/// 上屏之后的「看护」：再盯这么久，被压回去就再顶一次（0.1.53）。
+/// 8 × 350 ms ≈ 2.8 秒，正好覆盖「大屏模式里那个全屏的壳把浮层又压回去」这段窗口期；
+/// 正常情况下一轮都不会触发，只是几条 `on_top` 查询。
+const WATCH_TRIES: u32 = 8;
+const WATCH_GAP_MS: u64 = 350;
+
 static VISIBLE: AtomicBool = AtomicBool::new(false);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
@@ -60,9 +66,23 @@ pub fn toggle(app: &AppHandle, reason: &str) {
     // show() 没真把窗口显示出来，标记就已经变成 true，之后每次按键都在做 hide()。
     // 现在每次都问窗口：它说在屏上才关，否则开。
     let visible = window_visible(app).unwrap_or_else(is_visible);
-    if visible {
+    // **「系统说可见」不等于「人看得见」**（0.1.53 真机结论）：大屏模式（FSE）下浮层
+    // 常常已经 `show()` 成功、`is_visible()` 也是 true，却被铺满整屏的启动器压在下面 ——
+    // 这时按第二次会走 `hide`，于是「桌面模式正常、大屏模式呼不出来」，而用户那边
+    // 看到的是「按了完全没反应」。真机日志里那次 show 紧跟一次 hide 就是这么来的。
+    // 判据再加上「真的落在置顶层」（`topmost::on_top`）：**可见但被压住 → 再顶一次，绝不 hide**。
+    let on_top = app
+        .get_webview_window(WINDOW_LABEL)
+        .map(|window| crate::topmost::on_top(&window))
+        .unwrap_or(true);
+    if visible && on_top {
         hide(app, reason);
     } else {
+        if visible {
+            fh_core::logutil::write_line(&format!(
+                "frontend visible but buried → re-raise instead of hide ({reason})"
+            ));
+        }
         show(app, reason);
     }
 }
@@ -154,6 +174,15 @@ fn settle(window: WebviewWindow, reason: String, generation: u64) {
         if !current() {
             return;
         }
+        // 0.1.53：重试用尽还是没进置顶层 → 上最硬的一下（抢前台 + 再顶），再看一眼结果。
+        // 大屏模式里「顶了但被那个全屏的壳压回来」是最难猜的现场，这一行日志直接说结论。
+        if !on_top {
+            fh_core::logutil::write_line(&format!(
+                "frontend not on top after {RETRY_MAX} retries ({reason}) — hard raise"
+            ));
+            crate::topmost::hard_raise(&window);
+            on_top = crate::topmost::on_top(&window);
+        }
         let layer =
             crate::topmost::probe(&window).unwrap_or_else(|| "probe unavailable".to_string());
         fh_core::logutil::write_line(&format!("frontend layer ({reason}) on_top={on_top} {layer}"));
@@ -161,7 +190,43 @@ fn settle(window: WebviewWindow, reason: String, generation: u64) {
             Ok(note) => fh_core::logutil::write_line(&format!("frontend shot ok {note}")),
             Err(err) => fh_core::logutil::write_line(&format!("frontend shot failed: {err}")),
         }
+        // 最后再盯几秒：被人压回去就再顶（日志放在现场快照之后，所以截的是**被压住的那一刻**，
+        // 那正是最需要看的画面）。
+        keep_on_top(&window, &current, &reason);
     });
+}
+
+/// 上屏之后的一段看护：被压回去就再顶一次，最多 [`WATCH_TRIES`] 轮。
+///
+/// 为什么需要（0.1.53）：用户的原话是「桌面模式能唤出、大屏（FSE）唤不出，切回桌面又可以」——
+/// 这说明前端进程活着，只是浮层上不去。启动器那边现在会**常态让位**
+/// （`overlay_watch::BIG_SCREEN`），正常情况下这里一轮都不会触发；一旦触发，日志会留下
+/// 「buried again」这几行，下一次真机排查不用再猜是谁压的。
+///
+/// 日志只在头 3 次写：8 轮全失败时刷 8 行没有额外信息量。
+fn keep_on_top(window: &WebviewWindow, current: &impl Fn() -> bool, reason: &str) {
+    let mut logged = 0;
+    for _ in 0..WATCH_TRIES {
+        std::thread::sleep(std::time::Duration::from_millis(WATCH_GAP_MS));
+        if !current() {
+            return;
+        }
+        // 用户可能正好在这一刻把它关掉：再顶会带着 `SWP_SHOWWINDOW` 把它又显示出来
+        // （0.1.45 的老坑）。先问一句。
+        if !window.is_visible().unwrap_or(true) {
+            return;
+        }
+        if crate::topmost::on_top(window) {
+            continue;
+        }
+        if logged < 3 {
+            logged += 1;
+            fh_core::logutil::write_line(&format!(
+                "frontend buried again after show ({reason}) — re-raise {logged}"
+            ));
+        }
+        crate::topmost::hard_raise(window);
+    }
 }
 
 pub fn hide(app: &AppHandle, reason: &str) {

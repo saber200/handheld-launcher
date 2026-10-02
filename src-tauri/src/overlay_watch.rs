@@ -38,6 +38,75 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// 现在的状态：浮层在屏上（`overlay-state` 事件的当前值，也供 `overlay_open` 命令回答）。
 static OPEN: AtomicBool = AtomicBool::new(false);
 
+/// 现在是不是**大屏模式（FSE）**：由 `startup.rs` 在切换模式时写入。
+///
+/// 为什么要这个东西（0.1.53 真机结论）：大屏模式下启动器是**铺满整屏的前台窗口**，而浮层
+/// 不一定排在它上面 —— UIPI 规定低完整性进程排不到高完整性窗口上面，而安装器拉起的前端
+/// 与启动器权限还不一定一致。0.1.50 的 `stand_back` 只在「看到浮层真的上屏」那一刻让位，
+/// 真机上仍然会出现「按键没反应」。所以大屏模式里**常态就让位**：壳体根本不进置顶层，
+/// 浮层一出来就自然在它上面。回到桌面模式再把壳体原来的样子还回去。
+static BIG_SCREEN: AtomicBool = AtomicBool::new(false);
+
+/// 大屏模式开始时壳体是不是置顶的：回到桌面模式时按原样还回去，不凭空给它加置顶。
+#[cfg(windows)]
+static SHELL_WAS_TOPMOST: AtomicBool = AtomicBool::new(false);
+
+/// 切换大屏 / 桌面模式时调一次（`startup.rs`）。**立刻生效**，不等下一轮 200 ms 轮询 ——
+/// 用户是在按下 Back+Start 的前一秒才切模式的，让它「等 200 毫秒再说」正是那类玄学 bug。
+pub fn set_big_screen(on: bool) {
+    if BIG_SCREEN.swap(on, Ordering::SeqCst) == on {
+        return;
+    }
+    fh_core::logutil::write_line(&format!("overlay watch: big-screen mode = {on}"));
+    #[cfg(windows)]
+    shell_follow_mode(on);
+}
+
+/// 大屏模式：壳体退出置顶层（让浮层能被顶上来）；回到桌面：还回原来的样子。
+/// 由提权的启动器动手 —— UIPI 允许高完整性进程改写低完整性窗口的 Z 序，反过来不行。
+#[cfg(windows)]
+fn shell_follow_mode(big_screen: bool) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST,
+        SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_TOPMOST,
+    };
+
+    let Some(shell) = own_shell_window() else {
+        fh_core::logutil::write_line("overlay yield: no shell window (mode change)");
+        return;
+    };
+    let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
+    unsafe {
+        let topmost_now = GetWindowLongW(shell, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0;
+        if big_screen {
+            SHELL_WAS_TOPMOST.store(topmost_now, Ordering::SeqCst);
+            if topmost_now {
+                let ok = SetWindowPos(shell, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+                fh_core::logutil::write_line(&format!(
+                    "overlay yield: shell notopmost for big-screen ok={} err={}",
+                    ok != 0,
+                    err_of(ok)
+                ));
+            }
+        } else if SHELL_WAS_TOPMOST.swap(false, Ordering::SeqCst) {
+            let ok = SetWindowPos(shell, HWND_TOPMOST, 0, 0, 0, 0, flags);
+            fh_core::logutil::write_line(&format!(
+                "overlay yield: shell topmost back after big-screen ok={} err={}",
+                ok != 0,
+                err_of(ok)
+            ));
+        }
+    }
+}
+
+/// 壳体现在是不是该退出置顶层（大屏模式下为真）。
+/// `stand_back` 的「收尾还原」分支要用它：大屏模式里不能把置顶还回去，
+/// 否则下一次浮层出来又得靠那一刻的让位去抢，回到同一个老问题。
+#[cfg(windows)]
+fn big_screen() -> bool {
+    BIG_SCREEN.load(Ordering::SeqCst)
+}
+
 /// 前端主程序的文件名，来自 `frontend/src-tauri/tauri.conf.json` 的 `mainBinaryName`。
 /// 按**完整文件名**比对：启动器自己叫 `FantasyHub.exe`，是它的前缀 —— 用「包含」判断会
 /// 把启动器自己也算进去。
@@ -435,13 +504,17 @@ fn stand_back(
                     err_of(ok)
                 ));
             }
-        } else if original {
+        } else if original && !big_screen() {
             let ok = SetWindowPos(shell, HWND_TOPMOST, 0, 0, 0, 0, flags);
             fh_core::logutil::write_line(&format!(
                 "overlay yield: shell topmost back ok={} err={}",
                 ok != 0,
                 err_of(ok)
             ));
+        } else if original {
+            // 大屏模式里**不**把置顶还回去：常态让位，浮层下次出来就自然在上面
+            // （见 `BIG_SCREEN` 的说明）。回到桌面模式时由 `shell_follow_mode` 还回去。
+            fh_core::logutil::write_line("overlay yield: keep notopmost (big-screen mode)");
         }
     }
 }

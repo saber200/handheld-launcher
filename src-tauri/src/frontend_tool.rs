@@ -64,7 +64,7 @@ fn payload_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// 启动器启动时补一次「前端在跑」。
+/// 启动器启动时补一次「前端在跑」，并顺手把「计划任务自启」补齐。
 ///
 /// 为什么越过这里一直守的那条边界（模块开头：「不启动前端、不结束前端」）：
 /// 0.1.51 的真机日志把这段空窗拍得很清楚 —— 更新完之后，安装包替用户启动的那一次前端
@@ -73,25 +73,62 @@ fn payload_path(app: &tauri::AppHandle) -> Option<PathBuf> {
 /// 开机自启起来（那时它在），只有「刚更新完、还没重启」这一段谁都不管，而启动器是这段
 /// 里唯一确定在跑的一方 —— 补上它，Back+Start 才有个能接按键的人。
 ///
-/// 只做两件事，而且**只在启动器启动时做一次**：
-///   1. 前端没在跑 → 按它自己报的路径（`frontend.json`，其次默认安装目录）把它拉起来；
-///   2. 在跑 / 没装 / 路径不存在 → 只记一行日志，什么都不动。
+/// **0.1.53 的三处改动**（依据见 `fh_core::autostart` 顶部）：
+///   1. **先补齐计划任务**：前端装着、任务不在就建一个（把老版本写的 HKCU Run 迁过来）。
+///      这是「FSE 会话里前端压根不会被启动」的根治 —— Run 键由 explorer 处理，Xbox 模式
+///      的会话里没有 explorer。任务也顺带管「崩溃后被拉回来」（见任务 XML 的 RestartOnFailure）。
+///   2. **优先用任务启动**（`schtasks /run`）：任务写的是普通权限，而这里直接 spawn 会继承
+///      启动器的**管理员**权限 —— 同一个前端两种权限，UIPI 会让它在 FSE 下的表现不一致。
+///   3. **尊重用户意图**：这一轮登录里用户从托盘点过「退出前端」，就不补启动
+///      （`fh_core::autostart::stopped_by_user`）；下一次登录任务会重新拉起它。
 ///
-/// 刻意**不做看门狗**：用户从托盘点「退出前端」是明确意图，不能过一会儿又被拉起来；
-/// 也不结束任何进程 —— 边界只放宽「启动时补一次」这一点点。
-/// Windows 专属：判据要扫进程表。
+/// 刻意**不做看门狗**：只在启动器启动时做一次；也不结束任何进程。
+/// Windows 专属：判据要扫进程表、任务要 `schtasks`。
 #[cfg(windows)]
 pub fn ensure_running() {
     use crate::overlay_watch::FRONTEND_EXE;
+
+    let exe = frontend_exe(FRONTEND_EXE);
+
+    // 1) 自启任务：装着但任务不在就建（不覆盖已存在的 —— 用户可能在托盘关掉过自启）。
+    if let Some(path) = exe.as_ref() {
+        match fh_core::autostart::ensure_task_if_missing(path) {
+            Ok(Some(note)) => {
+                crate::logutil::write_line(&format!("frontend autostart task: {note}"))
+            }
+            Ok(None) => {}
+            Err(err) => crate::logutil::write_line(&format!(
+                "frontend autostart task failed: {err}（不影响这次启动，退回直接启动）"
+            )),
+        }
+    }
 
     if crate::overlay_watch::frontend_process_alive() {
         crate::logutil::write_line("frontend ensure: already running (skip start)");
         return;
     }
-    let exe = fh_core::presence::read()
-        .map(|presence| PathBuf::from(presence.exe))
-        .filter(|path| path.exists())
-        .or_else(|| default_exe(FRONTEND_EXE));
+    if fh_core::autostart::stopped_by_user() {
+        crate::logutil::write_line(
+            "frontend ensure: 用户这一轮登录里主动退出过前端（托盘菜单），不补启动",
+        );
+        return;
+    }
+
+    // 2) 优先让计划任务来启动：普通权限、且以后崩了有人拉。
+    if fh_core::autostart::task_exists() {
+        match fh_core::autostart::run_task() {
+            Ok(note) => {
+                crate::logutil::write_line(&format!(
+                    "frontend ensure: started by autostart task ({note})"
+                ));
+                return;
+            }
+            Err(err) => crate::logutil::write_line(&format!(
+                "frontend ensure: task run failed: {err}（退回直接启动）"
+            )),
+        }
+    }
+
     let Some(exe) = exe else {
         crate::logutil::write_line(
             "frontend ensure: not running and not installed（frontend.json 没有、默认目录也没有 —— 工具箱卡片的「安装 / 更新前端」可以装上）",
@@ -109,6 +146,16 @@ pub fn ensure_running() {
             exe.display()
         )),
     }
+}
+
+/// 前端 exe 在哪：先问它自己写的 `frontend.json`，再退回默认安装目录。
+/// 两条都拿不到就是「没装」（`frontend.json` 只有它成功启动过一次才存在）。
+#[cfg(windows)]
+fn frontend_exe(exe_name: &str) -> Option<PathBuf> {
+    fh_core::presence::read()
+        .map(|presence| PathBuf::from(presence.exe))
+        .filter(|path| path.exists())
+        .or_else(|| default_exe(exe_name))
 }
 
 /// 非 Windows 上没有这套（也没有第二个程序来抢手柄）：只留签名，方便本机 `cargo check`

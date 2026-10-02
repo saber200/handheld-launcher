@@ -22,7 +22,7 @@
 | 快捷键 | **全部移除**（Back+Start 监听、Ctrl+H 全局热键、Start 键绑定全删）；手柄侧只保留「设置」键，且改成**双击** View / Share（理由见 §10） | 只有两个：`Back+Start`、`Ctrl+H`，都是开/隐藏切换 |
 | 窗口 | 主窗（无边框全屏 FSE） | 无边框浮窗 440×800、置顶、贴右、`skip_taskbar` + `toolwindow` |
 | 常驻 | 现状 | 托盘常驻；「关闭」= 隐藏，进程不退，秒开 |
-| 自启 | 现状（自己管） | 自己管（HKCU Run，托盘菜单可切换，装好默认开） |
+| 自启 | 现状（自己管） | 自己管：**计划任务** `FantasyHubFrontend`（登录后延迟 10 秒、普通权限、失败重启；0.1.53 起，不依赖 explorer）；HKCU Run 只作兜底，托盘菜单可切换 |
 | FSE 稀疏包身份 | 归启动器 | **不注册**（它不是全屏壳） |
 
 启动器里唯一保留的前端入口：**工具箱 → 「前端」卡片，只做文件级安装/更新/状态**，没有任何「打开/关闭前端」按钮。
@@ -36,6 +36,7 @@
 - 手柄输入：自带 XInput 轮询（不依赖窗口焦点），所以在游戏里、在启动器全屏上都能唤出。
 - **大屏模式（FSE）下的层级**：全屏的启动器是**前台窗口**，而 `set_always_on_top` 只保证窗口**属于**置顶层 —— 同层里谁压谁看**激活顺序**，后台进程的 `show()` / `set_focus()` 又会被 Windows 的前台锁静默挡掉（不报错）。三件事凑一起就是「窗口已显示、位置也对、`is_visible()` 也是 true，人却看不见」。0.1.39–0.1.45 的解法是 `detach_owner` + `force_topmost` + `steal_foreground` 这三件 Win32 手法，0.1.46 拆成独立程序时漏掉了（只剩一句 `set_always_on_top`），0.1.48 补回。现在它们住在 `frontend/src-tauri/src/topmost.rs`，由 `overlay.rs::show()` 在显示前后各调一次，**不要删**。桌面模式看不出差别（启动器只是窗口化的普通窗口），只有大屏模式会露。
 - **排查层级问题**：每次显示都会记一行 `frontend layer (...) on_top=.. hwnd=.. visible=.. | fg=<前台窗口> | ours topmost=.. fg=.. rect=.. | above=<压在我们上面的可见窗口>`。`above` 里出现 `FantasyHub` = 被全屏启动器压住；`topmost=false` = 置顶没写进去；`fg=true` = 前台也抢到了；`hwnd=none` = 连窗口句柄都没拿到（那么置顶那几步全是空操作）。启动器那边另有 `big-screen mode (fill screen)` / `desktop mode (leave fullscreen + start explorer)` 标明当时是哪种模式 —— 否则日志根本看不出按下快捷键时身处哪一屏。
+- **0.1.53 起：大屏模式壳体「常态让位」**。以前只在「看到浮层真的上屏」那一刻让位（上面 `overlay yield` / `overlay raise` 那套），真机上仍然会出现「FSE 里怎么按都不出来」—— 那一刻的时机太窄。现在 `startup.rs` 在切换模式时会调 `overlay_watch::set_big_screen()`：**大屏模式里壳体根本不进置顶层**（`overlay yield: shell notopmost for big-screen ok=…`），回到桌面模式按原样还回去（`… shell topmost back after big-screen ok=…`）。浮层侧也补了「最硬的一下」`topmost::hard_raise`（抢前台 + 再顶，`frontend hard raise: on_top=…`）与上屏后 8 × 350 ms 的短看护（被压回去就再顶，`frontend buried again after show … re-raise n`），并且**判据不再用「系统说可见」**：`toggle()` 只有在「可见 **且** `topmost::on_top`」时才 hide，可见但被压住就再顶一次（`frontend visible but buried → re-raise instead of hide`）—— 0.1.53 真机上「按第二次其实把它关掉了、人却什么都没看见」就是这么来的。
   - **这一行必须永远出现（0.1.50）**：0.1.48 的现场快照挂在 `if let Some(..)` 后面，而它在真机上一次都没打印出来 —— 于是既不知道 Z 序、也不知道前台、更没有像素。现在无论成功失败都写（`hwnd=none visible=? — no handle` 也是一种结论）。
   - **截图取证（0.1.50）**：显示之后（含自检重试）会把浮层那块屏幕区域用 `GetDC(NULL)` + `BitBlt` 拷成一张 24 位 BMP，写在日志同目录 `%APPDATA%\handheld-launcher\overlay-shot.bmp`（每次显示覆盖上一张），并记一行 `frontend shot ok overlay-shot.bmp 660x1200 nonBlack=…% path=…`。「窗口说自己在屏上」和「屏上真有它」是两件事，**像素**是唯一分得开「被压住 / 画到别处 / 页面没渲染」的证据：图里有那块深色面板 = 真画上去了；`nonBlack=0%` = 没画上去，或者那一片抓不到（独占全屏 / 受保护内容抓下来也是黑的，与「没画上去」仍要分开判断）。
   - **自检 + 重试（0.1.50）**：显示之后每 120 ms 问一次 `IsWindowVisible` + `WS_EX_TOPMOST`（`topmost::on_top`，**不是** Tauri 的 `is_visible()` —— 那个被压住时照样 true），最多 5 轮；没到位就再顶一次（`retry_top`，**不碰前台锁**，不像 `grab` 那样补按 Alt），每次重试记 `frontend show retry n/5 (…)`。这段跑在**后台线程**上（托盘菜单与第二实例的回调都在主线程，连等 600 ms 会冻住界面），并且每次显示 / 隐藏都会把代数 `GENERATION` 加一，让上一轮作废 —— 否则它的 `SetWindowPos(..., SWP_SHOWWINDOW)` 会把用户刚关掉的窗口又显示出来。
@@ -56,7 +57,7 @@
 - CI 一次产出两个安装包并在**同一次运行**里按顺序构建：先出前端 NSIS（它顺手建 Release），再把它拷成启动器的 `src-tauri/payload/frontend-setup.exe`（固定文件名，NSIS 脚本不用猜带版本号的名字），最后打启动器 NSIS —— 启动器的 `bundle.resources` 带上这个 payload，装完的 `NSIS_HOOK_POSTINSTALL` 会静默把它装上去。
 - 工具箱「前端」卡片读**前端自己写的** `%APPDATA%\handheld-launcher\frontend.json`（exe 路径 + 版本）来显示"已安装/没装过"，然后运行随包的安装包做**安装 / 更新**。为什么不猜 NSIS 的安装目录：安装位置随安装模式变，猜错就会显示错误状态；由前端自己上报最准。（以前写的"从这里下载前端安装包"改成了用随包的那份：离线可用，掌机上更靠谱。）
 - 覆盖正在运行的前端会因 exe 被占用而失败：走一次性「请退出」握手 —— 安装器写标记文件 `%APPDATA%\handheld-launcher\quit-for-update`，前端每 2 秒看一眼、看到就**真正退出进程**，安装器等 6 秒后覆盖安装、最后删掉标记。**用文件而不是命名事件**：握手一端是 NSIS，读写文件比打开 Windows 命名事件简单可靠得多（也不必上 unsafe 或额外插件）。**这是安装时的一次性握手，不是运行时耦合。**
-- 前端开机自启由**前端安装包**的 post-install 钩子调它自己的开关（`FantasyHubFrontend.exe --enable-autostart`）来完成：走同一套插件写的值名，托盘菜单里的勾选状态必然与注册表一致。前端程序本身仍然不会偷偷写注册表。
+- **自启的落点（0.1.53 起改）**：前端自己的开关仍然由前端的安装钩子触发（`FantasyHubFrontend.exe --enable-autostart` → 托盘菜单里那个勾选项，走同一个值名，状态必然一致；前端程序本身不偷偷写注册表）。但**落点从 HKCU Run 换成计划任务** `FantasyHubFrontend`（`crates/fh-core/src/autostart.rs`）：Run 键由桌面 shell（explorer）在登录时处理，而 Win11「Xbox 模式（全屏体验）」的会话里**没有 explorer** —— 于是 FSE 里前端压根不会被启动（真机上表现为「开机后前端不在」）。任务由任务计划程序拉起，任何会话都在，且能配「失败后重启」（崩溃/被杀会回来；托盘退出是 exit code 0，不算失败，不会被重启）。**建任务这件事由启动器做**（它提权，且启动时本来就要补一次「前端在跑」，见 `frontend_tool::ensure_running`）：任务不在才建、不覆盖已存在的（用户可能在托盘关过自启）；启动时优先 `schtasks /run` —— 任务写的是普通权限，而直接 spawn 会继承启动器的管理员权限，同一个前端两种权限会让 UIPI 在不同会话下表现不一致。这一条**又一次放宽了 §2 的边界**（启动器碰了前端的自启任务），理由同上一条：没人管的那一段空窗只能由唯一确定在跑的一方补上。`frontend-stopped` 标记则保证「用户主动退出」在这一轮登录里被尊重（下次登录由任务启动时清掉）。
 - 卸载：前端由它自己的安装包卸载（Tauri 生成的卸载流程本来就会处理"自己的程序还在跑"）；启动器卸载只删自己的目录/payload，**不杀前端进程**。
 
 ## 6. 代码组织（阶段 1 已落地）
@@ -116,7 +117,7 @@
 新增 `frontend/src-tauri/src/{overlay,tray,chord,text}.rs`：
 
 - `overlay.rs`：显示/隐藏/切换、贴右定位（逻辑宽 440 × 缩放系数、整屏高、先问 `primary_monitor()` 再问窗口自己 —— 对隐藏窗问 `current_monitor()` 在独占全屏下会卡住，这坑启动器里踩过）、`set_always_on_top(true)`、默认抢焦点（常量 `TAKE_FOCUS`，等共享设置文件落地再做成开关）、关窗只隐藏（`CloseRequested` → `prevent_close` + hide）。日志行沿用启动器的措辞：`frontend show begin (reason)` / `frontend shown` / `frontend hidden (reason)`，其中 `reason` 是 `hotkey Control+H`、`chord Back+Start`、`tray click`、`tray menu`、`second instance`、`argv --show`。
-- `tray.rs`：托盘菜单「显示 / 隐藏前端」「开机自启（勾选项）」「退出前端」；左键单击图标也是开关；图标直接用 `default_window_icon()`；自启走 `tauri-plugin-autostart`（HKCU Run，值名取各自的 productName，与启动器的自启互不覆盖）。
+- `tray.rs`：托盘菜单「显示 / 隐藏前端」「开机自启（勾选项）」「退出前端」；左键单击图标也是开关；图标直接用 `default_window_icon()`；自启**0.1.53 起优先驱动计划任务**（`fh_core::autostart`），任务不在时才退回 `tauri-plugin-autostart`（HKCU Run，值名取各自的 productName，与启动器的自启互不覆盖）。托盘安装失败**不再让前端起不来**（只记一行 `tray install failed: …` 继续跑）—— FSE / 无桌面 shell 的会话里 `Shell_NotifyIcon` 可能建不起来，而浮层、手柄、热键都不依赖它。
 - `chord.rs`：XInput 轮询 0→3 号手柄，`XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_START` 同时按下且边沿触发才切换，40 ms 一轮（与启动器现成实现同节奏）；托盘退出时线程自己收工。
 - `text.rs`：托盘文案中/英按系统 UI 语言（`GetUserDefaultUILanguage`，LANGID 低 10 位 == 9 即英文）。**这是过渡方案**，阶段 3/4 接上共享 `settings.json` 的 `locale` 后只剩 `pick`。
 - `main.rs`：注册顺序 `single-instance`（第二实例只叫出现有窗口）→ `autostart`（注册项带 `--autostart`）→ `setup`（参数 → 窗口事件 → 托盘 → 热键 → 手柄轮询）。参数：`--show`、`--enable-autostart` / `--disable-autostart`（安装包用，前端绝不偷偷写注册表）、`--autostart`（由插件注入，只记日志）。

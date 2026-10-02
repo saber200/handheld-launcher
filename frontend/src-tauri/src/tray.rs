@@ -72,14 +72,40 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn autostart_enabled(app: &AppHandle) -> bool {
+    // 计划任务在 → 它就是自启的唯一来源（状态自己记，见 fh_core::autostart 的说明）。
+    if fh_core::autostart::task_exists() {
+        return fh_core::autostart::autostart_switch().unwrap_or(true);
+    }
     use tauri_plugin_autostart::ManagerExt;
     app.autolaunch().is_enabled().unwrap_or(false)
 }
 
-/// 前端自己管自启（HKCU Run），与启动器的自启互不相干。
+/// 前端自己管自启。**0.1.53 起优先用计划任务**（`fh_core::autostart`）：
+/// Run 键由 explorer 处理，Xbox 模式（全屏体验）的会话里根本没有 explorer，
+/// 于是「开机后前端不在」；任务由任务计划程序拉起，并且崩了会被拉回、优雅退出不会重启。
+/// Run 键保留为**兜底**：独立安装（没有启动器）时任务可能建不出来，那时还得靠它。
 pub fn set_autostart(app: &AppHandle, on: bool) -> bool {
-    use tauri_plugin_autostart::ManagerExt;
+    if fh_core::autostart::task_exists() {
+        // 只要任务在，就把老版本写的 Run 键清掉：它在 FSE 里不生效，还会和任务双启动。
+        {
+            use tauri_plugin_autostart::ManagerExt;
+            let _ = app.autolaunch().disable();
+        }
+        let result = fh_core::autostart::set_task_enabled(on);
+        fh_core::autostart::set_autostart_switch(on);
+        let state = autostart_enabled(app);
+        if let Some(items) = app.try_state::<TrayItems>() {
+            let _ = items.autostart.set_checked(state);
+        }
+        fh_core::logutil::write_line(&format!(
+            "autostart set on={on} via task ok={} state={state} detail={:?}",
+            result.is_ok(),
+            result
+        ));
+        return state;
+    }
 
+    use tauri_plugin_autostart::ManagerExt;
     let autolaunch = app.autolaunch();
     let result = if on {
         autolaunch.enable()
@@ -91,7 +117,7 @@ pub fn set_autostart(app: &AppHandle, on: bool) -> bool {
         let _ = items.autostart.set_checked(state);
     }
     fh_core::logutil::write_line(&format!(
-        "autostart set on={on} ok={} state={state}",
+        "autostart set on={on} via run key ok={} state={state}",
         result.is_ok()
     ));
     state
@@ -99,6 +125,9 @@ pub fn set_autostart(app: &AppHandle, on: bool) -> bool {
 
 fn quit_now(app: &AppHandle) {
     overlay::request_quit();
+    // 记下「用户主动退出」：启动器下一次启动时看到这个标记就**不再**补拉起前端
+    // （明确意图优先）；下一次登录由计划任务重新启动它，那时这行标记会被清掉。
+    fh_core::autostart::mark_stopped();
     fh_core::logutil::write_line("frontend quit (tray menu)");
     app.exit(0);
 }

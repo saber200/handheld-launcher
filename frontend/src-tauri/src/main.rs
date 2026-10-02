@@ -96,7 +96,15 @@ fn main() {
         .setup(move |app| {
             handle_args(app.handle(), &args);
             overlay::attach_window_events(app.handle());
-            tray::install(app.handle())?;
+            // 0.1.53：托盘失败**不再**让前端起不来。在 FSE / 无桌面 shell 的会话里
+            // `Shell_NotifyIcon` 可能建不起来，而浮层、手柄 Back+Start、Ctrl+H 都不依赖托盘 ——
+            // 托盘只是「退出前端 / 开关自启」的入口。以前这里用 `?`：托盘一失败，setup 直接
+            // 返回 Err、整个前端立刻退出，日志里只剩一行看不懂的报错（真机上就是「起来又没了」）。
+            if let Err(err) = tray::install(app.handle()) {
+                fh_core::logutil::write_line(&format!(
+                    "tray install failed: {err}（继续运行：浮层 / 手柄 / 热键都不依赖托盘）"
+                ));
+            }
             // Ctrl+H 可能与启动器撞车（Windows 一个热键只能被一个进程注册）。
             // 撞了就只记一行日志：前端的托盘和手柄 Back+Start 仍然照常工作，
             // 绝不能因为一个热键没抢到就让整个前端起不来。
@@ -139,6 +147,9 @@ fn handle_args(app: &tauri::AppHandle, args: &[String]) {
     let has = |flag: &str| args.iter().any(|arg| arg == flag);
     if has("--autostart") {
         fh_core::logutil::write_line("launched by autostart");
+        // 新的一次登录：上一次「用户主动退出前端」的意图不再适用
+        // （启动器启动时会读这个标记，决定要不要补拉起前端，见 fh_core::autostart）。
+        fh_core::autostart::clear_stopped();
     }
     if has("--enable-autostart") {
         tray::set_autostart(app, true);

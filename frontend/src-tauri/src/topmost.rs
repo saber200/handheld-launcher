@@ -66,6 +66,23 @@ pub fn retry_top(window: &WebviewWindow) {
     win::force_topmost(window);
 }
 
+/// **最硬的一下**：抢前台 + 再顶一次，然后把结果写进日志。
+///
+/// 只在自检判定「被压住了」之后用（`overlay.rs` 的重试与看护循环）。与 `grab` 的区别是
+/// 它**不省那一次前台抢占** —— `retry_top` 刻意只顶不抢，是怕每 120 ms 敲一次 Alt；
+/// 而这里本来就是「怎么都不上屏」的补救路径，值得动一次前台锁。
+/// 顺序与 0.1.45 的真机结论一致：抢前台会改变 Z 序，所以抢完必须再顶一次。
+#[cfg(windows)]
+pub fn hard_raise(window: &WebviewWindow) {
+    win::steal_foreground(window);
+    win::force_topmost(window);
+    fh_core::logutil::write_line(&format!(
+        "frontend hard raise: on_top={} {}",
+        win::on_top(window),
+        win::probe(window).unwrap_or_else(|| "probe unavailable".to_string())
+    ));
+}
+
 /// 自检：窗口现在**真的**在屏上、并且落在置顶层？
 ///
 /// 为什么不用 `window.is_visible()`：它只是在问「系统认为这个窗口可见没有」，**被整屏窗口
@@ -95,6 +112,10 @@ pub fn grab(_window: &WebviewWindow) {}
 
 #[cfg(not(windows))]
 pub fn retry_top(_window: &WebviewWindow) {}
+
+/// 非 Windows 上没有前台锁 / 置顶层这回事：空实现（与 `retry_top` 同一套做法）。
+#[cfg(not(windows))]
+pub fn hard_raise(_window: &WebviewWindow) {}
 
 /// 非 Windows 上「自检」恒为通过：没有要修的层级问题，别让浮层的重试逻辑空转。
 #[cfg(not(windows))]

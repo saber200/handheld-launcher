@@ -68,6 +68,8 @@ fn reopen_main(app: tauri::AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
         let _ = window.set_fullscreen(true);
+        // 重新建出来的壳还是大屏模式：让壳体在大屏里常态退出置顶层（见 overlay_watch::BIG_SCREEN）。
+        crate::overlay_watch::set_big_screen(true);
         attach_main(&window, &app);
     });
 }
@@ -177,6 +179,9 @@ pub fn run() {
             startup::schedule_fse_registration(resources);
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_fullscreen(true);
+                // 启动即大屏模式（FSE 主页应用就是这么起来的）：让壳体常态退出置顶层，
+                // 浮层才不会被整屏的壳压住（0.1.53，见 overlay_watch::BIG_SCREEN）。
+                crate::overlay_watch::set_big_screen(true);
                 attach_main(&window, app.handle());
             }
             // 独立前端要 TDP 时来找这里（只有它提权、装着 WinRing0）。
