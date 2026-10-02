@@ -64,6 +64,71 @@ fn payload_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
+/// 启动器启动时补一次「前端在跑」。
+///
+/// 为什么越过这里一直守的那条边界（模块开头：「不启动前端、不结束前端」）：
+/// 0.1.51 的真机日志把这段空窗拍得很清楚 —— 更新完之后，安装包替用户启动的那一次前端
+/// 已经没了（启动器自己记的 `overlay watch: frontend process down`，而前端那边一行退出
+/// 记录都没有），用户接着按 Back+Start，按键没有任何人接，于是「还是不行」。前端平时靠
+/// 开机自启起来（那时它在），只有「刚更新完、还没重启」这一段谁都不管，而启动器是这段
+/// 里唯一确定在跑的一方 —— 补上它，Back+Start 才有个能接按键的人。
+///
+/// 只做两件事，而且**只在启动器启动时做一次**：
+///   1. 前端没在跑 → 按它自己报的路径（`frontend.json`，其次默认安装目录）把它拉起来；
+///   2. 在跑 / 没装 / 路径不存在 → 只记一行日志，什么都不动。
+///
+/// 刻意**不做看门狗**：用户从托盘点「退出前端」是明确意图，不能过一会儿又被拉起来；
+/// 也不结束任何进程 —— 边界只放宽「启动时补一次」这一点点。
+/// Windows 专属：判据要扫进程表。
+#[cfg(windows)]
+pub fn ensure_running() {
+    use crate::overlay_watch::FRONTEND_EXE;
+
+    if crate::overlay_watch::frontend_process_alive() {
+        crate::logutil::write_line("frontend ensure: already running (skip start)");
+        return;
+    }
+    let exe = fh_core::presence::read()
+        .map(|presence| PathBuf::from(presence.exe))
+        .filter(|path| path.exists())
+        .or_else(|| default_exe(FRONTEND_EXE));
+    let Some(exe) = exe else {
+        crate::logutil::write_line(
+            "frontend ensure: not running and not installed（frontend.json 没有、默认目录也没有 —— 工具箱卡片的「安装 / 更新前端」可以装上）",
+        );
+        return;
+    };
+    match std::process::Command::new(&exe).spawn() {
+        Ok(child) => crate::logutil::write_line(&format!(
+            "frontend ensure: started pid={} path={}",
+            child.id(),
+            exe.display()
+        )),
+        Err(err) => crate::logutil::write_line(&format!(
+            "frontend ensure: start failed: {err} path={}",
+            exe.display()
+        )),
+    }
+}
+
+/// 非 Windows 上没有这套（也没有第二个程序来抢手柄）：只留签名，方便本机 `cargo check`
+/// （与 `crate::overlay_watch::start` 同一套做法）。
+#[cfg(not(windows))]
+pub fn ensure_running() {}
+
+/// 默认安装位置：`%LOCALAPPDATA%\FantasyHubFrontend\FantasyHubFrontend.exe`。
+/// NSIS 的 currentUser 安装模式就装在这儿（真机日志里的 `frontend.json` 也是这条路径）；
+/// 读 `frontend.json` 失败时用它兜底 —— 装好了但还没成功启动过一次时，那个文件还不存在。
+/// 非 Windows 上 `LOCALAPPDATA` 根本不存在，直接返回 `None`。
+#[cfg(windows)]
+fn default_exe(exe_name: &str) -> Option<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA")?;
+    let path = PathBuf::from(local)
+        .join("FantasyHubFrontend")
+        .join(exe_name);
+    path.exists().then_some(path)
+}
+
 enum InstallOutcome {
     Installed,
     Failed(String),

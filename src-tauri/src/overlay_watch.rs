@@ -42,7 +42,7 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 /// 按**完整文件名**比对：启动器自己叫 `FantasyHub.exe`，是它的前缀 —— 用「包含」判断会
 /// 把启动器自己也算进去。
 #[cfg(windows)]
-const FRONTEND_EXE: &str = "FantasyHubFrontend.exe";
+pub(crate) const FRONTEND_EXE: &str = "FantasyHubFrontend.exe";
 
 /// 轮询间隔。大屏模式（FSE）与桌面模式共用同一套判断。
 #[cfg(windows)]
@@ -76,6 +76,9 @@ pub fn start(app: tauri::AppHandle) {
         // 还是按键没进来（三种情况的下一步完全不同）。每 5 秒扫一次（200 ms 一轮 × 25），
         // 只在状态变化时记一行 —— 第一轮也会记，所以「日志里没有这一行」本身就是异常。
         let mut frontend_up: Option<bool> = None;
+        // 「这一轮没查成」也要和「没在跑」分开（0.1.52）：0.1.51 的日志只有一句 `down`，
+        // 万一是快照没建起来，就会被读成「前端真的没了」。查不成时**不动状态**、只记原因。
+        let mut scan_error: Option<String> = None;
         let mut ticks: u32 = 0;
         loop {
             let open = watch(&mut cached);
@@ -100,14 +103,37 @@ pub fn start(app: tauri::AppHandle) {
             }
             ticks += 1;
             if ticks % 25 == 0 {
-                let up = frontend_process_alive();
-                if frontend_up != Some(up) {
-                    frontend_up = Some(up);
-                    fh_core::logutil::write_line(if up {
-                        "overlay watch: frontend process up"
-                    } else {
-                        "overlay watch: frontend process down（前端没在跑：Back+Start 不会有反应）"
-                    });
+                let scan = frontend_scan();
+                if let Some(error) = scan.error {
+                    // 没查成：状态**不动**（宁可沿用上一次判断），同一原因只记一次。
+                    if scan_error.as_deref() != Some(error.as_str()) {
+                        fh_core::logutil::write_line(&format!(
+                            "overlay watch: frontend process scan failed: {error}（这一轮没查成，不代表它没在跑）"
+                        ));
+                        scan_error = Some(error);
+                    }
+                } else {
+                    if scan_error.take().is_some() {
+                        fh_core::logutil::write_line("overlay watch: frontend process scan ok again");
+                    }
+                    let up = scan.frontend.is_some();
+                    if frontend_up != Some(up) {
+                        frontend_up = Some(up);
+                        fh_core::logutil::write_line(&match scan.frontend {
+                            Some(pid) => format!("overlay watch: frontend process up (pid={pid})"),
+                            // 报「没在跑」时把在场的关系进程一起写出来：真要出现
+                            // `FantasyHubFrontend.exe`，就是判据出了问题；只有启动器自己，
+                            // 则是前端确实不在 —— 这一行省掉一整轮真机排查。
+                            None => format!(
+                                "overlay watch: frontend process down（前端没在跑：Back+Start 不会有反应；相关进程：{}）",
+                                if scan.related.is_empty() {
+                                    "一个都没有".to_string()
+                                } else {
+                                    scan.related.join(" ")
+                                }
+                            ),
+                        });
+                    }
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
@@ -458,9 +484,29 @@ fn is_frontend_process(pid: u32) -> bool {
 /// 进程扫描不依赖窗口存活；而且它不碰别的程序的状态，仍然是只读的（§2 的边界）。
 /// 代价是一次 `CreateToolhelp32Snapshot` + 一次遍历，5 秒才做一次。名字比对规则与
 /// `is_frontend_process` 完全一致（`FantasyHub.exe` 是它的前缀，必须整名相等）。
+/// 一次进程扫描的结果。
+///
+/// 三件事必须能分开（0.1.52）：前端在跑（`frontend = Some(pid)`）、前端没在跑
+/// （`frontend = None` 且 `error = None`）、**这一轮压根没查成**（`error = Some(..)`）。
+/// 0.1.51 把后两者压成了一个 `false`，真机上万一快照没建起来，日志里就写成
+/// 「前端没在跑」，把排查带偏一整轮。
 #[cfg(windows)]
-fn frontend_process_alive() -> bool {
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+struct Scan {
+    /// 前端进程的 pid；没在跑就是 `None`。
+    frontend: Option<u32>,
+    /// 镜像名里带 `fantasyhub` 的其他进程（去重、最多 4 条）。报「没在跑」时一起写进日志，
+    /// 用来区分「前端真的不在」和「判据看漏了」。
+    related: Vec<String>,
+    /// 快照都没建起来时的原因。
+    error: Option<String>,
+}
+
+/// 扫一遍进程表（只读）。名字比对规则与 `is_frontend_process` 完全一致：
+/// `FantasyHub.exe`（启动器自己）是 `FantasyHubFrontend.exe` 的前缀，必须**整名相等**。
+/// 代价是一次 `CreateToolhelp32Snapshot` + 一次遍历，5 秒才做一次。
+#[cfg(windows)]
+fn frontend_scan() -> Scan {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,
@@ -468,11 +514,22 @@ fn frontend_process_alive() -> bool {
 
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
-        return false;
+        return Scan {
+            frontend: None,
+            related: Vec::new(),
+            error: Some(format!(
+                "CreateToolhelp32Snapshot 失败（错误码 {}）",
+                unsafe { GetLastError() }
+            )),
+        };
     }
+    let mut scan = Scan {
+        frontend: None,
+        related: Vec::new(),
+        error: None,
+    };
     let mut entry = unsafe { std::mem::zeroed::<PROCESSENTRY32W>() };
     entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-    let mut alive = false;
     let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
     while ok != 0 {
         // `szExeFile` 是定长数组 + `\0` 结尾，按第一个 0 截断（找不到 0 就用整个数组）。
@@ -481,12 +538,23 @@ fn frontend_process_alive() -> bool {
             .iter()
             .position(|&c| c == 0)
             .unwrap_or(entry.szExeFile.len());
-        if String::from_utf16_lossy(&entry.szExeFile[..end]).eq_ignore_ascii_case(FRONTEND_EXE) {
-            alive = true;
-            break;
+        let image = String::from_utf16_lossy(&entry.szExeFile[..end]);
+        if image.eq_ignore_ascii_case(FRONTEND_EXE) {
+            scan.frontend = Some(entry.th32ProcessID);
+        } else if scan.related.len() < 4
+            && image.to_ascii_lowercase().contains("fantasyhub")
+            && !scan.related.iter().any(|item| item.eq_ignore_ascii_case(&image))
+        {
+            scan.related.push(image);
         }
         ok = unsafe { Process32NextW(snapshot, &mut entry) };
     }
     unsafe { CloseHandle(snapshot) };
-    alive
+    scan
+}
+
+/// 非 Windows 上没有这套（也没有第二个程序来抢手柄），本机 `cargo check` 也不编它。
+#[cfg(windows)]
+pub(crate) fn frontend_process_alive() -> bool {
+    frontend_scan().frontend.is_some()
 }

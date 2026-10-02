@@ -183,6 +183,9 @@ pub fn run() {
             tdp_ipc::start();
             // 浮层在屏上时把手柄让给它：两边读的是同一份 XInput 状态。
             overlay_watch::start(app.handle().clone());
+            // 更新完之后那一段空窗里前端可能谁都没在跑（0.1.51 真机日志），补一次启动：
+            // 只在「确实没在跑」时动，且只做这一次 —— 见 frontend_tool::ensure_running。
+            frontend_tool::ensure_running();
             Ok(())
         });
     let app = builder

@@ -113,9 +113,22 @@ fn main() {
             Ok(())
         });
 
-    builder
-        .run(tauri::generate_context!())
+    let app = builder
+        .build(tauri::generate_context!())
         .expect("error while running FantasyHubFrontend");
+    // **正常退出也要留一行**（0.1.52）：托盘「退出前端」、关掉最后一个窗口、以及安装器的
+    // 「请退出」握手，走的都是 `app.exit()` —— 进程消失，日志里却一行都没有。0.1.51 的真机
+    // 日志里前端就是这么「无声无息」没的，和「被外面杀了」「原生崩溃」长得一模一样。
+    // 有了这两行，那三种情况在日志里就能分开了：只有它们 = 自己正常退的。
+    app.run(|_app, event| match event {
+        tauri::RunEvent::ExitRequested { code, .. } => {
+            fh_core::logutil::write_line(&format!("frontend exit requested (code={code:?})"));
+        }
+        tauri::RunEvent::Exit => {
+            fh_core::logutil::write_line("frontend exit");
+        }
+        _ => {}
+    });
 }
 
 /// 命令行参数。

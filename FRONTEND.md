@@ -18,7 +18,7 @@
 | | 启动器 `FantasyHub.exe` | 前端 `FantasyHubFrontend.exe`（独立软件） |
 | --- | --- | --- |
 | 对另一方的了解 | 只有「前端装没装」（读文件存在性） | **完全不知道启动器存在**（除 TDP 请求，见 §4） |
-| 能对另一方做的动作 | **什么都不能**：不起进程、不杀进程、不发生命、不注册它的快捷键 | 仅通过本地 IPC 请求 TDP 读写 |
+| 能对另一方做的动作 | **什么都不能**：不起进程、不杀进程、不发生命、不注册它的快捷键。**0.1.52 起有一处例外**：「启动器启动时发现前端没在跑 → 把它拉起来一次」（`frontend_tool::ensure_running`）。理由是更新完之后那一段空窗里谁都不管前端，而启动器是唯一确定在跑的一方 —— 但**只在这一刻、只做这一次**：不做看门狗（用户从托盘点「退出前端」是明确意图），也不结束任何进程 | 仅通过本地 IPC 请求 TDP 读写 |
 | 快捷键 | **全部移除**（Back+Start 监听、Ctrl+H 全局热键、Start 键绑定全删）；手柄侧只保留「设置」键，且改成**双击** View / Share（理由见 §10） | 只有两个：`Back+Start`、`Ctrl+H`，都是开/隐藏切换 |
 | 窗口 | 主窗（无边框全屏 FSE） | 无边框浮窗 440×800、置顶、贴右、`skip_taskbar` + `toolwindow` |
 | 常驻 | 现状 | 托盘常驻；「关闭」= 隐藏，进程不退，秒开 |
@@ -26,6 +26,8 @@
 | FSE 稀疏包身份 | 归启动器 | **不注册**（它不是全屏壳） |
 
 启动器里唯一保留的前端入口：**工具箱 → 「前端」卡片，只做文件级安装/更新/状态**，没有任何「打开/关闭前端」按钮。
+
+> **0.1.52 的唯一例外**：启动器**启动时**发现前端进程没在跑，会把它拉起来一次（`src-tauri/src/frontend_tool.rs::ensure_running`，在 `lib.rs` 的 setup 里调用一次）。这不是恢复「启动器管前端」：判据只读进程表，动作只有「按 `frontend.json` 报的路径 spawn 一次」，不做看门狗、不结束任何进程。为什么必须补这一下：0.1.51 的真机日志里，安装包替用户启动过一次前端（`FantasyHubFrontend start pid=27664 v0.1.51`），它随后无声消失，用户接着按 `Back+Start` —— 按键没有任何响应者，而这段时间里**只有启动器在跑**。日志里表现为 `frontend ensure: already running (skip start)` / `started pid=…` / `not running and not installed`。
 
 ## 3. 前端软件自己的能力
 
@@ -38,6 +40,7 @@
   - **截图取证（0.1.50）**：显示之后（含自检重试）会把浮层那块屏幕区域用 `GetDC(NULL)` + `BitBlt` 拷成一张 24 位 BMP，写在日志同目录 `%APPDATA%\handheld-launcher\overlay-shot.bmp`（每次显示覆盖上一张），并记一行 `frontend shot ok overlay-shot.bmp 660x1200 nonBlack=…% path=…`。「窗口说自己在屏上」和「屏上真有它」是两件事，**像素**是唯一分得开「被压住 / 画到别处 / 页面没渲染」的证据：图里有那块深色面板 = 真画上去了；`nonBlack=0%` = 没画上去，或者那一片抓不到（独占全屏 / 受保护内容抓下来也是黑的，与「没画上去」仍要分开判断）。
   - **自检 + 重试（0.1.50）**：显示之后每 120 ms 问一次 `IsWindowVisible` + `WS_EX_TOPMOST`（`topmost::on_top`，**不是** Tauri 的 `is_visible()` —— 那个被压住时照样 true），最多 5 轮；没到位就再顶一次（`retry_top`，**不碰前台锁**，不像 `grab` 那样补按 Alt），每次重试记 `frontend show retry n/5 (…)`。这段跑在**后台线程**上（托盘菜单与第二实例的回调都在主线程，连等 600 ms 会冻住界面），并且每次显示 / 隐藏都会把代数 `GENERATION` 加一，让上一轮作废 —— 否则它的 `SetWindowPos(..., SWP_SHOWWINDOW)` 会把用户刚关掉的窗口又显示出来。
   - **「谁在跑 / 按键到没到」也要可观测（0.1.51）**：`chord.rs` 第一轮**一定**打印一条手柄状态（`chord pad connected index=0` / `chord pad none（读不到手柄：Back+Start 不会有反应）`，`pad_index` 初值给不可能的 `u32::MAX` 以保证必写），之后只在变化时记；和弦触发多一行 `chord fired (Back+Start)`（它 + `frontend show begin` 才是「按了、也进来了，卡在显示」）；每 5 分钟一行 `chord alive pad=… visible=…`，证明 XInput 轮询线程没死。启动器那边同步记前端**进程**的生死（`overlay watch: frontend process up/down`，第一轮必记），两个程序也都会把 panic 写进同一份日志（`<tag> panic (文件:行, thread=…): 原文`，见 `fh_core::logutil::install_panic_hook`）。**为什么值得单列**：0.1.50 的真机日志里前端起来之后一行按键记录都没有，而「前端没在跑 / 崩了 / 手柄没读到」这三种情况在那份日志里长得一模一样，排查成本全花在了猜上。
+  - **「进程没了」也要说清是谁的锅（0.1.52）**：0.1.51 那轮的日志给出了第一种确凿情形 —— 前端起来过、手柄也读到了（`chord pad connected index=0`），可**按 `Back+Start` 时前端进程已经不在**（启动器自己记的 `overlay watch: frontend process down`），而两边都没有一行退出记录。三处补齐：① **前端自己记退出**（`main.rs` 用 `build()` + `app.run(..)`）：`frontend exit requested (code=…)` 与 `frontend exit` —— 托盘退出 / 关掉最后一个窗口 / 安装器握手走的都是 `app.exit()`，有这两行才能说清它是「自己退的」；两行都没有才是被杀或原生崩溃。② **启动器的进程扫描分三段**（`overlay_watch.rs`）：`frontend process up (pid=…)` / `… down（…；相关进程：…）` / `… scan failed: …（这一轮没查成，不代表它没在跑）` —— 报 down 时把镜像名带 `fantasyhub` 的在场进程一起写出来（真出现 `FantasyHubFrontend.exe` 就是判据看漏了），快照失败时不动状态、只记一次原因。③ **启动时补一次「前端在跑」**（`frontend_tool::ensure_running`，见 §2 的例外说明），并记 `frontend ensure: started pid=…`。
 - 键盘输入：`Ctrl+H` 是系统级全局热键（不依赖焦点）；浮窗内的方向键/AB 需要焦点，因此提供设置项「打开时抢焦点（默认）/ 不抢焦点（只用手柄）」。
 
 ## 4. TDP 的本地 IPC 约定
