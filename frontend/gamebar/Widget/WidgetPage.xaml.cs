@@ -27,6 +27,7 @@ namespace FantasyHub.GameBar
         private JsonObject status;
         private readonly List<ToggleButton> presetButtons = new List<ToggleButton>();
         private readonly List<int> presetWatts = new List<int>();
+        private bool presetsEnabled;
         private int? pending;
         private int draft = 5;
         private long revision;
@@ -240,6 +241,7 @@ namespace FantasyHub.GameBar
                     Content = presets[index] + "W",
                     Tag = presets[index],
                     Style = (Style)Resources["FhPresetStyle"],
+                    IsEnabled = presetsEnabled,
                     // 中间两列右侧留 10 的缝；最后一列不留，否则右边缘会多一条空白。
                     Margin = new Thickness(0, 0, index % 3 == 2 ? 0 : 10, 10),
                 };
@@ -261,10 +263,14 @@ namespace FantasyHub.GameBar
         }
 
         // 原前端 .tdp-preset:disabled 是 opacity .45，容器不继承，得自己设。
+        // Grid 是 Panel，没有 IsEnabled（UWP 把它放在 Control 上，只有 WPF 放在 UIElement）——
+        // 所以「能不能点」逐个落到 ToggleButton，外层 Grid 只负责整体变暗。
+        // 记一份状态：按钮是 SyncPresets 里建的，建的时候要照着当前状态初始化。
         private void SetPresetsEnabled(bool enabled)
         {
-            PresetGrid.IsEnabled = enabled;
+            presetsEnabled = enabled;
             PresetGrid.Opacity = enabled ? 1 : 0.45;
+            foreach (ToggleButton button in presetButtons) button.IsEnabled = enabled;
         }
 
         private void RenderGames()

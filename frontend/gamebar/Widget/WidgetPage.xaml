@@ -200,8 +200,11 @@
       <!-- 预设不用 GridView：ItemsWrapGrid 给每项的宽度是「集合里最宽那项的期望宽度」，
            不是容器三等分 —— 真机上三个小方块挤在左边、右边空一大片、字还被裁
            （用户反馈「按键贼小、文字显示不全」）。自己铺 3 列 Grid，列宽 = * 才撑得满、
-           字号和内边距也才是我们说了算。按钮在 SyncPresets 里生成。 -->
-      <Grid x:Name="PresetGrid" HorizontalAlignment="Stretch" IsEnabled="False" Opacity="0.45" />
+           字号和内边距也才是我们说了算。按钮在 SyncPresets 里生成。
+           注意：Grid 是 Panel，**没有 IsEnabled**（那是 Control 上的属性，只有 WPF 把 IsEnabled
+           放在 UIElement）—— 写成 IsEnabled="False" 会在 CI 上报 XamlCompiler WMC0011，
+           所以「能不能点」逐个落到 ToggleButton 上，外层 Grid 只负责整体变暗。 -->
+      <Grid x:Name="PresetGrid" HorizontalAlignment="Stretch" Opacity="0.45" />
       <Slider x:Name="TdpSlider" IsEnabled="False" Minimum="5" Maximum="40" StepFrequency="1" TickFrequency="1"
         ValueChanged="SliderChanged" Margin="0,2,0,0" MinHeight="44"
         FocusVisualPrimaryBrush="{StaticResource FhAccent}" FocusVisualSecondaryBrush="Transparent"

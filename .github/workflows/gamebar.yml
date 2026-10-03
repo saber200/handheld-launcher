@@ -43,10 +43,13 @@ jobs:
 
       # 这一步既编 C#、又当场自签一张证书给小组件签名，然后把「签好名的 msix + 证书 + 三个
       # 框架依赖」摆成启动器安装包能直接带的样子（frontend/gamebar/package-payload.ps1）。
-      # 先编 Debug（Release 会开 .NET Native，慢且更可能踩坑），而且**暂时不算闸门**：
-      # 先拿一轮真实输出，绿了、确认脚本自己的产物检查也过了，再删掉 continue-on-error 转成硬闸门。
-      - name: Build Debug + sign the launcher payload (not a gate yet)
-        continue-on-error: true
+      # 走 Debug（Release 会开 .NET Native，慢且更可能踩坑）。
+      # 2026-10-03 起**转成硬闸门**（原来的 continue-on-error 删了）：它曾经把一次真实的
+      # 编译错误藏了整个作业周期 —— `WidgetPage.xaml` 里给 `Grid` 写了 `IsEnabled`（UWP 的
+      # IsEnabled 在 Control 上，Grid 是 Panel 没有），报 `XamlCompiler WMC0011`，可作业照样
+      # 报成功，于是打出来的安装包**少了整个小组件**（体积从 30 MB 掉到 7.8 MB）却没人发现。
+      # 教训：带 continue-on-error 的构建步骤，绿颜色什么都说明不了。
+      - name: Build Debug + sign the launcher payload
         shell: pwsh
         run: |
           ./frontend/gamebar/package-payload.ps1 -Configuration Debug -OutDir frontend/gamebar/AppPackages/payload *>&1 | Tee-Object -FilePath gamebar-build.log
