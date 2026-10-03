@@ -57,9 +57,19 @@
   </ItemGroup>
   <Target Name="BuildBridge" BeforeTargets="PrepareForBuild">
     <MSBuild Projects="..\Bridge\FantasyHub.GameBar.Bridge.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=x64" />
+    <!-- 坑（2026-10-03 CI 第一次真编才露出来，本机编不了这份工程）：不能在 target 里
+         直接对 Content 写 <Link>Bridge\%(Filename)%(Extension)</Link> —— 未限定的
+         %(...) 会拿整个 Content 项目集合分批，于是这 3 个 glob 匹配被按「已有的每一个
+         Content 文件」各复制一份（Assets\*.png 4 个、public/sounds/*.wav 9 个、
+         GameBar\index.txt、Properties\Default.rd.xml，共 15 个），生成
+         Bridge\StoreLogo.png 之类的假目标，打包报 15 个 APPX1111
+         「同一目标路径有两个不同大小的文件」（源文件都是 Bridge.exe / .exe.config）。
+         先把产物收进 BridgePayload 这个独立项目类型，再用 %(BridgePayload.xxx) 限定
+         批次范围，就不会串到 Content 上。 -->
     <ItemGroup>
-      <Content Include="..\Bridge\bin\x64\$(Configuration)\*.exe;..\Bridge\bin\x64\$(Configuration)\*.dll;..\Bridge\bin\x64\$(Configuration)\*.config">
-        <Link>Bridge\%(Filename)%(Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <BridgePayload Include="..\Bridge\bin\x64\$(Configuration)\*.exe;..\Bridge\bin\x64\$(Configuration)\*.dll;..\Bridge\bin\x64\$(Configuration)\*.config" />
+      <Content Include="@(BridgePayload)">
+        <Link>Bridge\%(BridgePayload.Filename)%(BridgePayload.Extension)</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
   </Target>

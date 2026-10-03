@@ -64,12 +64,27 @@ def main():
     for path in xml_files:
         ET.parse(path)
     project = ET.parse(WIDGET / "FantasyHub.GameBar.Widget.csproj")
+    # @(Name) 形式的 Include 要先找到 Name 自己声明的输入（BuildBridge 就是先把 Bridge
+    # 产物收进 BridgePayload 再整体搬进 Content，见 csproj 里的注释）。不这样跳一层，
+    # 检查器会把 "@(BridgePayload)" 当文件名，报一个假的「Missing project input」。
+    declared = {}
+    for item in project.findall(".//m:*", MS):
+        include = item.get("Include")
+        if include:
+            declared.setdefault(item.tag.split("}")[-1], []).extend(include.split(";"))
     for tag in ("Compile", "Page", "ApplicationDefinition", "AppxManifest", "Content"):
         for item in project.findall(".//m:" + tag, MS):
             include = item.get("Include", "")
-            if "$(" in include:
-                continue  # Generated Bridge output is checked by the Windows packaging script.
-            require(bool(glob.glob(str(WIDGET / include.replace("\\", "/")))), "Missing project input: " + include)
+            reference = re.fullmatch(r"@\(([\w.]+)\)", include)
+            if reference:
+                include = ";".join(declared.get(reference.group(1), []))
+            # 逐个 glob 检查（原来整串一次 glob 时，带分号的多模式其实永远匹配不上）。
+            # 含 $(...) 的跳过：那是生成物路径，由 Windows 打包脚本负责，见 HANDOFF.txt。
+            for pattern in include.split(";"):
+                if not pattern or "$(" in pattern:
+                    continue
+                require(bool(glob.glob(str(WIDGET / pattern.replace("\\", "/")))),
+                        "Missing project input: " + pattern)
     packages = {x.get("Include"): x.get("Version") for x in project.findall(".//m:PackageReference", MS)}
     require(packages.get("Microsoft.NETCore.UniversalWindowsPlatform") == "6.2.9", "UWP version drift")
     require(packages.get("Microsoft.Gaming.XboxGameBar") == "7.2.240903001", "Game Bar version drift")
