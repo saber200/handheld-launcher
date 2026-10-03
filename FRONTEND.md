@@ -10,7 +10,8 @@
 - 两个执行时机、一套实现：① `nsis/installer.nsh` 的 `NSIS_HOOK_POSTINSTALL` 跑一行等价的内联 PowerShell（只为「装完不打开启动器也能看到」，失败只打日志，**绝不阻塞启动器安装**）② 启动器每次启动在后台跑 `register-widget.ps1`（幂等：标记文件记「包 hash + 版本 + 证书指纹」，hash 没变就不动手；换证书签的新包先卸再装，因为同一个 identity 换证书不能覆盖安装）③ 设置页「装 Game Bar 小组件」手动重装一次。为什么不把脚本当资源交给 NSIS 调：PS 5.1 读没有 BOM 的 UTF-8 脚本会按系统代码页解，注释里的中文会乱码 —— Rust 侧写脚本一律 UTF-8 with BOM（`include_str!` + 预置 BOM），这个坑不再复制第三遍。
 - 卸载：`NSIS_HOOK_PREUNINSTALL` 用一行 PowerShell 卸掉 `FantasyHub.GameBar`（那时 `$INSTDIR` 可能已被清空，所以它不依赖任何随包文件）。三个框架包与证书都不动 —— 证书主题 `CN=FantasyHub` 和 FSE 身份证书**一样**，按主题删会误伤，所以脚本只删「自己上一次装进去的那张」（标记文件里的指纹）。
 - 工具链：`.github/workflows/build-windows.yml` 新增 `gamebar-payload` 作业（`windows-2022`，因为要 10.0.22621 SDK），产出 artifact 交给主作业下载进 `src-tauri/payload/gamebar`；主作业 `needs` 它但带 `if: always()`，所以**小组件编挂了照样发版**（那个安装包只是不带小组件，启动器会明说「这个版本没带小组件」）。`gamebar.yml` 也传一份同名 artifact，方便手动下载验证。
-- **完全没验证的部分**：自签证书这条路在普通机器（没开开发者模式、没改过侧载策略）上到底能不能装上；三个 **Debug** 框架依赖会不会和目标机已装的版本打架；Game Bar 重启后是否立刻枚举到新小组件；`signtool verify /pa` 在 CI runner 上（自签证书刚进 CurrentUser/LocalMachine 根存储）是否稳定通过。这四件事都要等一次 CI 打包 + 一次真机。
+- **完全没验证的部分**：自签证书这条路在普通机器（没开开发者模式、没改过侧载策略）上到底能不能装上；三个 **Debug** 框架依赖会不会和目标机已装的版本打架；Game Bar 重启后是否立刻枚举到新小组件；`signtool verify /pa` 在 CI runner 上（自签证书进了 `CurrentUser\Root`）是否稳定通过。这四件事都要等一次 CI 打包 + 一次真机。
+- 踩过的坑（第一次跑 CI 就撞上）：`Import-Certificate -CertStoreLocation Cert:\LocalMachine\Root` 往「受信任的根」装自签证书属于改信任，会弹「安全警告」等用户点确认 —— **CI 上没人点，这一步就一直挂着**（跑了十几分钟只能人工取消；而且作业没结束前 `gh` 不给日志，看不到卡在哪）。改成 `X509Store` 底层 API **只加 `CurrentUser\Root`**（signtool 是同一用户跑的，够用，而且不触发任何 UI），并给脚本每步加了带时间的 `==> n/6` 进度输出：下次卡住，日志最后一行就是卡住的动作。
 - 后续可选：把签名证书固定下来（PFX 存 GitHub secret，`package-payload.ps1` 优先用它）→ 版本更新时证书不变，可以省掉「先卸再装」；框架依赖从 Debug 换成 Release（那时依赖清单要同步改 `build.rs` 与 `tauri.conf.json` 里的路径）。
 
 ## 未发布：独立前端改做 Game Bar 后台，界面交给原生小组件（未验证）
