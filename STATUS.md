@@ -17,7 +17,7 @@
 - 版本号多了第 6 处：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段 `0.1.55.0`），不在原五处联动里，发版必须手动跟上。
 - **小组件改成「随启动器一起装」（本轮新做，未验证）**：CI 现打一张自签证书给 msix 签名，把「msix + 证书 + 三个框架依赖」摆进 `src-tauri/payload/gamebar/`，由启动器安装包带上；装的时候 NSIS 钩子跑一行等价命令、启动器每次启动再幂等补一次（`src-tauri/gamebar/register-widget.ps1`），设置页也加了「装 Game Bar 小组件」。证书只进当前用户「受信任人」，所以目标机**不需要管理员、也不需要开发者模式**。没在真机验证：普通机器能否装上、Game Bar 重启后能否立刻看到、CI 的 `signtool verify /pa` 是否稳定。
 - 小组件 payload 由 `build-windows.yml` 新增的 `gamebar-payload` 作业（`windows-2022`）产出、以 artifact 交给主作业；主作业带 `if: always()`，**小组件编挂了照样发版**（资源路径上有 0 字节占位兜底，那个安装包只是不带小组件）。`gamebar.yml` 同样传一份 artifact，方便单独下载验证。
-- 第一次真跑 CI 就挂住：往「受信任的根」装自签证书会弹确认框，CI 上没人点 → 那一步永久挂着（只能人工取消）。已改成 `X509Store` 只信任 `CurrentUser\Root`，并给脚本加了 `==> n/6` 分步日志；坑记在 FRONTEND.md。
+- 第一次真跑 CI 就挂住：想让自签证书通过 `signtool verify /pa` 就得把根写进 Root 信任存储，而往 Root 写证书（`Import-Certificate` / `X509Store.Add` 同一个底层 API）会弹确认框，CI 上没人点 → 那一步永久挂着（实测卡十几分钟只能人工取消）。已改成 **CI 不建立信任 + `-SkipVerify` 跳过链验证**，签名有效性交给目标机安装时校验；脚本加了 `==> n/6` 分步日志用于定位。坑记在 FRONTEND.md。
 
 ## 未发布：普通应用窗口显示候选
 

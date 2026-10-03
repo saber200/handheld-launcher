@@ -56,22 +56,20 @@ $cert = New-SelfSignedCertificate -Type Custom -Subject $publisher -FriendlyName
     -CertStoreLocation 'Cert:\CurrentUser\My' -KeyUsage DigitalSignature -KeyExportPolicy Exportable `
     -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
 $cerPath = Join-Path $out 'widget.cer'
-Write-Step '3/6 导出 widget.cer 并让当前用户信任它'
-Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
-# 让 build-windows.ps1 里那句 `signtool verify /pa` 能过：自签证书得先在自己的根存储里。
-# 这里**刻意不用 Import-Certificate、也不碰 LocalMachine**：往 Root 存储装根证书属于
-# 「改信任」，会弹「安全警告」等用户点确认 —— CI 上没人点，脚本就永久挂在那里
-# （第一次加这段时正是这样挂了十几分钟，只能人工取消）。X509Store 是底层 API、没有 UI，
-# 而且只影响当前用户、不碰机器存储。同一个证书加两次会抛异常，所以吞掉「已存在」那种报错。
-Add-Type -AssemblyName System.Security.Cryptography -ErrorAction SilentlyContinue
-$trustedCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cerPath)
-$trustStore = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
-$trustStore.Open('ReadWrite')
-try { $trustStore.Add($trustedCert) } catch { Write-Host " (already trusted: $($_.Exception.Message))" } finally { $trustStore.Close() }
+Write-Step '3/6 导出 widget.cer'
+# 用 .NET 的 Export 直接写文件：**这一步刻意完全不碰证书存储**。
+# 为什么：想让自签根被信任，唯一办法是把它写进 Root 存储，而 Windows 在那条路径上会弹
+# 「安全警告」等用户点确认 —— CI 上没人点，脚本就永久挂住（第一次跑 CI 实测卡了十几分钟，
+# 只能人工取消）。`Import-Certificate` 和 `X509Store.Add` 底层是同一个 API，换写法换不掉弹框，
+# 所以 CI 干脆不建立信任：链验证也一并跳过（-SkipVerify），签名到底有没有效，
+# 由目标机安装时 AppxDeployment 的校验说话。
+$cerPath = Join-Path $out 'widget.cer'
+[System.IO.File]::WriteAllBytes($cerPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
 
 # -TimestampUrl 只在给了值时才传：给 [string] 参数传 $null 在多平台上行为不一致，别赌。
-Write-Step '4/6 build-windows.ps1（编译 → 签名 → signtool verify）'
-$buildArgs = @{ Configuration = $Configuration; CertificateThumbprint = $cert.Thumbprint }
+# -SkipVerify：理由同上 —— 自签根的信任在无人值守环境里建不起来，verify 必然失败。
+Write-Step '4/6 build-windows.ps1（编译 → 签名）'
+$buildArgs = @{ Configuration = $Configuration; CertificateThumbprint = $cert.Thumbprint; SkipVerify = $true }
 if ($TimestampUrl) { $buildArgs.TimestampUrl = $TimestampUrl }
 try {
     & (Join-Path $root 'build-windows.ps1') @buildArgs
@@ -85,6 +83,9 @@ $resultJson = @(Get-ChildItem (Join-Path $root 'AppPackages') -Recurse -Filter '
 if ($resultJson.Count -eq 0) { throw 'build-windows.ps1 produced no build-result.json.' }
 $result = Get-Content $resultJson[0].FullName -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $result.signed) { throw 'The widget package came out unsigned; refusing to ship it.' }
+if (-not $result.chainVerified) {
+    Write-Warning 'CI did not verify the signature chain (a self-signed root cannot be trusted unattended): the authority is AppxDeployment validation when the widget is installed on the target machine.'
+}
 if ($result.configuration -ne $Configuration) { throw "build-result.json says $($result.configuration), expected $Configuration." }
 
 Write-Step '6/6 复制 widget.msix 与三个框架依赖'
@@ -154,6 +155,7 @@ Set-Content -LiteralPath (Join-Path $out 'INSTALL.txt') -Value $install -Encodin
     certificate = $cerPath
     dependencies = $expectedDeps
     signed = [bool]$result.signed
+    chainVerified = [bool]$result.chainVerified
     generatedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 } | ConvertTo-Json | Set-Content (Join-Path $out 'widget-payload.json') -Encoding UTF8
 

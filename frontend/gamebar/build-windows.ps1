@@ -3,7 +3,13 @@ param(
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release',
     [string]$MSBuildPath,
     [string]$CertificateThumbprint,
-    [string]$TimestampUrl
+    [string]$TimestampUrl,
+    # 跳过最后的 `signtool verify /pa`。**为什么需要这个开关**：verify 要把证书链走到信任根，
+    # 而自签证书的根必须先写进信任存储 —— 在 Windows 上往 Root 存储写证书（Import-Certificate、
+    # X509Store.Add 都一样，底层是同一个 API）会弹「安全警告」等用户点确认；无人值守的 CI 上
+    # 没人点，那一步会永久挂住（实测只能人工取消）。所以 CI 跳过链验证；签名是否有效最终由
+    # 目标机安装时的 AppxDeployment 校验决定（那才是权威裁判）。
+    [switch]$SkipVerify
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -117,8 +123,12 @@ if ($CertificateThumbprint) {
     $signArgs += $package.FullName
     & $signTool @signArgs
     if ($LASTEXITCODE -ne 0) { throw 'Package signing failed.' }
-    & $signTool verify /pa /v $package.FullName
-    if ($LASTEXITCODE -ne 0) { throw 'Signature verification failed; check the certificate trust chain.' }
+    if ($SkipVerify) {
+        Write-Warning 'Skipping signtool verify /pa: a self-signed root cannot be trusted unattended (writing it into the Root store pops a confirmation prompt and would hang CI forever).'
+    } else {
+        & $signTool verify /pa /v $package.FullName
+        if ($LASTEXITCODE -ne 0) { throw 'Signature verification failed; check the certificate trust chain.' }
+    }
 } else {
     Write-Warning 'Unsigned package: not installable as-is. Sign with a matching trusted certificate before deployment.'
 }
@@ -133,6 +143,7 @@ if ($CertificateThumbprint) {
     configuration = $Configuration
     architecture = 'x64'
     signed = [bool]$CertificateThumbprint
+    chainVerified = [bool]($CertificateThumbprint -and -not $SkipVerify)
     package = $package.FullName
     sha256 = (Get-FileHash $package.FullName -Algorithm SHA256).Hash
     externalActivation = 'Not validated; obtain installed PackageFamilyName and use the documented Game Bar activation contract.'

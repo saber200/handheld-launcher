@@ -11,7 +11,7 @@
 - 卸载：`NSIS_HOOK_PREUNINSTALL` 用一行 PowerShell 卸掉 `FantasyHub.GameBar`（那时 `$INSTDIR` 可能已被清空，所以它不依赖任何随包文件）。三个框架包与证书都不动 —— 证书主题 `CN=FantasyHub` 和 FSE 身份证书**一样**，按主题删会误伤，所以脚本只删「自己上一次装进去的那张」（标记文件里的指纹）。
 - 工具链：`.github/workflows/build-windows.yml` 新增 `gamebar-payload` 作业（`windows-2022`，因为要 10.0.22621 SDK），产出 artifact 交给主作业下载进 `src-tauri/payload/gamebar`；主作业 `needs` 它但带 `if: always()`，所以**小组件编挂了照样发版**（那个安装包只是不带小组件，启动器会明说「这个版本没带小组件」）。`gamebar.yml` 也传一份同名 artifact，方便手动下载验证。
 - **完全没验证的部分**：自签证书这条路在普通机器（没开开发者模式、没改过侧载策略）上到底能不能装上；三个 **Debug** 框架依赖会不会和目标机已装的版本打架；Game Bar 重启后是否立刻枚举到新小组件；`signtool verify /pa` 在 CI runner 上（自签证书进了 `CurrentUser\Root`）是否稳定通过。这四件事都要等一次 CI 打包 + 一次真机。
-- 踩过的坑（第一次跑 CI 就撞上）：`Import-Certificate -CertStoreLocation Cert:\LocalMachine\Root` 往「受信任的根」装自签证书属于改信任，会弹「安全警告」等用户点确认 —— **CI 上没人点，这一步就一直挂着**（跑了十几分钟只能人工取消；而且作业没结束前 `gh` 不给日志，看不到卡在哪）。改成 `X509Store` 底层 API **只加 `CurrentUser\Root`**（signtool 是同一用户跑的，够用，而且不触发任何 UI），并给脚本每步加了带时间的 `==> n/6` 进度输出：下次卡住，日志最后一行就是卡住的动作。
+- 踩过的坑（第一次跑 CI 就撞上，两轮才定位到根因）：想让 `signtool verify /pa` 通过，就得把自签根写进 Root 信任存储；而在 Windows 上往 Root 写证书（`Import-Certificate` 和 `X509Store.Add` 底层是同一个 API，换写法不换行为）会弹「安全警告」等用户点确认 —— **CI 上没人点，这一步就永久挂着**（实测卡十几分钟，只能人工取消；而且作业没结束前 `gh` 拿不到日志，只能靠脚本自己打的 `==> n/6` 进度定位到具体是哪一步）。最终修法：**CI 不建立信任**，`widget.cer` 只用 .NET `Export` 写文件、完全不碰证书存储，`build-windows.ps1 -SkipVerify` 跳过链验证，签名有效性交给目标机安装时 AppxDeployment 的校验（那才是权威裁判）。`build-result.json` / `widget-payload.json` 因此多了 `chainVerified` 字段（CI 上恒为 false）。
 - 后续可选：把签名证书固定下来（PFX 存 GitHub secret，`package-payload.ps1` 优先用它）→ 版本更新时证书不变，可以省掉「先卸再装」；框架依赖从 Debug 换成 Release（那时依赖清单要同步改 `build.rs` 与 `tauri.conf.json` 里的路径）。
 
 ## 未发布：独立前端改做 Game Bar 后台，界面交给原生小组件（未验证）
