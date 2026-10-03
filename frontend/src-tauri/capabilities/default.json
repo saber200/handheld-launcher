@@ -19,6 +19,7 @@
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
+    "allow-overlay-control",
     "allow-set-locale",
     "allow-tdp-status",
     "allow-set-tdp",

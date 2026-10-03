@@ -33,7 +33,8 @@ const RETRY_GAP_MS: u64 = 120;
 const WATCH_TRIES: u32 = 8;
 const WATCH_GAP_MS: u64 = 350;
 
-static VISIBLE: AtomicBool = AtomicBool::new(false);
+// 显示位与代数打包读取，输入线程不会读到跨两次开关的混合状态。
+static DISPLAY: AtomicU64 = AtomicU64::new(0);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
 /// 「第几次显示」：每次显示 / 隐藏都加一。后台的自检线程据此判断自己那一轮是否还有效 ——
@@ -48,10 +49,83 @@ pub fn quitting() -> bool {
 /// 手柄轮询每 40 ms 问一次，走这个便宜的静态判断；
 /// **决定**开还是关请用 `toggle`，它问的是窗口本身（见下）。
 pub fn is_visible() -> bool {
-    VISIBLE.load(Ordering::SeqCst)
+    input_state().0
 }
 
-/// 真相只有一个：窗口自己的 `is_visible()`。静态的 `VISIBLE` 只是缓存。
+pub fn input_state() -> (bool, u64) {
+    let state = DISPLAY.load(Ordering::SeqCst);
+    (state & 1 != 0, state >> 1)
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct OverlayState {
+    visible: bool,
+    generation: u64,
+}
+
+#[tauri::command]
+pub fn overlay_state() -> OverlayState {
+    let (visible, generation) = input_state();
+    OverlayState {
+        visible,
+        generation,
+    }
+}
+
+#[tauri::command]
+pub fn overlay_hide(app: AppHandle) {
+    hide(&app, "page close");
+}
+
+// 只接受固定诊断阶段；页面不能借此写任意日志或访问其他进程。
+#[tauri::command]
+pub fn overlay_input_trace(stage: String, generation: u64) {
+    // 各阶段独立限流，注册、收包和动作紧邻发生时也保留完整链路。
+    static LAST_MS: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+    let index = match stage.as_str() {
+        "listening" => 0,
+        "listen-failed" => 1,
+        "received" => 2,
+        "action" => 3,
+        "state-failed" => 4,
+        "close-failed" => 5,
+        _ => return,
+    };
+    let last_ms = &LAST_MS[index];
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let previous = last_ms.load(Ordering::Relaxed);
+    if now.saturating_sub(previous) < 250
+        || last_ms
+            .compare_exchange(previous, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+    {
+        return;
+    }
+    fh_core::logutil::write_line(&format!(
+        "frontend page input stage={stage} generation={generation}"
+    ));
+}
+
+fn publish(visible: bool) {
+    DISPLAY.store(
+        (GENERATION.load(Ordering::SeqCst) << 1) | u64::from(visible),
+        Ordering::SeqCst,
+    );
+}
+
+// 所有窗口修改都排到主线程；后台重试也在执行时查代数，避免检查后才隐藏的竞态。
+fn dispatch(app: &AppHandle, reason: &str, action: fn(&AppHandle, &str)) {
+    let handle = app.clone();
+    let reason = reason.to_string();
+    if let Err(err) = app.run_on_main_thread(move || action(&handle, &reason)) {
+        fh_core::logutil::write_line(&format!("frontend window dispatch failed: {err}"));
+    }
+}
+
+/// 查询系统可见位，用于本进程开关判据；不能证明用户实际看得见。
 fn window_visible(app: &AppHandle) -> Option<bool> {
     app.get_webview_window(WINDOW_LABEL)?.is_visible().ok()
 }
@@ -77,6 +151,10 @@ fn snapshot(window: &WebviewWindow, stage: &str, reason: &str, expected_generati
 }
 
 pub fn toggle(app: &AppHandle, reason: &str) {
+    dispatch(app, reason, toggle_now);
+}
+
+fn toggle_now(app: &AppHandle, reason: &str) {
     // 在开关决策前保留现场，第二次按键走 hide 时也不能漏掉。
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         snapshot(
@@ -91,24 +169,28 @@ pub fn toggle(app: &AppHandle, reason: &str) {
     // 现在每次都问窗口：它说在屏上才关，否则开。
     let visible = window_visible(app).unwrap_or_else(is_visible);
     // 保留现有开关判据：可见位 + 置顶样式，不是无遮挡判据。
-    // 两者都为真时仍可能肉眼看不见；本版只取证，不改手柄与开关行为。
+    // 两者都为真时仍可能肉眼看不见；输入与调度修正不等于解决 FSE 最终上屏。
     let on_top = app
         .get_webview_window(WINDOW_LABEL)
         .map(|window| crate::topmost::on_top(&window))
         .unwrap_or(true);
     if visible && on_top {
-        hide(app, reason);
+        hide_now(app, reason);
     } else {
         if visible {
             fh_core::logutil::write_line(&format!(
                 "frontend visible but topmost check failed → re-raise instead of hide ({reason})"
             ));
         }
-        show(app, reason);
+        show_now(app, reason);
     }
 }
 
 pub fn show(app: &AppHandle, reason: &str) {
+    dispatch(app, reason, show_now);
+}
+
+fn show_now(app: &AppHandle, reason: &str) {
     let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
         fh_core::logutil::write_line(&format!("frontend show failed: no window ({reason})"));
         return;
@@ -148,7 +230,9 @@ pub fn show(app: &AppHandle, reason: &str) {
         }
     }
     let visible = window_visible(app).unwrap_or(true);
-    VISIBLE.store(visible, Ordering::SeqCst);
+    // 每次开关只发布一次新代数，避免旧查询覆盖同代的相反可见位。
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    publish(visible);
     fh_core::logutil::write_line(&format!(
         "frontend show end ({reason}) is_visible={visible}"
     ));
@@ -166,9 +250,32 @@ pub fn show(app: &AppHandle, reason: &str) {
     }
     // 收尾（自检 / 重试 / 留现场）交给后台线程：`show()` 也会从托盘菜单、第二实例的回调里
     // 被调用，那些都在**主线程**上，在这里连等 5 × 120 ms 会把界面冻住。
-    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     snapshot(&window, "after-show", reason, generation);
     settle(window, reason.to_string(), generation);
+}
+
+/// 后台只发请求，主线程检查与抬升不可被 hide 插入。
+fn raise_current(window: &WebviewWindow, generation: u64, hard: bool) {
+    let target = window.clone();
+    if let Err(err) = window.run_on_main_thread(move || {
+        if GENERATION.load(Ordering::SeqCst) != generation
+            || !is_visible()
+            || !target.is_visible().unwrap_or(false)
+        {
+            return;
+        }
+        if hard {
+            crate::topmost::hard_raise(&target);
+            fh_core::logutil::write_line(&format!(
+                "frontend hard raise executed generation={generation} on_top={}",
+                crate::topmost::on_top(&target)
+            ));
+        } else {
+            crate::topmost::retry_top(&target);
+        }
+    }) {
+        fh_core::logutil::write_line(&format!("frontend retry dispatch failed: {err}"));
+    }
 }
 
 /// 显示之后的收尾：**自检 → 必要时重试 → 无条件留现场**。
@@ -199,25 +306,24 @@ fn settle(window: WebviewWindow, reason: String, generation: u64) {
             fh_core::logutil::write_line(&format!(
                 "frontend show retry {attempt}/{RETRY_MAX} ({reason}): not on top yet"
             ));
-            crate::topmost::retry_top(&window);
+            raise_current(&window, generation, false);
             std::thread::sleep(std::time::Duration::from_millis(RETRY_GAP_MS));
         }
         if !current() {
             return;
         }
-        // 0.1.53：重试用尽还是没进置顶层 → 上最硬的一下（抢前台 + 再顶），再看一眼结果。
-        // 大屏模式里「顶了但被那个全屏的壳压回来」是最难猜的现场，这一行日志直接说结论。
-        if !on_top {
+        // 重试用尽则排队加强抬升；当前采样可能早于执行，不能标为抬升后的结果。
+        let hard_raise_queued = !on_top;
+        if hard_raise_queued {
             fh_core::logutil::write_line(&format!(
-                "frontend not on top after {RETRY_MAX} retries ({reason}) — hard raise"
+                "frontend not on top after {RETRY_MAX} retries ({reason}) — hard raise queued"
             ));
-            crate::topmost::hard_raise(&window);
-            on_top = crate::topmost::on_top(&window);
+            raise_current(&window, generation, true);
         }
         let layer =
             crate::topmost::probe(&window).unwrap_or_else(|| "probe unavailable".to_string());
         fh_core::logutil::write_line(&format!(
-            "frontend layer ({reason}) on_top={on_top} {layer}"
+            "frontend layer ({reason}) generation={generation} on_top={on_top} hard_raise_queued={hard_raise_queued} {layer}"
         ));
         match crate::shot::capture(&window) {
             Ok(note) => fh_core::logutil::write_line(&format!("frontend shot ok {note}")),
@@ -265,11 +371,15 @@ fn keep_on_top(window: &WebviewWindow, current: &impl Fn() -> bool, reason: &str
                 "frontend topmost check failed after show ({reason}) — re-raise {logged}"
             ));
         }
-        crate::topmost::hard_raise(window);
+        raise_current(window, generation, true);
     }
 }
 
 pub fn hide(app: &AppHandle, reason: &str) {
+    dispatch(app, reason, hide_now);
+}
+
+fn hide_now(app: &AppHandle, reason: &str) {
     // 让还在跑的那轮自检作废：它的重试带着 `SWP_SHOWWINDOW`，别把刚关掉的窗口又显示出来。
     GENERATION.fetch_add(1, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
@@ -278,7 +388,7 @@ pub fn hide(app: &AppHandle, reason: &str) {
         }
     }
     let visible = window_visible(app).unwrap_or(false);
-    VISIBLE.store(visible, Ordering::SeqCst);
+    publish(visible);
     fh_core::logutil::write_line(&format!(
         "frontend hide end ({reason}) is_visible={visible}"
     ));
@@ -310,8 +420,12 @@ fn place(window: &WebviewWindow, app: &AppHandle) {
     fh_core::logutil::write_line(&format!(
         "frontend place x={x} y={y} w={width} h={height} scale={scale}"
     ));
-    let _ = window.set_size(tauri::Size::Physical(PhysicalSize { width, height }));
-    let _ = window.set_position(tauri::Position::Physical(PhysicalPosition { x, y }));
+    if let Err(err) = window.set_size(tauri::Size::Physical(PhysicalSize { width, height })) {
+        fh_core::logutil::write_line(&format!("frontend place size failed: {err}"));
+    }
+    if let Err(err) = window.set_position(tauri::Position::Physical(PhysicalPosition { x, y })) {
+        fh_core::logutil::write_line(&format!("frontend place position failed: {err}"));
+    }
 }
 
 /// 关窗永远只是隐藏：前端是托盘常驻软件，真正退出只能走托盘菜单。

@@ -35,3 +35,8 @@ commands.allow = ["quit_game"]
 identifier = "allow-library-read"
 description = "Read the library list published by the launcher (read-only file)."
 commands.allow = ["library_read"]
+
+[[permission]]
+identifier = "allow-overlay-control"
+description = "Read local overlay state, hide it through its lifecycle, and report fixed input diagnostics."
+commands.allow = ["overlay_state", "overlay_hide", "overlay_input_trace"]

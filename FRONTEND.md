@@ -3,6 +3,14 @@
 > 状态：**独立前端已实现，当前版本 0.1.55（FSE 取证版，尚未确认修复）**。下文保留最初拆分设计；历史归因不能替代本版取证结论。
 > 相关文档：`STATUS.md`（当前进度）、`FUTURE.md`（功能 2 / 功能 3 是本前端的由来）。
 
+## 未发布：输入链路与显示调度修正（版本仍为 0.1.55）
+
+- 组合键触发者取得导航所有权，断连才回退；组合键部分释放不再重触发，参与手柄全部中性后才重新解锁。Start 单键不关闭，保留 B / Esc / 关闭按钮。
+- 页面常驻监听本进程 `frontend-pad`；显示代数拒绝迟到状态，`overlay_state` 每次查询完成后 400 ms 串行兜底。注册失败重试；监听建立、换代、换手柄或隔离之后，须收到未隔离中性包才接受输入。关闭按钮可用手柄聚焦。
+- 窗口开关及后台抬升统一排到主线程，执行抬升前检查代数和可见位，防止旧重试复活已隐藏窗口；每次开关只发布一次新代数。页面通过本进程 `overlay_hide` 关闭，不直接隐藏窗口。
+- 新增限流的手柄发送/状态变化、页面注册/收包/动作/失败记录；各页面阶段独立限流，异步抬升区分排队与执行。关闭命令返回仅表示调用结束，不是实际隐藏成功回执，执行失败仍以 Rust 日志及后续状态为准。
+- 本机网页构建、工作区 Clippy、8 项输入单测、20 项库单测与差异检查通过；前端真实组件内存模拟 25 个断言通过，但不等于 WebView/Windows 联调。Windows Lint、安装包与 FSE 真机可见性/操作仍未验证，物理不可见根因未确定；未推送、升版或发布。
+
 ## 0.1.55：FSE 呼出前后只读取证
 
 - 用户已确认最新日志末尾操作发生在 Xbox 全屏体验内；按键、显示调用、可见位及置顶位正常，仍不能证明用户能看见。根因未确定，本版不改自启、手柄触发、显示策略及重试次数。
@@ -179,9 +187,9 @@
 - `tdp_client.rs`：`tdp_status` / `set_tdp` / `toolbox_tdp_driver_status` —— 命令名与启动器一致，界面代码基本不用改；失败信息归一成"启动器没在运行"这一类。
 - `games.rs`：`running_games` / `quit_game` **本进程自己实现**（免提权），候选表来自 `library_read`。
 - `library.rs`：`library_read`（只读 `library.json`）。
-- `chord.rs`：除了开关，浮层可见时每 40 ms 把摇杆/AB/Start 通过 `frontend-pad` 事件推给界面（与旧版浮层载荷同形状）。
-- 权限：`frontend/src-tauri/permissions/frontend.toml` 声明这 7 个命令，capabilities 逐条放行 + 补 `core:window:allow-set-title`（i18n 切语言时会设窗口标题）。
-- Web：`src/frontend/FrontendShell.tsx`（外壳）、`FrontendPanel.tsx`（TDP 面板 + 运行中游戏 + 退出游戏，从 0.1.45 的 `FrontendPage.tsx` 搬来）、`library.ts`（库/进程访问）、`frontend.css`（`.frontend-shell*` 样式从启动器 global.css 搬来）。外壳的可见性**只看自己窗口的 `isVisible()`**（400 ms 轮询），不再听任何跨程序事件。
+- `chord.rs`：浮层可见时每 40 ms 推送导航状态；隐藏时推送变化与约 400 ms 中性心跳。`frontend-pad` 另带可见位、代数、控制手柄和隔离位，仅发往本进程 main 页面。
+- 权限：`frontend/src-tauri/permissions/frontend.toml` 声明业务命令及仅限本进程的状态/关闭/诊断命令，capabilities 逐条放行；保留 `core:window:allow-set-title`（i18n 切语言时会设窗口标题）。
+- Web：`src/frontend/FrontendShell.tsx`（外壳）、`FrontendPanel.tsx`（TDP 面板 + 运行中游戏 + 退出游戏，从 0.1.45 的 `FrontendPage.tsx` 搬来）、`library.ts`（库/进程访问）、`frontend.css`（`.frontend-shell*` 样式从启动器 global.css 搬来）。外壳使用本进程 Rust 发布的带代数显示状态：常驻事件监听配合 400 ms 串行查询兜底，不依赖 Web 层 `isVisible()`，不监听跨程序状态。该状态不代表用户实际能看见。
 
 **这一阶段删掉的两处旧逻辑**：①"游戏退出就把前端收起来"（前端现在只属于用户）；②前端的"安装 TDP 驱动"按钮（要管理员，入口留在启动器工具箱，前端只显示状态与去哪装）。
 

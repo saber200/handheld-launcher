@@ -1,13 +1,7 @@
-// 独立前端的浮层外壳（从 0.1.45 的 src/FrontendShell.tsx 搬来）。
-//
-// 与旧版的区别：
-//  - 可见性只看**自己窗口**的 isVisible()，不再听 `frontend-state`（那是启动器的全局状态，
-//    也正是 0.1.45「窗口在屏上、状态却是关的、于是关不掉」的来源）；
-//  - 「关闭」= 隐藏窗口（托盘常驻），不是通知启动器；
-//  - 手柄状态由本程序 Rust 侧的 XInput 轮询通过 `frontend-pad` 推过来。
+// 本进程 Rust 管理显示状态；监听常驻，不再等窗口可见查询成功才接手柄。
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   closeGamepadKeyboard,
   confirmFocused,
@@ -23,157 +17,207 @@ function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-type FrontendPad = {
+type DisplayState = { visible: boolean; generation: number };
+type FrontendPad = DisplayState & {
   dx: number;
   dy: number;
   a: boolean;
   b: boolean;
   start: boolean;
+  owner: number | null;
+  blocked: boolean;
 };
-
-/** 打开那一下的按键不能立刻把浮层关掉（Start 开、B 关）。 */
+const neutral = () => ({ a: false, b: false, start: false, dx: 0, dy: 0 });
 const CLOSE_GRACE_MS = 1200;
 
-/** 自己窗口的可见性就是唯一真相：400 ms 问一次，够快也不贵。 */
-const VISIBLE_POLL_MS = 400;
+function trace(stage: string, generation: number) {
+  if (inTauri()) void invoke("overlay_input_trace", { stage, generation }).catch(() => {});
+}
 
 export function FrontendShell() {
   useI18n();
   const m = text().frontend;
   const [shellActive, setShellActive] = useState(!inTauri());
-  const padHeld = useRef({ a: false, b: false, start: false, dx: 0, dy: 0 });
+  const display = useRef<DisplayState>({ visible: !inTauri(), generation: -1 });
+  const owner = useRef<number | null>(null);
+  const padHeld = useRef(neutral());
+  const padReady = useRef(false);
   const padRepeatAt = useRef(0);
   const closeGraceUntil = useRef(0);
-  const bMustRelease = useRef(false);
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  const applyDisplay = useCallback((state: DisplayState) => {
+    // 查询响应可能晚于事件：旧代数不能把刚关闭的页面重新激活。
+    if (state.generation < display.current.generation) return false;
+    if (state.generation !== display.current.generation || state.visible !== display.current.visible) {
+      padReady.current = false;
+      padHeld.current = neutral();
+      padRepeatAt.current = 0;
+      closeGraceUntil.current = performance.now() + CLOSE_GRACE_MS;
+      display.current = state;
+      setShellActive(state.visible);
+    }
+    return true;
+  }, []);
 
   const close = useCallback(() => {
     if (!inTauri()) return;
-    // 关窗 == 隐藏到托盘；真正退出只在托盘菜单里。
-    void getCurrentWindow().hide().catch(() => {});
+    // 统一走 Rust：作废旧重试、更新输入状态，再隐藏；不直接调用 window.hide。
+    void invoke("overlay_hide").catch(() => trace("close-failed", Math.max(0, display.current.generation)));
   }, []);
 
   const closeFromPad = useCallback(() => {
-    if (performance.now() < closeGraceUntil.current) return;
-    if (bMustRelease.current) return;
-    close();
+    if (performance.now() >= closeGraceUntil.current) close();
   }, [close]);
 
-  useEffect(() => {
-    preloadSfx();
-  }, []);
+  useEffect(() => { preloadSfx(); }, []);
 
   useEffect(() => {
-    if (!inTauri()) {
-      setShellActive(true);
-      return;
-    }
-    let cancel = false;
-    const syncVisible = () => {
-      void getCurrentWindow()
-        .isVisible()
-        .then((visible) => {
-          if (!cancel) setShellActive(visible);
-        })
-        .catch(() => {});
+    if (!inTauri()) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    let lastError = -Infinity;
+    // 串行兜底查询，事件注册前或失败后也能恢复，不堆积在途请求。
+    const sync = async () => {
+      try {
+        const state = await invoke<DisplayState>("overlay_state");
+        if (!cancelled) applyDisplay(state);
+      } catch {
+        if (!cancelled && performance.now() - lastError >= 5000) {
+          lastError = performance.now();
+          trace("state-failed", Math.max(0, display.current.generation));
+        }
+      } finally {
+        if (!cancelled) timer = window.setTimeout(sync, 400);
+      }
     };
-    syncVisible();
-    const timer = window.setInterval(syncVisible, VISIBLE_POLL_MS);
-    return () => {
-      cancel = true;
-      window.clearInterval(timer);
-    };
-  }, []);
+    void sync();
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [applyDisplay]);
 
   useEffect(() => {
     if (!shellActive) return;
-    closeGraceUntil.current = performance.now() + CLOSE_GRACE_MS;
-    bMustRelease.current = true;
     const onKey = (e: KeyboardEvent) => {
-      if (gamepadKeyboardOpen()) {
-        if (e.key === "Escape" || e.key === "b" || e.key === "B") {
-          e.preventDefault();
-          closeGamepadKeyboard();
-        }
-        return;
-      }
-      if (e.key === "Escape" || e.key === "b" || e.key === "B") {
-        e.preventDefault();
-        closeFromPad();
-      }
+      if (e.key !== "Escape" && e.key !== "b" && e.key !== "B") return;
+      e.preventDefault();
+      if (gamepadKeyboardOpen()) closeGamepadKeyboard();
+      else close(); // 键盘不受手柄未释放或呼出宽限影响。
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeFromPad, shellActive]);
+  }, [close, shellActive]);
 
-  // 浏览器预览用 Gamepad API（Tauri 的 WebView 里它常常给空表，所以那边走 XInput 桥）。
   useGamepadNav({
     enabled: shellActive && !inTauri(),
     onBack: closeFromPad,
-    onConfirm: () => {
-      confirmFocused();
-    },
+    onConfirm: () => { confirmFocused(); },
   });
 
   useEffect(() => {
-    if (!shellActive || !inTauri()) return;
-    padHeld.current = { a: true, b: true, start: true, dx: 0, dy: 0 };
-    padRepeatAt.current = 0;
-    closeGraceUntil.current = performance.now() + CLOSE_GRACE_MS;
-    bMustRelease.current = true;
-    let primed = false;
-    const unlisten = listen<FrontendPad>("frontend-pad", (event) => {
-      const pad = event.payload;
-      const dx = pad.dx || 0;
-      const dy = pad.dy || 0;
-      // 打开时按着的键当作已经按下，避免“开的那一下顺手把自己关了”。
-      if (!primed) {
-        primed = true;
-        padHeld.current = { a: true, b: true, start: true, dx, dy };
-        if (pad.b) bMustRelease.current = true;
-        return;
+    if (!inTauri()) return;
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    let retry: number | undefined;
+    let receivedGeneration = -1;
+    let actionGeneration = -1;
+    let lastError = -Infinity;
+    const connect = async () => {
+      // 注册重试/页面重挂载后不能把持续按住当成新的按下。
+      padReady.current = false;
+      padHeld.current = neutral();
+      padRepeatAt.current = 0;
+      try {
+        const unlisten = await listen<FrontendPad>("frontend-pad", ({ payload: pad }) => {
+          if (cancelled || !applyDisplay(pad)) return;
+          if (receivedGeneration !== pad.generation) {
+            receivedGeneration = pad.generation;
+            trace("received", pad.generation);
+          }
+          if (owner.current !== pad.owner) {
+            owner.current = pad.owner;
+            padReady.current = false;
+            padHeld.current = neutral();
+            padRepeatAt.current = 0;
+          }
+          if (!pad.visible || pad.blocked) {
+            padReady.current = false;
+            padHeld.current = neutral();
+            padRepeatAt.current = 0;
+            return;
+          }
+          if (!padReady.current) {
+            // blocked 包里的零值是隔离产物，不算释放；只接受未隔离的中性包。
+            padReady.current = !pad.a && !pad.b && !pad.start && pad.dx === 0 && pad.dy === 0;
+            return;
+          }
+          const { dx, dy } = pad;
+          const held = padHeld.current;
+          const now = performance.now();
+          const inGrace = now < closeGraceUntil.current;
+          const roseX = dx !== 0 && dx !== held.dx;
+          const roseY = dy !== 0 && dy !== held.dy;
+          let acted = false;
+          if (roseX || roseY) {
+            steerFocus(roseX ? dx : 0, roseX ? 0 : dy);
+            padRepeatAt.current = now + 320;
+            acted = true;
+          } else if ((dx !== 0 || dy !== 0) && now >= padRepeatAt.current) {
+            steerFocus(dx !== 0 ? dx : 0, dx !== 0 ? 0 : dy);
+            padRepeatAt.current = now + 140;
+            acted = true;
+          }
+          if (pad.a && !held.a && !inGrace) {
+            confirmFocused();
+            acted = true;
+          }
+          // Start 只参与 Rust 组合键，单键不关闭，避免先按 Start 再按 Back 时关后又开。
+          if (pad.b && !held.b && !inGrace) {
+            if (gamepadKeyboardOpen()) closeGamepadKeyboard();
+            else closeFromPad();
+            acted = true;
+          }
+          if (acted && actionGeneration !== pad.generation) {
+            actionGeneration = pad.generation;
+            trace("action", pad.generation);
+          }
+          padHeld.current = { a: pad.a, b: pad.b, start: pad.start, dx, dy };
+        });
+        if (cancelled) unlisten();
+        else {
+          stop = unlisten;
+          trace("listening", Math.max(0, display.current.generation));
+        }
+      } catch {
+        if (cancelled) return;
+        if (performance.now() - lastError >= 5000) {
+          lastError = performance.now();
+          trace("listen-failed", Math.max(0, display.current.generation));
+        }
+        retry = window.setTimeout(connect, 1000);
       }
-      if (bMustRelease.current && !pad.b) {
-        bMustRelease.current = false;
-      }
-      const held = padHeld.current;
-      const now = performance.now();
-      const inGrace = now < closeGraceUntil.current;
-
-      const roseX = dx !== 0 && dx !== held.dx;
-      const roseY = dy !== 0 && dy !== held.dy;
-      if (roseX || roseY) {
-        steerFocus(roseX ? dx : 0, roseX ? 0 : dy);
-        padRepeatAt.current = now + 320;
-      } else if ((dx !== 0 || dy !== 0) && now >= padRepeatAt.current) {
-        steerFocus(dx !== 0 ? dx : 0, dx !== 0 ? 0 : dy);
-        padRepeatAt.current = now + 140;
-      }
-
-      if (pad.a && !held.a && !inGrace) {
-        confirmFocused();
-      }
-      // B 或 Start 松手后才关（避免开按未松就关掉）。
-      if (pad.b && !held.b) closeFromPad();
-      if (pad.start && !held.start && !inGrace) closeFromPad();
-
-      padHeld.current = { a: pad.a, b: pad.b, start: pad.start, dx, dy };
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
     };
-  }, [shellActive, closeFromPad]);
+    void connect();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retry);
+      stop?.();
+    };
+  }, [applyDisplay, closeFromPad]);
 
   useEffect(() => {
     if (!shellActive) return;
-    // 焦点优先落在面板里的控件上：关闭按钮是鼠标专用（没有 data-focusable）。
-    document.querySelector<HTMLElement>(".frontend-panel-body [data-focusable]")?.focus();
+    // 驱动未就绪且没有运行游戏时，也必须有手柄可聚焦的关闭入口。
+    const first = document.querySelector<HTMLElement>(
+      '.frontend-panel-body [data-focusable]:not(:disabled):not([aria-disabled="true"])',
+    );
+    (first ?? closeButton.current)?.focus();
   }, [shellActive]);
 
   return (
     <div className="frontend-shell">
       <header className="frontend-shell-head">
         <h1>{m.title}</h1>
-        <button type="button" className="library-tool" onClick={close}>
+        <button ref={closeButton} type="button" className="library-tool" data-focusable onClick={close}>
           {m.close}
         </button>
       </header>

@@ -54,7 +54,9 @@ fn watch_update_handshake(app: tauri::AppHandle, started: std::time::SystemTime)
             app.exit(0);
             return;
         }
-        std::thread::sleep(std::time::Duration::from_millis(fh_core::handshake::POLL_MS));
+        std::thread::sleep(std::time::Duration::from_millis(
+            fh_core::handshake::POLL_MS,
+        ));
     });
 }
 
@@ -76,7 +78,12 @@ fn main() {
     // 单实例必须第一个注册：第二次启动只把已经在跑的实例叫出来，不会多一个托盘图标。
     builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
         handle_args(app, &args);
-        if !args.iter().any(|arg| matches!(arg.as_str(), "--autostart" | "--enable-autostart" | "--disable-autostart" | "--show")) {
+        if !args.iter().any(|arg| {
+            matches!(
+                arg.as_str(),
+                "--autostart" | "--enable-autostart" | "--disable-autostart" | "--show"
+            )
+        }) {
             overlay::show(app, "second instance");
         }
     }));
@@ -89,6 +96,9 @@ fn main() {
         // 完成（免提权，见 FRONTEND.md §3/§4）。
         .invoke_handler(tauri::generate_handler![
             set_locale,
+            overlay::overlay_state,
+            overlay::overlay_hide,
+            overlay::overlay_input_trace,
             tdp_client::tdp_status,
             tdp_client::set_tdp,
             tdp_client::toolbox_tdp_driver_status,
