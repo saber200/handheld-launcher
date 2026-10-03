@@ -61,6 +61,9 @@ export type Catalog = {
     desktopDone: string;
     desktopFailed: (detail: string) => string;
     fseOpenFailed: (detail: string) => string;
+    widgetRegister: string;
+    widgetRegisterHint: string;
+    widgetPreview: string;
     powerPreview: string;
     slept: string;
     powerFailed: (detail: string) => string;
@@ -321,6 +324,9 @@ export const zh: Catalog = {
     fseOpenSettings: "打开系统全屏体验设置",
     fseOpenSettingsHint: "把主页应用选成「幻想枢纽」",
     fsePreview: "浏览器预览无法登记全屏体验",
+    widgetRegister: "装 Game Bar 小组件",
+    widgetRegisterHint: "随启动器自动装；点这里重装一次",
+    widgetPreview: "浏览器预览无法安装小组件",
     quit: "退出启动器",
     quitHint: "退出并回到桌面",
     autostartReadFailed: "无法读取开机自启状态（需在打包后的桌面端测试）",
@@ -598,6 +604,9 @@ export const en: Catalog = {
     fseOpenSettings: "Open Windows FSE settings",
     fseOpenSettingsHint: "Choose FantasyHub as the home app",
     fsePreview: "Browser preview can't register fullscreen experience",
+    widgetRegister: "Install Game Bar widget",
+    widgetRegisterHint: "Ships with the launcher; this reinstalls it",
+    widgetPreview: "Browser preview can't install the widget",
     quit: "Quit",
     quitHint: "Leave and return to the desktop",
     autostartReadFailed: "Couldn't read the startup setting. Try the installed app.",

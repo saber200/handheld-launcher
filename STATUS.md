@@ -15,6 +15,8 @@
 - 新增 `.github/workflows/gamebar.yml`（钉 `windows-2022`：工程要 SDK 10.0.22621.0，`windows-latest` 只有 26100）：静态检查是硬闸门；Debug 真编在 `65728b6` 首次全绿（`check-static.py` + 0 error 的 msix），**已具备转硬闸门的条件但还没转**（仍是 `continue-on-error`，产物照旧上传）。
 - **尚未闭环**：Bridge 白名单没有 `set_autostart`，小组件的「自启」只存本地意图并提示手动关，不能称迁移完成；旧界面代码（`overlay/chord/shot/topmost/library/games`、`src/frontend/*`、`frontend.html`）已接不上但全部保留，等真机验证后单独一次提交清理。
 - 版本号多了第 6 处：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段 `0.1.55.0`），不在原五处联动里，发版必须手动跟上。
+- **小组件改成「随启动器一起装」（本轮新做，未验证）**：CI 现打一张自签证书给 msix 签名，把「msix + 证书 + 三个框架依赖」摆进 `src-tauri/payload/gamebar/`，由启动器安装包带上；装的时候 NSIS 钩子跑一行等价命令、启动器每次启动再幂等补一次（`src-tauri/gamebar/register-widget.ps1`），设置页也加了「装 Game Bar 小组件」。证书只进当前用户「受信任人」，所以目标机**不需要管理员、也不需要开发者模式**。没在真机验证：普通机器能否装上、Game Bar 重启后能否立刻看到、CI 的 `signtool verify /pa` 是否稳定。
+- 小组件 payload 由 `build-windows.yml` 新增的 `gamebar-payload` 作业（`windows-2022`）产出、以 artifact 交给主作业；主作业带 `if: always()`，**小组件编挂了照样发版**（资源路径上有 0 字节占位兜底，那个安装包只是不带小组件）。`gamebar.yml` 同样传一份 artifact，方便单独下载验证。
 
 ## 未发布：普通应用窗口显示候选
 

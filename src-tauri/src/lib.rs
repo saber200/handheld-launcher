@@ -148,6 +148,9 @@ pub fn run() {
             startup::fse_status,
             startup::register_fse,
             startup::open_fse_settings,
+            // Game Bar 小组件：看上次装的结果 / 手动重装一次（见 startup.rs 顶部说明）。
+            startup::widget_status,
+            startup::register_widget,
             startup::open_desktop,
             startup::enter_fullscreen,
             startup::system_power,
@@ -176,7 +179,10 @@ pub fn run() {
             startup::prepare();
             logutil::write_line(&format!("log file: {}", logutil::path_for_user()));
             let resources = app.path().resource_dir().ok();
-            startup::schedule_fse_registration(resources);
+            startup::schedule_fse_registration(resources.clone());
+            // 小组件也随启动器装：CI 把它签好塞进安装包，这里每次启动幂等地补一次
+            // （安装器那一步可能没跑成、或者用户从旧版本升级上来）。
+            startup::schedule_widget_registration(resources);
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_fullscreen(true);
                 // 启动即大屏模式（FSE 主页应用就是这么起来的）：让壳体常态退出置顶层，

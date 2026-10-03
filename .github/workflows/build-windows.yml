@@ -10,7 +10,36 @@ permissions:
   contents: write
 
 jobs:
+  # Game Bar 小组件那份 payload（签好名的 msix + 签名证书 + 三个框架依赖）在这里编。
+  # 为什么单独一个作业：Widget.csproj 写死 TargetPlatformVersion=10.0.22621.0，只有
+  # windows-2022 镜像带那个 SDK 和 UWP 工作负载；而发布链路一直跑在 windows-latest 上，
+  # 不动它更稳。两个作业并行跑，主作业的耗时不受影响。
+  gamebar-payload:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # 编不出来也不该让发布失败：src-tauri/build.rs 在那几个资源路径上留了 0 字节占位，
+      # 少了小组件的安装包照发，只是那个包不带小组件（启动器会明确说"这个版本没带小组件"）。
+      # 小组件的硬闸门在 gamebar.yml（源码/资源形状检查那条）。
+      - name: Build + sign widget payload
+        continue-on-error: true
+        shell: pwsh
+        run: ./frontend/gamebar/package-payload.ps1 -Configuration Debug -OutDir frontend/gamebar/AppPackages/payload
+
+      # 不管成功失败都留证据：这份 artifact 也能直接下载来手动装（里面有 INSTALL.txt）。
+      - name: Upload widget payload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamebar-widget-payload
+          if-no-files-found: warn
+          path: frontend/gamebar/AppPackages/payload/**
+
   windows:
+    # 小组件编挂了也得照常发版，所以这里写 always()，缺的 artifact 由下面那步兜住。
+    needs: gamebar-payload
+    if: always()
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,6 +161,27 @@ jobs:
             - 也可在 Artifacts 中下载未安装的 `FantasyHub.exe` / `FantasyHubFrontend.exe`
           releaseDraft: false
           prerelease: ${{ github.ref_type != 'tag' }}
+
+      # Game Bar 小组件 payload：由上面那个 gamebar-payload 作业编好（现签的证书 + 依赖包），
+      # 这里放进启动器的资源目录 —— 启动器安装包会带上它，安装时自动注册到当前用户
+      # （tauri.conf.json 的 resources + nsis/installer.nsh 的 NSIS_HOOK_POSTINSTALL）。
+      # 下载不下来也要能发版，所以 continue-on-error。
+      - name: Stage Game Bar widget payload
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: gamebar-widget-payload
+          path: src-tauri/payload/gamebar
+
+      - name: Report widget payload
+        shell: pwsh
+        run: |
+          $msix = "src-tauri/payload/gamebar/widget.msix"
+          if (Test-Path $msix) {
+            Write-Host "widget payload ready: $((Get-Item $msix).Length) bytes"
+          } else {
+            Write-Warning "no widget payload in this build; the installer will ship without the Game Bar widget"
+          }
 
       # 把上一步产出的前端安装包放进启动器的资源目录（固定文件名）：之后启动器安装包会带上
       # 它，安装时自动装/更新前端（tauri.conf.json 的 resources + nsis/installer.nsh 的

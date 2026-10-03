@@ -23,6 +23,8 @@ export function SettingsPage({ active }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [isTauri, setIsTauri] = useState(false);
+  // Game Bar 小组件上次装的结果（启动器每次启动都会自动装一次），显示在那一行下面。
+  const [widgetStatus, setWidgetStatus] = useState("");
   const [powerOpen, setPowerOpen] = useState(false);
   const sleepRef = useRef<HTMLButtonElement>(null);
 
@@ -33,6 +35,9 @@ export function SettingsPage({ active }: Props) {
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage(text().settings.autostartReadFailed));
+    void invoke<string>("widget_status")
+      .then(setWidgetStatus)
+      .catch(() => setWidgetStatus(""));
   }, []);
 
   useEffect(() => {
@@ -92,6 +97,25 @@ export function SettingsPage({ active }: Props) {
       setMessage(status);
     } catch (e) {
       setMessage(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const installWidget = async () => {
+    if (!isTauri) {
+      setMessage(text().settings.widgetPreview);
+      return;
+    }
+    setBusy(true);
+    try {
+      // force：设置页点一次就是要"重装一遍"，已经装好也会先卸再装。
+      const status = await invoke<string>("register_widget");
+      setMessage(status);
+      setWidgetStatus(status);
+    } catch (e) {
+      setMessage(String(e));
+      setWidgetStatus(String(e));
     } finally {
       setBusy(false);
     }
@@ -212,6 +236,20 @@ export function SettingsPage({ active }: Props) {
             <small>{m.fseOpenSettingsHint}</small>
           </span>
           <span className="chev">↗</span>
+        </button>
+
+        <button
+          type="button"
+          className="setting-row"
+          data-focusable
+          disabled={busy}
+          onClick={() => void installWidget()}
+        >
+          <span>
+            <strong>{m.widgetRegister}</strong>
+            <small>{widgetStatus || m.widgetRegisterHint}</small>
+          </span>
+          <span className="chev">⟳</span>
         </button>
 
         <button

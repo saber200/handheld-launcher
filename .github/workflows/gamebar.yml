@@ -41,14 +41,25 @@ jobs:
       - name: Source and resource checks
         run: python frontend/gamebar/check-static.py
 
-      # 这是这份 C# 第一次在 Windows 上真编。先编 Debug（Release 会开 .NET Native，
-      # 慢且更可能踩坑），而且**暂时不算闸门**：先拿一轮真实 MSBuild 输出，
-      # 绿了、确认脚本自己的产物检查也过了，再删掉 continue-on-error 转成硬闸门。
-      - name: Build Debug (not a gate yet)
+      # 这一步既编 C#、又当场自签一张证书给小组件签名，然后把「签好名的 msix + 证书 + 三个
+      # 框架依赖」摆成启动器安装包能直接带的样子（frontend/gamebar/package-payload.ps1）。
+      # 先编 Debug（Release 会开 .NET Native，慢且更可能踩坑），而且**暂时不算闸门**：
+      # 先拿一轮真实输出，绿了、确认脚本自己的产物检查也过了，再删掉 continue-on-error 转成硬闸门。
+      - name: Build Debug + sign the launcher payload (not a gate yet)
         continue-on-error: true
         shell: pwsh
         run: |
-          ./frontend/gamebar/build-windows.ps1 -Configuration Debug *>&1 | Tee-Object -FilePath gamebar-build.log
+          ./frontend/gamebar/package-payload.ps1 -Configuration Debug -OutDir frontend/gamebar/AppPackages/payload *>&1 | Tee-Object -FilePath gamebar-build.log
+
+      # 小组件那份 payload 单独传一份：签好名的 msix + 依赖包能直接下载来手动装
+      # （里面带 INSTALL.txt），不必等到发版才验证。
+      - name: Upload widget payload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamebar-widget-payload
+          if-no-files-found: warn
+          path: frontend/gamebar/AppPackages/payload/**
 
       # 不管成功失败都把产物与日志留下来：失败时的 info/warning 就是下一步要读的东西。
       # 未签名包不能直接安装（签名要证书，脚本刻意不创建、不改信任），这里只做证据留存。

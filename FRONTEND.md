@@ -3,6 +3,16 @@
 > 状态：**独立前端已改成无窗口的 Game Bar 后台（未验证），界面由 `frontend/gamebar` 的原生小组件承担**。下文保留最初拆分设计与 0.1.46–0.1.55 的浮层排查记录；那些窗口已经从代码里接不上，历史归因不能替代本节的验证边界。
 > 相关文档：`STATUS.md`（当前进度）、`FUTURE.md`（功能 2 / 功能 3 是本前端的由来）。
 
+## 未发布：小组件改成「随启动器一起装」（没在真机验证过）
+
+- 目标：用户只装**一个**启动器安装包，装完按 Win+G 就能看到小组件 —— 不用自己开开发者模式、不用手动 `Add-AppxPackage`、也不用（更不能）双击那个未签名的 `.msix`。
+- 怎么走通的：CI 现打一张自签证书（`frontend/gamebar/package-payload.ps1`，Code Signing EKU，Subject 必须**逐字等于**清单里的 Publisher `CN=FantasyHub`）→ `build-windows.ps1 -CertificateThumbprint` 签名并 `signtool verify /pa` → 把「签好名的 `widget.msix` + 公钥 `widget.cer` + 三个框架依赖」摆进 `src-tauri/payload/gamebar/`（启动器 `bundle.resources` 带上它们；仓库里另有 0 字节占位兜底，见 `src-tauri/build.rs`）。目标机上由 `src-tauri/gamebar/register-widget.ps1` 完成：证书进当前用户「受信任人」→ 装依赖 → 注册小组件 → 重启 Game Bar。**不需要管理员、也不需要开发者模式**（有签名 + 证书受信任就够）。
+- 两个执行时机、一套实现：① `nsis/installer.nsh` 的 `NSIS_HOOK_POSTINSTALL` 跑一行等价的内联 PowerShell（只为「装完不打开启动器也能看到」，失败只打日志，**绝不阻塞启动器安装**）② 启动器每次启动在后台跑 `register-widget.ps1`（幂等：标记文件记「包 hash + 版本 + 证书指纹」，hash 没变就不动手；换证书签的新包先卸再装，因为同一个 identity 换证书不能覆盖安装）③ 设置页「装 Game Bar 小组件」手动重装一次。为什么不把脚本当资源交给 NSIS 调：PS 5.1 读没有 BOM 的 UTF-8 脚本会按系统代码页解，注释里的中文会乱码 —— Rust 侧写脚本一律 UTF-8 with BOM（`include_str!` + 预置 BOM），这个坑不再复制第三遍。
+- 卸载：`NSIS_HOOK_PREUNINSTALL` 用一行 PowerShell 卸掉 `FantasyHub.GameBar`（那时 `$INSTDIR` 可能已被清空，所以它不依赖任何随包文件）。三个框架包与证书都不动 —— 证书主题 `CN=FantasyHub` 和 FSE 身份证书**一样**，按主题删会误伤，所以脚本只删「自己上一次装进去的那张」（标记文件里的指纹）。
+- 工具链：`.github/workflows/build-windows.yml` 新增 `gamebar-payload` 作业（`windows-2022`，因为要 10.0.22621 SDK），产出 artifact 交给主作业下载进 `src-tauri/payload/gamebar`；主作业 `needs` 它但带 `if: always()`，所以**小组件编挂了照样发版**（那个安装包只是不带小组件，启动器会明说「这个版本没带小组件」）。`gamebar.yml` 也传一份同名 artifact，方便手动下载验证。
+- **完全没验证的部分**：自签证书这条路在普通机器（没开开发者模式、没改过侧载策略）上到底能不能装上；三个 **Debug** 框架依赖会不会和目标机已装的版本打架；Game Bar 重启后是否立刻枚举到新小组件；`signtool verify /pa` 在 CI runner 上（自签证书刚进 CurrentUser/LocalMachine 根存储）是否稳定通过。这四件事都要等一次 CI 打包 + 一次真机。
+- 后续可选：把签名证书固定下来（PFX 存 GitHub secret，`package-payload.ps1` 优先用它）→ 版本更新时证书不变，可以省掉「先卸再装」；框架依赖从 Debug 换成 Release（那时依赖清单要同步改 `build.rs` 与 `tauri.conf.json` 里的路径）。
+
 ## 未发布：独立前端改做 Game Bar 后台，界面交给原生小组件（未验证）
 
 - 独立前端**不再创建窗口**：`frontend/src-tauri/tauri.conf.json` 的 `windows` 为空，`main.rs` 只起托盘 + 回环监听 + 更新握手，不再 `mod overlay / chord / shot / topmost / library / games`。界面改由 `frontend/gamebar` 承担：原生 UWP C#/XAML 小组件（`microsoft.gameBarUIExtension`）+ **同包全信任**的 Bridge `FantasyHub.GameBar.Bridge.exe`。
@@ -113,6 +123,7 @@
 - 覆盖正在运行的前端会因 exe 被占用而失败：走一次性「请退出」握手 —— 安装器写标记文件 `%APPDATA%\handheld-launcher\quit-for-update`，前端每 2 秒看一眼、看到就**真正退出进程**，安装器等 6 秒后覆盖安装、最后删掉标记。**用文件而不是命名事件**：握手一端是 NSIS，读写文件比打开 Windows 命名事件简单可靠得多（也不必上 unsafe 或额外插件）。**这是安装时的一次性握手，不是运行时耦合。**
 - **自启的落点（0.1.53 起改）**：前端自己的开关仍然由前端的安装钩子触发（`FantasyHubFrontend.exe --enable-autostart` → 托盘菜单里那个勾选项，走同一个值名，状态必然一致；前端程序本身不偷偷写注册表）。但**落点从 HKCU Run 换成计划任务** `FantasyHubFrontend`（`crates/fh-core/src/autostart.rs`）：Run 键由桌面 shell（explorer）在登录时处理，而 Win11「Xbox 模式（全屏体验）」的会话里**没有 explorer** —— 于是 FSE 里前端压根不会被启动（真机上表现为「开机后前端不在」）。任务由任务计划程序拉起，任何会话都在，且能配「失败后重启」（崩溃/被杀会回来；托盘退出是 exit code 0，不算失败，不会被重启）。**建任务这件事由启动器做**（它提权，且启动时本来就要补一次「前端在跑」，见 `frontend_tool::ensure_running`）：任务不在才建、不覆盖已存在的（用户可能在托盘关过自启）；启动时优先 `schtasks /run` —— 任务写的是普通权限，而直接 spawn 会继承启动器的管理员权限，同一个前端两种权限会让 UIPI 在不同会话下表现不一致。这一条**又一次放宽了 §2 的边界**（启动器碰了前端的自启任务），理由同上一条：没人管的那一段空窗只能由唯一确定在跑的一方补上。`frontend-stopped` 标记则保证「用户主动退出」在这一轮登录里被尊重（下次登录由任务启动时清掉）。
 - 卸载：前端由它自己的安装包卸载（Tauri 生成的卸载流程本来就会处理"自己的程序还在跑"）；启动器卸载只删自己的目录/payload，**不杀前端进程**。
+- **Game Bar 小组件走同一条路（未验证）**：启动器安装包还带 `payload/gamebar/`（签好名的 msix + 证书公钥 + 三个框架依赖），`NSIS_HOOK_POSTINSTALL` 里一行 PowerShell 把它注册到当前用户，`NSIS_HOOK_PREUNINSTALL` 再卸掉；完整逻辑在 `src-tauri/gamebar/register-widget.ps1`，启动器每次启动幂等补一次（见文首「小组件改成随启动器一起装」）。
 
 ## 6. 代码组织（阶段 1 已落地）
 

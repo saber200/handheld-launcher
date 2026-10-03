@@ -16,8 +16,10 @@
 
 ## 3. 版本与文档
 
-- 版本号共 5 处要一起改：根 `Cargo.toml`、根 `package.json`、`frontend/package.json`、
-  `src-tauri/tauri.conf.json`、`frontend/src-tauri/tauri.conf.json`。
+- 版本号共 6 处要一起改：根 `Cargo.toml`、根 `package.json`、`frontend/package.json`、
+  `src-tauri/tauri.conf.json`、`frontend/src-tauri/tauri.conf.json`、
+  `frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段，如 `0.1.55.0`）。
+  最后这处漏改不会装错包（小组件按包 hash 判断要不要重装），只是 Game Bar 里显示旧版本号。
 - 改动同步进 `FRONTEND.md`（设计与坑）和 `STATUS.md`（当前状态、近期改动备忘）。
 - 提交信息用中文，写清「修了什么、为什么」，不写 "fix bug"。
 - 发版：推 `main` 等 Lint 绿 → 打**注释 tag**（`git tag -a vX.Y.Z -m "FantasyHub X.Y.Z：<一句话>"`）→ 推 tag 触发打包，
