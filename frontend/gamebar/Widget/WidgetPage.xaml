@@ -39,6 +39,42 @@
   <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
   <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
   <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedDisabled" Color="Transparent" />
+
+  <!-- Button 的主题键：UWP 默认模板的 hover / pressed / disabled 状态是用这些键直接刷
+       ContentPresenter 的 Background / BorderBrush / Foreground，Style 里设的值会被盖掉。
+       真机上「风扇控制 · 暂未开放」一被禁用就变成一条发亮的灰条、字几乎看不见，就是这里。
+       统一收进深色系：hover/pressed 用白色低透明度，禁用态用「同底色 + 半透明字」，
+       不再让系统那套浅灰漏出来。 -->
+  <SolidColorBrush x:Key="ButtonBackground" Color="#0AFFFFFF" />
+  <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#14FFFFFF" />
+  <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#24FFFFFF" />
+  <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#0AFFFFFF" />
+  <SolidColorBrush x:Key="ButtonForeground" Color="#F3F6FB" />
+  <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#66F3F6FB" />
+  <SolidColorBrush x:Key="ButtonBorderBrush" Color="#1AFFFFFF" />
+  <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#33FFFFFF" />
+  <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#33FFFFFF" />
+  <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#0FFFFFFF" />
+
+  <!-- 下拉框（运行中的游戏 / 语言）：默认外观在这套深色板里一眼就是系统控件，统一成卡片同款。
+       键名写错只是不生效，不会让编译失败。 -->
+  <SolidColorBrush x:Key="ComboBoxBackground" Color="#0AFFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#14FFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#1FFFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxBackgroundDisabled" Color="#08000000" />
+  <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#1AFFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#33FFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxBorderBrushPressed" Color="#33FFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxBorderBrushDisabled" Color="#0FFFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxForeground" Color="#F3F6FB" />
+  <SolidColorBrush x:Key="ComboBoxForegroundPointerOver" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxForegroundPressed" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="ComboBoxForegroundDisabled" Color="#66F3F6FB" />
+  <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#121C2E" />
+  <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#1AFFFFFF" />
+
   <!-- 滑块：等价于原前端的 accent-color: accent 变量 -->
   <SolidColorBrush x:Key="SliderTrackFill" Color="#28FFFFFF" />
   <SolidColorBrush x:Key="SliderTrackValueFill" Color="#3DD6C6" />
@@ -59,16 +95,22 @@
    <Setter Property="Background" Value="{StaticResource FhCard}" />
   </Style>
 
-  <!-- 头部胶囊按钮：.library-tool（accent 描边 + 8% accent 底） -->
+  <!-- 头部按钮：方块 + 小圆角（原前端 .library-tool 的配色，但圆角不跟它走：
+       真机上 999 圆角在这块面板里像两个大椭圆，方块看起来才像同一套界面）。
+       尺寸按手柄可点标准给：高 44、左右各 16 内边距，字号跟着正文放大到 16。 -->
   <Style x:Key="FhToolButton" TargetType="Button">
-   <Setter Property="Padding" Value="14,8" />
-   <Setter Property="CornerRadius" Value="999" />
+   <Setter Property="Padding" Value="16,10" />
+   <Setter Property="MinHeight" Value="44" />
+   <Setter Property="CornerRadius" Value="10" />
    <Setter Property="BorderThickness" Value="1" />
    <Setter Property="BorderBrush" Value="#663DD6C6" />
    <Setter Property="Background" Value="#143DD6C6" />
    <Setter Property="Foreground" Value="{StaticResource FhAccent}" />
-   <Setter Property="FontSize" Value="14" />
+   <Setter Property="FontSize" Value="16" />
    <Setter Property="FontWeight" Value="SemiBold" />
+   <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource FhAccent}" />
+   <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+   <Setter Property="FocusVisualMargin" Value="-2" />
   </Style>
 
   <!-- 设置行：.setting-row（整块可点、内容左对齐） -->
@@ -83,24 +125,31 @@
    <Setter Property="FontWeight" Value="SemiBold" />
    <Setter Property="HorizontalAlignment" Value="Stretch" />
    <Setter Property="HorizontalContentAlignment" Value="Left" />
+   <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource FhAccent}" />
+   <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+   <Setter Property="FocusVisualMargin" Value="-2" />
   </Style>
 
-  <!-- 预设的 GridViewItem：只做 3 列排版，hover/选中视觉全交给里面的 ToggleButton，
-       否则 GridViewItem 会自己画一层系统高亮盖住按钮。 -->
-  <Style x:Key="FhPresetItem" TargetType="GridViewItem">
-   <Setter Property="Padding" Value="0" />
-   <Setter Property="Margin" Value="0" />
+  <!-- 预设按钮 = .tdp-preset：选中态靠覆盖 ToggleButton 的主题资源键变成 accent 底 + 深字。
+       焦点视觉改成 accent（原前端 [data-focusable]:focus 就是 accent 描边 + 2px 半透环）——
+       不换的话系统默认是白色高对比框，和 checked 的 accent 底同时出现，
+       真机上看着像「两个预设同时被选中」。 -->
+  <Style x:Key="FhPresetStyle" TargetType="ToggleButton">
    <Setter Property="MinWidth" Value="0" />
-   <Setter Property="MinHeight" Value="0" />
-   <Setter Property="Template">
-    <Setter.Value>
-     <ControlTemplate TargetType="GridViewItem">
-      <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
-        HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
-     </ControlTemplate>
-    </Setter.Value>
-   </Setter>
+   <Setter Property="MinHeight" Value="56" />
+   <Setter Property="Padding" Value="8,0" />
+   <Setter Property="CornerRadius" Value="14" />
+   <Setter Property="BorderThickness" Value="1" />
+   <Setter Property="FontSize" Value="18" />
+   <Setter Property="FontWeight" Value="SemiBold" />
+   <Setter Property="HorizontalAlignment" Value="Stretch" />
+   <Setter Property="HorizontalContentAlignment" Value="Center" />
+   <Setter Property="VerticalContentAlignment" Value="Center" />
+   <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource FhAccent}" />
+   <Setter Property="FocusVisualSecondaryBrush" Value="Transparent" />
+   <Setter Property="FocusVisualMargin" Value="-2" />
   </Style>
+
  </Page.Resources>
  <Grid>
   <Grid.Background>
@@ -142,52 +191,40 @@
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="Auto" />
        </Grid.ColumnDefinitions>
-       <TextBlock x:Name="PowerTitle" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource FhInk}"
+       <TextBlock x:Name="PowerTitle" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource FhInk}"
          TextWrapping="Wrap" VerticalAlignment="Center" />
-       <TextBlock x:Name="WattsText" Grid.Column="1" FontSize="22" FontWeight="Bold"
+       <TextBlock x:Name="WattsText" Grid.Column="1" FontSize="24" FontWeight="Bold"
          Foreground="{StaticResource FhAccent}" Text="— W" VerticalAlignment="Center" />
       </Grid>
-      <TextBlock x:Name="DeviceText" FontSize="12" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap" />
-      <GridView x:Name="Presets" IsEnabled="False" SelectionMode="None" IsItemClickEnabled="False"
-        IsTabStop="False" ItemContainerStyle="{StaticResource FhPresetItem}" HorizontalAlignment="Stretch"
-        ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-       <GridView.ItemsPanel>
-        <ItemsPanelTemplate>
-         <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="3" />
-        </ItemsPanelTemplate>
-       </GridView.ItemsPanel>
-       <GridView.ItemTemplate>
-        <DataTemplate>
-         <!-- 预设按钮 = .tdp-preset：选中态靠 ToggleButton 的主题资源变成 accent 底 + 深字；
-              IsChecked 单向绑 On，点击后的真实状态由 code-behind 写回。 -->
-         <ToggleButton IsChecked="{Binding On, Mode=OneWay}" Click="PresetToggleClick" Margin="0,0,8,8"
-           MinWidth="0" MinHeight="44" Padding="4" CornerRadius="12" BorderThickness="1" FontSize="16"
-           FontWeight="SemiBold" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
-          <TextBlock Text="{Binding Label}" />
-         </ToggleButton>
-        </DataTemplate>
-       </GridView.ItemTemplate>
-      </GridView>
+      <TextBlock x:Name="DeviceText" FontSize="13" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap" />
+      <!-- 预设不用 GridView：ItemsWrapGrid 给每项的宽度是「集合里最宽那项的期望宽度」，
+           不是容器三等分 —— 真机上三个小方块挤在左边、右边空一大片、字还被裁
+           （用户反馈「按键贼小、文字显示不全」）。自己铺 3 列 Grid，列宽 = * 才撑得满、
+           字号和内边距也才是我们说了算。按钮在 SyncPresets 里生成。 -->
+      <Grid x:Name="PresetGrid" HorizontalAlignment="Stretch" IsEnabled="False" Opacity="0.45" />
       <Slider x:Name="TdpSlider" IsEnabled="False" Minimum="5" Maximum="40" StepFrequency="1" TickFrequency="1"
-        ValueChanged="SliderChanged" Margin="0,2,0,0" />
-      <TextBlock x:Name="RangeText" FontSize="12" Foreground="{StaticResource FhMuted}"
+        ValueChanged="SliderChanged" Margin="0,2,0,0" MinHeight="44"
+        FocusVisualPrimaryBrush="{StaticResource FhAccent}" FocusVisualSecondaryBrush="Transparent"
+        FocusVisualMargin="-4" />
+      <TextBlock x:Name="RangeText" FontSize="13" Foreground="{StaticResource FhMuted}"
         HorizontalAlignment="Right" />
-      <TextBlock x:Name="StatusText" FontSize="13" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap"
+      <TextBlock x:Name="StatusText" FontSize="14" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap"
         IsTextSelectionEnabled="True" AutomationProperties.LiveSetting="Polite" />
-      <TextBlock x:Name="OperationText" FontSize="13" Foreground="{StaticResource FhAccent}" TextWrapping="Wrap"
+      <TextBlock x:Name="OperationText" FontSize="14" Foreground="{StaticResource FhAccent}" TextWrapping="Wrap"
         IsTextSelectionEnabled="True" AutomationProperties.LiveSetting="Polite" />
-      <TextBlock x:Name="DriverText" FontSize="13" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap" />
+      <TextBlock x:Name="DriverText" FontSize="14" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap" />
      </StackPanel>
     </Border>
-    <TextBlock x:Name="DriverHelpText" FontSize="12" Foreground="{StaticResource FhMuted}" Opacity="0.75"
+    <!-- 这几行原本额外压了 0.75/0.7 不透明度，比原前端暗一档，真机上灰得看不清，去掉。 -->
+    <TextBlock x:Name="DriverHelpText" FontSize="13" Foreground="{StaticResource FhMuted}"
       TextWrapping="Wrap" />
 
     <!-- 设置行：风扇（暂不可用）、运行中的游戏 + 退出、自启意图 -->
     <Button x:Name="FanButton" IsEnabled="False" Style="{StaticResource FhRowButton}" />
     <Border Style="{StaticResource FhCardStyle}">
      <StackPanel Spacing="10">
-      <TextBlock x:Name="GamesText" FontSize="13" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap" />
-      <ComboBox x:Name="GamesBox" HorizontalAlignment="Stretch" />
+      <TextBlock x:Name="GamesText" FontSize="14" Foreground="{StaticResource FhMuted}" TextWrapping="Wrap" />
+      <ComboBox x:Name="GamesBox" HorizontalAlignment="Stretch" CornerRadius="10" MinHeight="44" />
       <Button x:Name="QuitButton" Click="QuitClick" IsEnabled="False" Style="{StaticResource FhRowButton}"
         Foreground="{StaticResource FhDanger}" />
      </StackPanel>
@@ -195,7 +232,7 @@
     <Border Style="{StaticResource FhCardStyle}">
      <StackPanel Spacing="10">
       <Button x:Name="StartupButton" Click="StartupClick" Style="{StaticResource FhRowButton}" />
-      <TextBlock x:Name="StartupText" FontSize="12" Foreground="{StaticResource FhMuted}" Opacity="0.75"
+      <TextBlock x:Name="StartupText" FontSize="13" Foreground="{StaticResource FhMuted}"
         TextWrapping="Wrap" />
      </StackPanel>
     </Border>
@@ -204,10 +241,10 @@
 
   <!-- 底部 = .frontend-shell-hint：操作提示 + 语言（次要设置压到最后） -->
   <StackPanel Grid.Row="2" Padding="20,8,20,16" Spacing="10">
-   <TextBlock x:Name="HelpText" FontSize="12" Foreground="{StaticResource FhMuted}" Opacity="0.7"
+   <TextBlock x:Name="HelpText" FontSize="13" Foreground="{StaticResource FhMuted}"
      TextWrapping="Wrap" />
    <ComboBox x:Name="LanguageBox" SelectionChanged="LanguageChanged" HorizontalAlignment="Left"
-     MinWidth="180">
+     MinWidth="180" MinHeight="44" CornerRadius="10">
     <ComboBoxItem Content="简体中文" Tag="zh-CN" />
     <ComboBoxItem Content="English" Tag="en-US" />
    </ComboBox>

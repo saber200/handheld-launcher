@@ -25,7 +25,8 @@ namespace FantasyHub.GameBar
         private Window window;
         private TdpInfo info;
         private JsonObject status;
-        private readonly List<PresetOption> presetOptions = new List<PresetOption>();
+        private readonly List<ToggleButton> presetButtons = new List<ToggleButton>();
+        private readonly List<int> presetWatts = new List<int>();
         private int? pending;
         private int draft = 5;
         private long revision;
@@ -212,29 +213,56 @@ namespace FantasyHub.GameBar
 
         private int Clamp(int watts) { return Math.Max(info?.Min ?? 5, Math.Min(info?.Max ?? 40, watts)); }
 
-        // 只有预设个数变化才重建 ItemsSource，避免每次 5 秒轮询都重置焦点。
+        // 预设按钮由代码生成（原因见 XAML 里 PresetGrid 那段注释：GridView 的 ItemsWrapGrid
+        // 按「最宽那项的期望宽度」铺，按钮撑不满列、字还被裁）。3 列固定、列宽 = *，行按需加。
+        // 只有取值序列真的变了才重建 —— 每 5 秒轮询重建会把焦点和选中态推倒重来。
         private void SyncPresets(List<int> presets)
         {
-            if (presetOptions.Count != presets.Count)
+            bool same = presets.Count == presetWatts.Count;
+            if (same)
+                for (int i = 0; i < presets.Count; i++)
+                    if (presetWatts[i] != presets[i]) { same = false; break; }
+            if (same) return;
+            presetButtons.Clear();
+            presetWatts.Clear();
+            PresetGrid.Children.Clear();
+            PresetGrid.ColumnDefinitions.Clear();
+            PresetGrid.RowDefinitions.Clear();
+            for (int column = 0; column < 3; column++)
+                PresetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (int index = 0; index < presets.Count; index++)
             {
-                presetOptions.Clear();
-                foreach (int watts in presets) presetOptions.Add(new PresetOption(watts));
-                Presets.ItemsSource = presetOptions;
-                return;
+                if (index % 3 == 0) PresetGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var button = new ToggleButton
+                {
+                    Content = presets[index] + "W",
+                    Tag = presets[index],
+                    Style = (Style)Resources["FhPresetStyle"],
+                    // 中间两列右侧留 10 的缝；最后一列不留，否则右边缘会多一条空白。
+                    Margin = new Thickness(0, 0, index % 3 == 2 ? 0 : 10, 10),
+                };
+                button.Click += PresetToggleClick;
+                Grid.SetRow(button, index / 3);
+                Grid.SetColumn(button, index % 3);
+                PresetGrid.Children.Add(button);
+                presetButtons.Add(button);
+                presetWatts.Add(presets[index]);
             }
-            for (int i = 0; i < presets.Count; i++) presetOptions[i].Watts = presets[i];
         }
 
+        // 直接写按钮状态，不走绑定：值没变也要写 —— 连点同一个预设时 ToggleButton
+        // 已经把自己翻成 unchecked，不写回去就会显示成「没选中」。
         private void SetPresetOn(int watts)
         {
-            foreach (PresetOption option in presetOptions) option.On = option.Watts == watts;
+            for (int i = 0; i < presetButtons.Count; i++)
+                presetButtons[i].IsChecked = presetWatts[i] == watts;
         }
 
-        // 原前端 .tdp-preset:disabled 是 opacity .45，GridView 容器不继承，得自己设。
+        // 原前端 .tdp-preset:disabled 是 opacity .45，容器不继承，得自己设。
         private void SetPresetsEnabled(bool enabled)
         {
-            Presets.IsEnabled = enabled;
-            Presets.Opacity = enabled ? 1 : 0.45;
+            PresetGrid.IsEnabled = enabled;
+            PresetGrid.Opacity = enabled ? 1 : 0.45;
         }
 
         private void RenderGames()
@@ -325,12 +353,12 @@ namespace FantasyHub.GameBar
 
         private void PresetToggleClick(object sender, RoutedEventArgs e)
         {
-            // 预设按钮现在是 ToggleButton：它自己会翻 IsChecked，所以这里只读 Watts，
-            // 真实状态由 QueueTdp/SetPresetOn 写回（On 无条件通知，连点同一个也能复位）。
-            var option = (sender as ToggleButton)?.DataContext as PresetOption;
-            if (option == null || closing) return;
+            // ToggleButton 点下去会自己翻 IsChecked，所以这里只取目标瓦数，
+            // 真实状态由 QueueTdp 到 SetPresetOn 写回（值没变也写，连点同一个能复位）。
+            var button = sender as ToggleButton;
+            if (button == null || !(button.Tag is int) || closing) return;
             Play("click");
-            QueueTdp(option.Watts, true);
+            QueueTdp((int)button.Tag, true);
         }
 
         private async void SliderKeyDown(object sender, KeyRoutedEventArgs e)
