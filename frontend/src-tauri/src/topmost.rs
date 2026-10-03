@@ -1,22 +1,11 @@
-//! 把浮层顶到最前面 —— **大屏模式（FSE）下必须自己走 Win32**。
+//! 独立前端的普通应用窗口样式、置顶和前台请求。
 //!
-//! 为什么 Tauri 的 `set_always_on_top(true)` 不够：它只保证窗口**属于**置顶层，
-//! 而同一层里谁压谁由**激活顺序**决定。大屏模式下启动器是铺满整屏的前台窗口，
-//! 我们的 `show()` / `set_focus()` 都是后台进程发起的，Windows 的**前台锁**
-//! 会让 `SetForegroundWindow` 静默失败（返回 0，不报错）—— 于是窗口「已显示、
-//! 位置也对、`is_visible()` 也是 true」，但永远压在启动器下面：桌面模式
-//! （启动器让出全屏、回到窗口化）一切正常，一进大屏模式就「呼不出来」。
+//! 呼出时清除 owner 和工具窗位，使用普通应用窗口样式，再沿用原有置顶与前台请求。
+//! 目的是验证 FSE 应用切换是否遗漏工具窗；没有证据证明它就是不可见的根因。
+//! 不使用私有窗口带接口，不追加抢前台或置顶重试。
 //!
-//! 这是 0.1.33 记过的那条老账（「第二窗已 shown 但被全屏挡住」，见 STATUS.md），
-//! 当年的解法就是下面三件事，0.1.35 / 0.1.38 / 0.1.39 逐步补齐：
-//!
-//! - `detach_owner`：清掉 `GW_OWNER`（有 owner 的窗口 z 序受限，不能像 Game Bar
-//!   那样自由浮动），并补 `WS_EX_TOOLWINDOW`（不进 Alt+Tab / 任务栏）。
-//! - `force_topmost`：`SetWindowPos(HWND_TOPMOST)` 把窗口推到置顶层**最上面**，
-//!   同时把 `WS_EX_TOPMOST` 直接写进扩展样式，不依赖 Tauri 的异步设置。
-//! - `steal_foreground`：先补一次 `VK_MENU` 按下/抬起解锁前台锁，再用
-//!   `AttachThreadInput` + `BringWindowToTop` + `SetForegroundWindow` +
-//!   `SetActiveWindow` 真的把前台抢过来（与启动器 `scan.rs::focus_window` 同一套手法）。
+//! 置顶交给 SetWindowPos，不直接写置顶位冒充操作成功。
+//! 以下历史处理与诊断仍保留，但窗口状态成功不能替代掌机实屏验收。
 //!
 //! 这段代码 0.1.39–0.1.45 一直住在启动器的 `src-tauri/src/frontend.rs` 里，
 //! 0.1.46 拆成独立程序时没有跟着搬过来（只剩一句 `set_always_on_top`），0.1.48 补回。
@@ -130,7 +119,9 @@ mod win {
 
     use tauri::WebviewWindow;
     use windows_sys::Win32::Foundation::{GetLastError, SetLastError, HANDLE, HWND, LPARAM, RECT};
-    use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
+    };
     use windows_sys::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromWindow, MONITORINFOEXW, MONITOR_DEFAULTTONULL,
     };
@@ -142,16 +133,17 @@ mod win {
     use windows_sys::Win32::System::Threading::{
         AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
     };
+    use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         keybd_event, SetActiveWindow, KEYEVENTF_KEYUP, VK_MENU,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         AllowSetForegroundWindow, BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW,
-        GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowLongW, GetWindowRect,
-        GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow,
-        SetWindowLongPtrW, SetWindowLongW, SetWindowPos, ASFW_ANY, GA_ROOT, GWLP_HWNDPARENT,
-        GWL_EXSTYLE, GW_HWNDPREV, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        GetClientRect, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowLongW,
+        GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+        SetForegroundWindow, SetWindowLongPtrW, SetWindowLongW, SetWindowPos, ASFW_ANY, GA_ROOT,
+        GWLP_HWNDPARENT, GWL_EXSTYLE, GWL_STYLE, GW_HWNDPREV, HWND_TOPMOST, SWP_FRAMECHANGED,
+        SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
     };
 
     /// 句柄是从哪条路拿到的，`probe` 会把它写进日志（`hwnd=tauri|enum|none`）。
@@ -289,31 +281,32 @@ mod win {
         }
     }
 
-    /// 推到置顶层最上面，并把 `WS_EX_TOPMOST` / `WS_EX_TOOLWINDOW` 直接写进扩展样式。
-    ///
-    /// `SetWindowPos` 会**静默失败**（例如被 UIPI 挡下：普通权限的进程动不了提权进程的
-    /// 前台窗口），所以这里显式查返回值 —— 0.1.48 只写了 `WS_EX_TOPMOST` 就以为万事大吉，
-    /// 真机上那一步到底成没成，日志里看不出来。
+    /// 保持普通应用窗口样式，再通过 SetWindowPos 进入置顶层。
+    /// 这是针对 FSE 应用筛选的待验证候选，不代表已确认系统屏蔽工具窗。
     pub fn force_topmost(window: &WebviewWindow) {
         let Some(hwnd) = hwnd_of(window) else {
             return;
         };
         unsafe {
             let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
-            SetWindowLongW(
-                hwnd,
-                GWL_EXSTYLE,
-                ex | WS_EX_TOPMOST as i32 | WS_EX_TOOLWINDOW as i32,
-            );
-            let ok = SetWindowPos(
-                hwnd,
-                HWND_TOPMOST,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-            );
+            // 仅修改配置不够：旧代码每次呼出都会重新写入工具窗位。
+            // 显式清除它并保留其他位，让独立前端参与普通应用切换。
+            let app_style = (ex & !(WS_EX_TOOLWINDOW as i32)) | WS_EX_APPWINDOW as i32;
+            let mut flags = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
+            if app_style != ex {
+                SetLastError(0);
+                SetWindowLongW(hwnd, GWL_EXSTYLE, app_style);
+                let err = GetLastError();
+                if err != 0 {
+                    fh_core::logutil::write_line(&format!(
+                        "topmost: application window style failed err={err}"
+                    ));
+                } else {
+                    // 样式变化后刷新缓存；不增加抬升次数，也不改变位置和尺寸。
+                    flags |= SWP_FRAMECHANGED;
+                }
+            }
+            let ok = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
             if ok == 0 {
                 fh_core::logutil::write_line(&format!(
                     "topmost: SetWindowPos(TOPMOST) failed err={}",
@@ -556,7 +549,40 @@ mod win {
             } else {
                 format!("0x{cloaked:x}")
             };
-            format!("{} hwnd={hwnd:p} {identity} visible={} style={style} rect={rect} cloaked={cloak} {}",
+            // 客户区、外框和 DWM 框架分别记录，避免将非客户区差额误判为重复缩放。
+            let mut client: RECT = std::mem::zeroed();
+            let client_text = if GetClientRect(hwnd, &mut client) == 0 {
+                format!("unknown(client err={})", GetLastError())
+            } else {
+                rect_text(&client)
+            };
+            let mut frame: RECT = std::mem::zeroed();
+            let frame_hr = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+                (&mut frame as *mut RECT).cast(),
+                std::mem::size_of::<RECT>() as u32,
+            );
+            let frame_text = if frame_hr < 0 {
+                format!("unknown(frame hr=0x{:08x})", frame_hr as u32)
+            } else {
+                rect_text(&frame)
+            };
+            SetLastError(0);
+            let normal = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            let normal_err = GetLastError();
+            let normal_style = if normal == 0 && normal_err != 0 {
+                format!("unknown(style err={normal_err})")
+            } else {
+                format!("0x{normal:x}")
+            };
+            let dpi = GetDpiForWindow(hwnd);
+            let dpi_text = if dpi == 0 {
+                "unknown".into()
+            } else {
+                dpi.to_string()
+            };
+            format!("{} hwnd={hwnd:p} {identity} visible={} style={style} normal_style={normal_style} rect={rect} client_local={client_text} dwm_frame={frame_text} dpi={dpi_text} cloaked={cloak} {}",
                 describe(hwnd), IsWindowVisible(hwnd) != 0, monitor_state(hwnd))
         }
     }

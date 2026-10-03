@@ -5,6 +5,28 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
+## 未发布：独立前端转为 Game Bar 小组件后台（未验证）
+
+- 独立前端不再创建窗口/WebView，界面交给 Xbox Game Bar 小组件：`frontend/gamebar` 是原生 UWP C#/XAML 小组件（`microsoft.gameBarUIExtension`）+ **同包全信任**的 Bridge。小组件经同包 AppService 把请求交给 Bridge，Bridge 现读 `%APPDATA%\handheld-launcher\widget-ipc.json` 并加 token 连回环 —— token 不进 UWP。前端进程只剩托盘 + 回环监听 + 更新握手，`main.rs` 不再 `mod overlay / chord / shot / topmost / library / games`。
+- 顺手补一个契约缺口：`status` 响应缺 `locale`，小组件因此读不到语言（`set_locale` 只影响当次会话），已补。
+- 本机验证：工作区 Clippy 退出 0；`python3 frontend/gamebar/check-static.py` PASS（XML/PNG/WAV/XAML handler/工程输入/NuGet 版本）。**未验证**：C# 与 XAML 从未编译，Windows 打包、签名、安装、真机小组件行为及 Rust↔C# 联调全部未做；本机没有 Windows C 工具链，没有替代证据。
+- 新增 `.github/workflows/gamebar.yml`（钉 `windows-2022`：工程要 SDK 10.0.22621.0，`windows-latest` 只有 26100）：静态检查是硬闸门，Debug 真编暂设 `continue-on-error` 并上传产物，绿了再转闸门。
+- **尚未闭环**：Bridge 白名单没有 `set_autostart`，小组件的「自启」只存本地意图并提示手动关，不能称迁移完成；旧界面代码（`overlay/chord/shot/topmost/library/games`、`src/frontend/*`、`frontend.html`）已接不上但全部保留，等真机验证后单独一次提交清理。
+- 版本号多了第 6 处：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段 `0.1.55.0`），不在原五处联动里，发版必须手动跟上。
+
+## 未发布：普通应用窗口显示候选
+
+- 独立前端取消隐藏任务栏，呼出时清除工具窗样式、设置普通应用样式；保留原有置顶调用，不增加重试，不改变独立生命周期。显示期间进入任务栏/Alt+Tab 是本候选的预期变化。
+- 此改动用于验证 FSE 的应用筛选是否影响前端显示，并非已定位根因。未改私有窗口带、系统 FSE 模式或启动器全屏策略。
+- 本机网页构建、工作区 Clippy 和差异检查通过（已有 dead_code 警告）。Windows CI、安装包和 FSE/桌面实屏对照尚未完成，未提交、推送、升版，不宣称修复成功。
+- **本节的窗口已由上一节取代**：前端不再创建窗口，`topmost.rs` 也不再被 `main.rs` 引用，此候选已无验证对象，仅作判据留档。
+
+## 本轮未发布诊断补充（未升版）
+
+- 最新掌机反馈仍失败，不能用可见位、前台或 GDI 截图认定物理上屏。截图时序早于页面接收显示代数；驱动状态为空时的旧默认提示也会说“启动器没运行”，尚无证据认定 TDP 通信失败。
+- 已区分驱动加载态与真实错误，增加前端驱动请求结果/耗时日志；窗口快照补客户区、DWM 框架、普通样式及 DPI，保留现有显示策略和生命周期。
+- 本轮网页构建、工作区 Clippy、差异检查通过，存在已有 dead_code 警告。Windows 新增分支尚待 CI；未提交、推送或打包，FSE 根因和真机可见性仍未闭环。
+
 ## 未发布修正（基于 0.1.55，未升版）
 
 - 修正可复现的输入边界：触发手柄负责导航、断连回退、组合键完全释放后才重新触发；Start 单键不关闭。页面常驻监听、失败重试，监听恢复/换代/换控制者必须经过中性包，关闭入口可手柄聚焦。

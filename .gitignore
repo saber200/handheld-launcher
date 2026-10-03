@@ -17,6 +17,14 @@ src-tauri/drivers/WinRing0x64.sys
 src-tauri/payload/
 .vscode/*
 !.vscode/extensions.json
+# 本地 AI 助手的记忆/模式目录（.joycode/memory、modes、rules），跟着仓库走没有意义。
+.joycode/
 # 编辑器设置要跟着仓库走：里面的 rust-analyzer clippy 配置就是「提交前发现
 # dead_code / 编不过」的那道提醒，不该只存在某台机器上。
 !.vscode/settings.json
+# Game Bar 小组件的 Windows 构建产物。本机编不了，只有 CI/真机才生成它们 ——
+# 不忽略的话第一次真编完就会多出一堆「待提交」噪音（AppPackages 是打包脚本
+# 自己按时间+随机串建的输出目录，bin/obj 是 MSBuild 的）。
+frontend/gamebar/**/bin/
+frontend/gamebar/**/obj/
+frontend/gamebar/AppPackages/

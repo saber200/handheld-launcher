@@ -15,7 +15,6 @@
     "core:window:allow-outer-size",
     "core:window:allow-current-monitor",
     "core:window:allow-set-title",
-    "global-shortcut:default",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",

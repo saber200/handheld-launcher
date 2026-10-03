@@ -1,0 +1,456 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Gaming.XboxGameBar;
+using Windows.Data.Json;
+using Windows.Storage;
+using Windows.System;
+using Windows.UI.Core;
+using Windows.UI.Xaml;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Controls.Primitives;
+using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Navigation;
+
+namespace FantasyHub.GameBar
+{
+    public sealed partial class WidgetPage : Page
+    {
+        private readonly Strings text = new Strings();
+        private readonly CancellationTokenSource lifetime = new CancellationTokenSource();
+        private readonly DispatcherTimer writeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(260) };
+        private readonly DispatcherTimer refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        private XboxGameBarWidget widget;
+        private Window window;
+        private TdpInfo info;
+        private JsonObject status;
+        private int? pending;
+        private int draft = 5;
+        private long revision;
+        private bool updating, refreshing, quitting, closing, initialized;
+        private Task writing = Task.CompletedTask;
+        private Task shutdown;
+
+        public WidgetPage()
+        {
+            InitializeComponent();
+            writeTimer.Tick += WriteTick;
+            refreshTimer.Tick += RefreshTick;
+            Loaded += PageLoaded;
+            Unloaded += PageUnloaded;
+            AddHandler(KeyDownEvent, new KeyEventHandler(PageKeyDown), false);
+            TdpSlider.AddHandler(PointerReleasedEvent, new PointerEventHandler(SliderReleased), true);
+            TdpSlider.AddHandler(PointerCaptureLostEvent, new PointerEventHandler(SliderReleased), true);
+            TdpSlider.LostFocus += SliderLostFocus;
+            Sound.MediaOpened += SoundOpened;
+            Sound.MediaFailed += SoundFailed;
+            TdpSlider.AddHandler(KeyDownEvent, new KeyEventHandler(SliderKeyDown), true);
+            TdpSlider.AddHandler(KeyUpEvent, new KeyEventHandler(SliderKeyUp), true);
+            ApplyLanguage();
+            initialized = true;
+        }
+
+        protected override void OnNavigatedTo(NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+            widget = e.Parameter as XboxGameBarWidget;
+            window = Window.Current;
+            window.Activated += WindowActivated;
+            window.VisibilityChanged += WindowVisibilityChanged;
+        }
+
+        private async void PageLoaded(object sender, RoutedEventArgs e)
+        {
+            if (closing) return;
+            RefreshButton.Focus(FocusState.Programmatic);
+            await RefreshAsync();
+            if (!closing) refreshTimer.Start();
+        }
+        private async void PageUnloaded(object sender, RoutedEventArgs e) { await ShutdownAsync(); }
+        private async void RefreshTick(object sender, object e)
+        {
+            if (!closing && window != null && window.Visible && pending == null && writing.IsCompleted)
+                await RefreshAsync();
+        }
+        private async void WriteTick(object sender, object e) { await FlushAsync(); }
+        private async void SliderReleased(object sender, PointerRoutedEventArgs e) { await FlushAsync(); }
+        private async void SliderLostFocus(object sender, RoutedEventArgs e) { await FlushAsync(); }
+        private async void WindowActivated(object sender, WindowActivatedEventArgs e)
+        {
+            if (closing) return;
+            if (e.WindowActivationState == CoreWindowActivationState.Deactivated) await FlushAsync();
+            else await RefreshAsync();
+        }
+        private async void WindowVisibilityChanged(object sender, VisibilityChangedEventArgs e)
+        {
+            if (closing) return;
+            if (!e.Visible) await FlushAsync();
+            else await RefreshAsync();
+        }
+
+        private void ApplyLanguage()
+        {
+            updating = true;
+            LanguageBox.SelectedIndex = text.English ? 1 : 0;
+            updating = false;
+            RefreshButton.Content = text.Refresh;
+            CloseButton.Content = text.Close;
+            PowerTitle.Text = text.Pick("功耗 / TDP", "Power / TDP");
+            DriverHelpText.Text = text.DriverHelp;
+            FanButton.Content = text.Pick("风扇控制 · 暂未开放", "Fan control · Coming later");
+            QuitButton.Content = text.Quit;
+            StartupButton.Content = text.Startup;
+            HelpText.Text = text.Help;
+            TdpSlider.Header = text.Pick("调整功耗（瓦）", "Adjust power (watts)");
+            StartupText.Text = ApplicationData.Current.LocalSettings.Values.ContainsKey("disableAutostartRequested")
+                ? text.StartupHint : text.Pick("仅记录意图；实际自启开关请在启动器设置中关闭。", "Intent only; change actual autostart in launcher settings.");
+            if (queryError != null) RenderQueryError();
+            else if (status != null) RenderStatus(false);
+        }
+
+        private Task refreshOperation = Task.CompletedTask;
+        private bool statusAvailable;
+        private string queryError;
+        private async Task RefreshAsync(bool afterMutation = false)
+        {
+            if (afterMutation)
+            {
+                await refreshOperation;
+                await FlushAsync();
+                statusAvailable = false;
+            }
+            if (closing || refreshing || (quitting && !afterMutation) || pending != null || !writing.IsCompleted) return;
+            refreshOperation = RefreshCoreAsync();
+            await refreshOperation;
+        }
+
+        private async Task RefreshCoreAsync()
+        {
+            refreshing = true;
+            RefreshButton.IsEnabled = false;
+            long requestedRevision = revision;
+            long requestedLocaleRevision = localeRevision;
+            if (status == null) DriverText.Text = text.Loading;
+            try
+            {
+                var response = await App.Bridge.SendAsync("status", lifetime.Token);
+                if (closing || revision != requestedRevision || pending != null || !writing.IsCompleted) return;
+                var nextStatus = Models.Object(response, "data") ?? throw new InvalidOperationException("Missing status data.");
+                Models.Tdp(Models.Object(nextStatus, "tdp")); // Validate before replacing the last usable snapshot.
+                status = nextStatus;
+                queryError = null;
+                statusAvailable = true;
+                string locale = Models.Text(status, "locale");
+                if (!changingLocale && requestedLocaleRevision == localeRevision && (locale == "zh-CN" || locale == "en-US"))
+                    text.SetLocale(locale);
+                ApplyLanguage();
+                RenderStatus(revision == requestedRevision && pending == null && writing.IsCompleted);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception e)
+            {
+                if (!closing)
+                {
+                    statusAvailable = false;
+                    TdpSlider.IsEnabled = Presets.IsEnabled = QuitButton.IsEnabled = false;
+                    queryError = e.Message;
+                    RenderQueryError();
+                }
+            }
+            finally { refreshing = false; if (!closing) RefreshButton.IsEnabled = true; }
+        }
+
+        private void RenderQueryError()
+        {
+            TdpSlider.IsEnabled = Presets.IsEnabled = QuitButton.IsEnabled = false;
+            StatusText.Text = text.Failed + queryError;
+            DriverText.Text = text.Pick("无法读取驱动状态", "Unable to read driver status");
+        }
+
+        private void RenderStatus(bool updateDraft)
+        {
+            // Language changes and mutation cleanup must not resurrect a stale snapshot.
+            if (queryError != null) { RenderQueryError(); return; }
+            var driver = Models.Object(status, "driver");
+            string driverError = Models.Text(status, "driverError");
+            string tdpError = Models.Text(status, "tdpError");
+            bool ready = Models.Bool(driver, "ready") && driverError.Length == 0;
+            DriverText.Text = driverError.Length > 0 ? text.Pick("驱动查询失败：", "Driver query failed: ") + driverError
+                : driver == null ? text.Pick("驱动状态未知", "Driver status unknown")
+                : (ready ? text.Pick("驱动已就绪", "Driver ready")
+                    : Models.Bool(driver, "installed") ? text.Pick("驱动未就绪", "Driver not ready")
+                    : text.Pick("驱动未安装", "Driver not installed")) + " · " + Models.Text(driver, "message");
+            info = Models.Tdp(Models.Object(status, "tdp"));
+            bool enabled = statusAvailable && ready && info != null && info.Supported && tdpError.Length == 0;
+            TdpSlider.IsEnabled = Presets.IsEnabled = enabled && !closing && !quitting;
+            DeviceText.Text = info == null ? "" : info.Cpu + " · " + info.Vendor + " · " + info.Backend;
+            if (info != null)
+            {
+                updating = true;
+                // Expand first so switching between disjoint device ranges cannot coerce a bound.
+                TdpSlider.Maximum = Math.Max(TdpSlider.Maximum, info.Max);
+                TdpSlider.Minimum = info.Min;
+                TdpSlider.Maximum = info.Max;
+                Presets.ItemsSource = info.Presets;
+                if (updateDraft) draft = Clamp(info.Watts ?? info.Min);
+                TdpSlider.Value = Clamp(draft);
+                Presets.SelectedItem = Clamp(draft);
+                WattsText.Text = (info.Watts.HasValue || revision > 0) ? Clamp(draft) + " W" : "— W";
+                RangeText.Text = info.Min + " – " + info.Max + " W";
+                updating = false;
+            }
+            if (tdpError.Length > 0) StatusText.Text = text.Pick("TDP 查询失败：", "TDP query failed: ") + tdpError;
+            else if (info != null && updateDraft) StatusText.Text = info.Message;
+            RenderGames();
+        }
+
+        private int Clamp(int watts) { return Math.Max(info?.Min ?? 5, Math.Min(info?.Max ?? 40, watts)); }
+
+        private void RenderGames()
+        {
+            string selected = (GamesBox.SelectedItem as RunningGame)?.Id;
+            var games = new List<RunningGame>();
+            IJsonValue value;
+            if (status.TryGetValue("games", out value) && value.ValueType == JsonValueType.Array)
+                foreach (var item in value.GetArray())
+                {
+                    if (item.ValueType != JsonValueType.Object) continue;
+                    var game = item.GetObject();
+                    string id = Models.Text(game, "id");
+                    if (id.Length > 0) games.Add(new RunningGame { Id = id, Name = Models.Text(game, "name") });
+                }
+            GamesBox.ItemsSource = games;
+            GamesBox.SelectedItem = games.Find(g => g.Id == selected) ?? (games.Count > 0 ? games[0] : null);
+            GamesText.Text = games.Count == 0 ? text.NoGames : text.Pick("运行中的游戏", "Running games");
+            QuitButton.IsEnabled = statusAvailable && games.Count > 0 && !quitting && !closing;
+        }
+
+        private void QueueTdp(int watts, bool immediate)
+        {
+            if (closing || !TdpSlider.IsEnabled) return;
+            draft = Clamp(watts);
+            pending = draft;
+            revision++;
+            updating = true;
+            TdpSlider.Value = draft;
+            Presets.SelectedItem = draft;
+            WattsText.Text = draft + " W";
+            updating = false;
+            if (immediate) { _ = FlushAsync(); }
+            else if (!writeTimer.IsEnabled) writeTimer.Start();
+        }
+
+        private Task FlushAsync()
+        {
+            writeTimer.Stop();
+            if (writing.IsCompleted && pending.HasValue && !lifetime.IsCancellationRequested)
+                writing = DrainAsync();
+            return writing;
+        }
+
+        private async Task DrainAsync()
+        {
+            // Yield before the first request so writing is assigned before any reentrant UI event.
+            await Task.Yield();
+            while (pending.HasValue && !lifetime.IsCancellationRequested)
+            {
+                int watts = Clamp(pending.Value);
+                long sentRevision = revision;
+                pending = null;
+                try
+                {
+                    var reply = await App.Bridge.SendAsync("set_tdp", lifetime.Token, "watts", JsonValue.CreateNumberValue(watts));
+                    if (lifetime.IsCancellationRequested) return;
+                    var data = Models.Object(reply, "data");
+                    var applied = Models.Tdp(data);
+                    if (applied == null || !applied.Supported || !applied.Watts.HasValue)
+                        throw new InvalidOperationException("Missing valid TDP write result; outcome unknown.");
+                    if (revision == sentRevision)
+                    {
+                        if (status != null) status["tdp"] = data;
+                        info = applied;
+                        draft = applied.Watts.Value;
+                        if (status != null && !closing) RenderStatus(true);
+                        if (!closing) { OperationText.Text = text.Saved + " " + applied.Message; Play("done"); }
+                    }
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception e)
+                {
+                    if (!closing) OperationText.Text = text.Failed + e.Message;
+                    // Never replay a failed write: it may already have reached the driver.
+                }
+            }
+        }
+
+        private void SliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (!initialized || updating || closing) return;
+            int next = Clamp((int)Math.Round(e.NewValue));
+            if (next == draft) return;
+            Play(next > draft ? "tdp-up" : "tdp-down");
+            QueueTdp(next, false);
+        }
+
+        private void PresetClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is int) { Play("click"); QueueTdp((int)e.ClickedItem, true); }
+        }
+
+        private async void SliderKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key == VirtualKey.GamepadA || e.Key == VirtualKey.Enter)
+            { e.Handled = true; await FlushAsync(); }
+        }
+
+        private async void SliderKeyUp(object sender, KeyRoutedEventArgs e)
+        {
+            // Native Slider already handled keyboard/gamepad adjustment. Flush its latest value.
+            if (pending.HasValue) await FlushAsync();
+        }
+
+        private async void PageKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key == VirtualKey.GamepadB || e.Key == VirtualKey.Escape)
+            { e.Handled = true; await CloseAsync(); }
+        }
+
+        private async void RefreshClick(object sender, RoutedEventArgs e)
+        { Play("click"); await FlushAsync(); await RefreshAsync(); }
+
+        private void SoundOpened(object sender, RoutedEventArgs e)
+        {
+            try { if (!closing) Sound.Play(); } catch { }
+        }
+        private void SoundFailed(object sender, ExceptionRoutedEventArgs e) { /* Optional audio. */ }
+
+        private void Play(string name)
+        {
+            if (closing) return;
+            try { Sound.Stop(); Sound.Source = new Uri("ms-appx:///Assets/Sounds/" + name + ".wav"); }
+            catch (Exception) { /* Sound is optional, never block a control operation. */ }
+        }
+
+        private long localeRevision;
+        private bool changingLocale;
+        private async void LanguageChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!initialized || updating || closing || changingLocale) return;
+            changingLocale = true;
+            LanguageBox.IsEnabled = false;
+            localeRevision++;
+            string locale = LanguageBox.SelectedIndex == 1 ? "en-US" : "zh-CN";
+            text.SetLocale(locale);
+            ApplyLanguage();
+            Play("click");
+            try
+            {
+                await App.Bridge.SendAsync("set_locale", lifetime.Token, "locale", JsonValue.CreateStringValue(locale));
+                if (status != null) status["locale"] = JsonValue.CreateStringValue(locale);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { if (!closing) OperationText.Text = text.Failed + error.Message; }
+            finally { changingLocale = false; if (!closing) LanguageBox.IsEnabled = true; }
+        }
+
+        private async void QuitClick(object sender, RoutedEventArgs e)
+        {
+            var game = GamesBox.SelectedItem as RunningGame;
+            if (game == null || quitting || closing) return;
+            quitting = true;
+            QuitButton.IsEnabled = false;
+            GamesBox.IsEnabled = false;
+            TdpSlider.IsEnabled = Presets.IsEnabled = false;
+            Play("click");
+            string result = "";
+            try
+            {
+                try
+                {
+                    await FlushAsync();
+                    var reply = await App.Bridge.SendAsync("quit_game", lifetime.Token, "gameId", JsonValue.CreateStringValue(game.Id));
+                    var data = Models.Object(reply, "data");
+                    int? killed = Models.Integer(data, "killed");
+                    if (!killed.HasValue || killed < 0)
+                        throw new InvalidOperationException("Missing valid quit result; outcome unknown.");
+                    result = killed == 0 ? text.Pick("未找到仍在运行的游戏进程", "No running game process found")
+                        : text.Pick("已结束游戏进程：", "Game processes stopped: ") + killed.Value;
+                    Play("done");
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception error) { result = text.Failed + error.Message; }
+                // Keep controls locked until a fresh status completes, including unknown outcomes.
+                // The side effect itself is never retried.
+                await RefreshAsync(true);
+                if (!closing) OperationText.Text = result;
+            }
+            finally
+            {
+                quitting = false;
+                if (!closing)
+                {
+                    GamesBox.IsEnabled = true;
+                    if (status != null) RenderStatus(false);
+                }
+            }
+        }
+
+        private void StartupClick(object sender, RoutedEventArgs e)
+        {
+            if (closing) return;
+            Play("click");
+            ApplicationData.Current.LocalSettings.Values["disableAutostartRequested"] = true;
+            StartupText.Text = text.StartupHint;
+        }
+
+        private async void CloseClick(object sender, RoutedEventArgs e) { await CloseAsync(); }
+        private async Task CloseAsync()
+        {
+            if (closing) return;
+            var current = widget;
+            await ShutdownAsync();
+            try { current?.Close(); }
+            catch (Exception) { /* Host can close the window while the flush is in progress. */ }
+        }
+
+        internal Task ShutdownAsync()
+        {
+            if (shutdown == null) shutdown = ShutdownCoreAsync();
+            return shutdown;
+        }
+
+        private async Task ShutdownCoreAsync()
+        {
+            closing = true;
+            refreshTimer.Stop();
+            writeTimer.Stop();
+            TdpSlider.IsEnabled = Presets.IsEnabled = QuitButton.IsEnabled = false;
+            try { await Task.WhenAny(FlushAsync(), Task.Delay(1000)); }
+            finally
+            {
+                lifetime.Cancel();
+                pending = null;
+                writeTimer.Tick -= WriteTick;
+                refreshTimer.Tick -= RefreshTick;
+                Loaded -= PageLoaded;
+                Unloaded -= PageUnloaded;
+                RemoveHandler(KeyDownEvent, new KeyEventHandler(PageKeyDown));
+                TdpSlider.RemoveHandler(PointerReleasedEvent, new PointerEventHandler(SliderReleased));
+                TdpSlider.RemoveHandler(PointerCaptureLostEvent, new PointerEventHandler(SliderReleased));
+                TdpSlider.LostFocus -= SliderLostFocus;
+                TdpSlider.RemoveHandler(KeyDownEvent, new KeyEventHandler(SliderKeyDown));
+                TdpSlider.RemoveHandler(KeyUpEvent, new KeyEventHandler(SliderKeyUp));
+                Sound.MediaOpened -= SoundOpened;
+                Sound.MediaFailed -= SoundFailed;
+                if (window != null)
+                {
+                    window.Activated -= WindowActivated;
+                    window.VisibilityChanged -= WindowVisibilityChanged;
+                }
+                try { Sound.Stop(); Sound.Source = null; } catch { }
+                widget = null;
+            }
+        }
+    }
+}

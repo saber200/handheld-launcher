@@ -71,6 +71,8 @@ export type Catalog = {
     close: string;
     hint: string;
     tdpNoLauncher: string;
+    tdpLoading: string;
+    tdpReadFailed: (detail: string) => string;
     tdpDriverInLauncher: string;
     frontendTitle: string;
     frontendBody: string;
@@ -343,6 +345,8 @@ export const zh: Catalog = {
     close: "关闭前端",
     hint: "掌机常用调节和工具箱会放在这里。TDP 可先试 5–40W 档位。",
     tdpNoLauncher: "启动器没在运行 —— TDP 暂不可用，其它功能照常。",
+    tdpLoading: "正在读取 TDP 驱动状态…",
+    tdpReadFailed: (detail) => `无法读取 TDP 驱动状态：${detail}`,
     tdpDriverInLauncher: "安装 TDP 驱动需要管理员：请在启动器的「工具箱」里安装。",
     frontendTitle: "前端（独立程序）",
     frontendBody:
@@ -618,6 +622,8 @@ export const en: Catalog = {
     close: "Close frontend",
     hint: "Quick handheld controls live here. Try the 5–40W TDP presets first.",
     tdpNoLauncher: "The launcher isn't running — TDP is unavailable, everything else still works.",
+    tdpLoading: "Reading TDP driver status…",
+    tdpReadFailed: (detail) => `Couldn't read TDP driver status: ${detail}`,
     tdpDriverInLauncher: "Installing the TDP driver needs admin: use the launcher's toolbox.",
     frontendTitle: "Frontend (separate app)",
     frontendBody:

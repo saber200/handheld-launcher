@@ -1,7 +1,34 @@
 # 前端独立化（0.1.46 起）
 
-> 状态：**独立前端已实现，当前版本 0.1.55（FSE 取证版，尚未确认修复）**。下文保留最初拆分设计；历史归因不能替代本版取证结论。
+> 状态：**独立前端已改成无窗口的 Game Bar 后台（未验证），界面由 `frontend/gamebar` 的原生小组件承担**。下文保留最初拆分设计与 0.1.46–0.1.55 的浮层排查记录；那些窗口已经从代码里接不上，历史归因不能替代本节的验证边界。
 > 相关文档：`STATUS.md`（当前进度）、`FUTURE.md`（功能 2 / 功能 3 是本前端的由来）。
+
+## 未发布：独立前端改做 Game Bar 后台，界面交给原生小组件（未验证）
+
+- 独立前端**不再创建窗口**：`frontend/src-tauri/tauri.conf.json` 的 `windows` 为空，`main.rs` 只起托盘 + 回环监听 + 更新握手，不再 `mod overlay / chord / shot / topmost / library / games`。界面改由 `frontend/gamebar` 承担：原生 UWP C#/XAML 小组件（`microsoft.gameBarUIExtension`）+ **同包全信任**的 Bridge `FantasyHub.GameBar.Bridge.exe`。
+- 这一刀为什么能了结 0.1.33–0.1.55 那串「浮层在屏上却看不见、关不掉」的旧账：窗口不再由我们显示 / 置顶 / 抢前台，而是 Game Bar 显示它自己的小组件宿主。**这是结构性判断，还没有任何真机证据**。
+- 密钥不进 UWP：小组件把请求发给同包 AppService，Bridge 每次请求**现读** `%APPDATA%\handheld-launcher\widget-ipc.json`（proto / port / token / pid / version），加上 token 再连 `127.0.0.1`。小组件既不读发现文件也不接触 token。
+- Rust 侧（本轮唯一真正验证过的部分）：`widget.rs` 只绑回环、一连接一请求、令牌定长逐字节比较（不提前返回）、请求行 4096 字节上限、读 / 工作 / 总预算分开计时；`widget_protocol.rs` 用 `deny_unknown_fields` 拒绝多余字段，并校验 proto=1、id≤64 UTF-16、watts 1..1000、gameId≤512、locale 只认两种；`widget_discovery.rs` 用 ACL + 原子替换，失败时把临时文件截到 0 字节（不把密钥留在盘上）。`cargo clippy --workspace --all-targets` 退出 0。
+- **本轮修的一个真缺口**：`status.data` 少了 `locale`，小组件因此永远读不到语言（`set_locale` 只影响当次会话，重启后又回系统语言）。契约文档（`frontend/gamebar/HANDOFF.txt` 第 50 行）本来就要求这个字段，现已补上。
+- 契约对不上的三处，**记录但没改**：① Rust 实现了 `set_autostart`，Bridge 白名单却只有 status / set_tdp / quit_game / set_locale（`Loopback.cs` 里 `extra == null` 直接拒），所以小组件发不出去 —— 那边的「自启」开关只存本地意图、提示用户手动关，**不能描述成迁移已完成**；② Rust 响应上限是 24000 UTF-16，HANDOFF 写 1 MiB、Bridge 按 48000 收（Rust 更严，属偏安全的文档漂移）；③ `driver` 多一个 `elevated` 字段，C# 侧是逐键带默认值的容错取值（`Models.cs`），多字段无害。
+- **旧界面已经接不上，但代码全部保留**（等真机验证后再单独一次提交清理）：`frontend/src-tauri/src/` 下的 `overlay.rs` / `chord.rs` / `shot.rs` / `topmost.rs` / `library.rs` / `games.rs` 已不在 `mod` 列表；`src/frontend/*`、`frontend.html` 与 `vite.config.ts` 的 `frontend` 入口没有任何窗口加载。**下面三节「未发布」记录（窗口显示候选 / 加载态诊断 / 输入链路）描述的都是这套旧界面**，其中 `topmost.rs` 那个「普通应用窗口显示候选」已不可能生效。
+- 验证边界：本机只跑了 Rust（clippy 退出 0）与源码静态检查（`python3 frontend/gamebar/check-static.py` PASS：XML / PNG / WAV / XAML handler / 工程输入 / NuGet 版本）。**C# 与 XAML 从未编译过**，Windows 打包、签名、安装、真机小组件行为与 Rust↔C# 联调全部未做。
+- 新增 `.github/workflows/gamebar.yml`，钉 `windows-2022`（工程写死 `TargetPlatformVersion=10.0.22621.0`，而 `windows-latest` 只有 26100 SDK）：静态检查是硬闸门，Debug 真编先带 `continue-on-error` 并上传产物 —— 拿到真实 MSBuild 输出、确认打包脚本自己的产物检查也过了，再转硬闸门。
+
+
+## 未发布：普通应用窗口显示候选
+
+- 前端取消 `skipTaskbar`，呼出时明确清除 `WS_EX_TOOLWINDOW` 并设置 `WS_EX_APPWINDOW`；不再手写置顶位，仍由原有 `SetWindowPos(HWND_TOPMOST)` 完成置顶。样式变化时随同刷新窗口框架，不增加抬升或抢前台次数。
+- 这是验证 FSE 应用筛选的最小候选，不是已证根因或已证修复。可见时前端会进入任务栏和 Alt+Tab；隐藏启动、关闭后隐藏、独立生命周期、自启禁用意图、更新握手及受限 IPC 不变。
+- 本机网页构建、工作区 Clippy 与差异检查通过（已有 dead_code 警告）；Windows 分支未编译验证，尚未打包或实机对照。验收须分别确认 FSE 应用切换器列出前端、呼出后实屏可见可操作，以及桌面模式回归；窗口状态与 GDI 截图不能代替。
+- **本节已失去验证对象**（见上一节）：这里说的窗口已经不由前端创建，`topmost.rs` 也不再被 `main.rs` 引用 —— 留下这节只为记录当时的判据，不再是待验证项。
+
+## 本轮未发布：排除加载态误判，补齐尺寸诊断
+
+- 最新实测仍不可见、不可操作，根因未确定。截图日志早于页面收到显示代数；旧界面在驱动状态尚为空时也显示“启动器没运行”，因此截图不能证明 IPC 失败。发现文件的端口/PID 与本次启动器监听记录一致，但不证明请求成功。
+- 加载态改为“正在读取”，失败保留实际错误；前端 Rust 记录驱动请求开始、结果及耗时，不输出发现文件或密钥。
+- 窗口快照追加普通样式、客户区本地坐标、DWM 框架边界及窗口 DPI；用于核对外框超出 22×56 的原因，不认定它造成整页不可见。不改定位、置顶次数或独立生命周期。
+- 本轮网页构建、工作区 Clippy 和差异检查通过（已有 dead_code 警告）；新增 Windows API 尚待 Windows CI，未提交、推送或打包，不以先前测试包 CI 替代。
 
 ## 未发布：输入链路与显示调度修正（版本仍为 0.1.55）
 
@@ -87,11 +114,11 @@
 ## 6. 代码组织（阶段 1 已落地）
 
 - 仓库根 `Cargo.toml` 是工作区根：成员 `src-tauri`（启动器）、`frontend/src-tauri`（独立前端）、`crates/fh-core`（共享内核）。**cargo 的目标目录因此变成仓库根的 `target/`**，不再是 `src-tauri/target`；CI 的 rust-cache 与产物路径已同步成 `". -> target"`。
-- 三个 crate 的版本号取自根 `[workspace.package] version`。发版时改这一处 + `package.json` + 两个 `tauri.conf.json`，并让 `Cargo.lock` 跟上（本地跑一次 `cargo metadata` 即可，不必编译）。注意 `[profile.release]` 只能写在根：写在成员里 cargo 会忽略（只告警）。
+- 三个 crate 的版本号取自根 `[workspace.package] version`。发版时改这一处 + `package.json` + 两个 `tauri.conf.json`，并让 `Cargo.lock` 跟上（本地跑一次 `cargo metadata` 即可，不必编译）。注意 `[profile.release]` 只能写在根：写在成员里 cargo 会忽略（只告警）。**Game Bar 小组件是第 6 处**：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段，如 `0.1.55.0`）不在上面这套联动里，漏改会让新包沿用旧版本号、装上去被系统当成同一个包。
 - **`fh-core` 铁律：只放不带 `#[tauri::command]` 的纯逻辑。** Tauri 的 `allow-<命令名>` 权限是构建时按 app 自己的 crate 源码生成的，命令搬进依赖 crate 会扫不到、capability 直接报错。所以命令留在各自 app 里，`tdp` / 进程 / IPC 的**实现**放 `fh-core`，由 app 的命令薄薄包一层。阶段 1 只搬了 `logutil`（启动器侧用 `pub use fh_core::logutil;` 保住所有既有调用点）；Rust 侧 `i18n` 暂不共享，UI 文案继续靠共享的 `i18n/catalog.ts`。
-- 两个 app 各自一份 `tauri.conf.json`：启动器（FSE 全屏窗 + `requireAdministrator` 清单）、前端（`visible: false` 的置顶贴右窗 + 无清单、不提权）。**`tauri build --config` 是「与默认配置合并」语义，不能用来切项目**：第二个 app 必须在自己目录里跑 CLI（`projectPath: frontend`）。前端那份配置因此不写 `beforeBuildCommand`，Web 产物由启动器那次 `npm run build` 一次构建、两边共用。
+- 两个 app 各自一份 `tauri.conf.json`：启动器（FSE 全屏窗 + `requireAdministrator` 清单）、前端（`visible: false` 的置顶贴右窗 + 无清单、不提权）。**（迁移后前端那份只剩 `windows: []` 加一个回环服务，不再有窗口；它现在服务的是 Game Bar 小组件，见文首未发布节。）** **`tauri build --config` 是「与默认配置合并」语义，不能用来切项目**：第二个 app 必须在自己目录里跑 CLI（`projectPath: frontend`）。前端那份配置因此不写 `beforeBuildCommand`，Web 产物由启动器那次 `npm run build` 一次构建、两边共用。
 - Web 侧：同一 Vite 工程多入口 —— `index.html`（启动器，`src/main.tsx`）、`frontend.html`（前端，`src/frontend/main.tsx`）；共享 `i18n/catalog.ts`、`audio/sfx`、需要的样式。
-  - **前端那份 `tauri.conf.json` 的窗口必须写 `"url": "frontend.html"`。** Tauri 的 `WebviewUrl` 默认值是 `index.html`，不是「跟着入口页走」；漏写的后果是正式包里前端窗口加载**启动器**的整屏界面（dev 下 `devUrl` 已经带了 `/frontend.html`，所以只在安装包里露出来）。0.1.46 就是这个情况，0.1.47 修。
+  - **前端那份 `tauri.conf.json` 的窗口必须写 `"url": "frontend.html"`。** Tauri 的 `WebviewUrl` 默认值是 `index.html`，不是「跟着入口页走」；漏写的后果是正式包里前端窗口加载**启动器**的整屏界面（dev 下 `devUrl` 已经带了 `/frontend.html`，所以只在安装包里露出来）。0.1.46 就是这个情况，0.1.47 修。**（迁移后前端那份已经没有窗口，「前端窗口」整个概念取消，这条只对历史版本有效。）**
 - 语言：共享配置文件（`%APPDATA%\handheld-launcher\settings.json` 的 `locale`），两边各自读写，「最后写入生效」，不做实时同步。
 - CI：`tauri-action` 跑两次（`projectPath: .` 与 `frontend`），产物都落在同一个 `target/release/bundle/nsis/`，用同一个 tag 传进同一个 Release（两个安装包）；前端那步必须排在启动器之后（Web 先构建）。
 

@@ -62,15 +62,16 @@ export function FrontendPanel({ active }: { active: boolean }) {
       setDriver({ ready: true, elevated: true, installed: true, message: m.tdpPreview });
       return;
     }
+    setDriver(null);
     void invoke<TdpDriverStatus>("toolbox_tdp_driver_status")
       .then(setDriver)
-      // 拿不到状态通常是启动器没在跑：说清楚，别让人以为前端坏了。
-      .catch(() =>
+      // 加载中和调用失败不能都冒充「启动器没运行」，保留实际失败原因。
+      .catch((err) =>
         setDriver({
           ready: false,
           elevated: false,
           installed: false,
-          message: m.tdpNoLauncher,
+          message: m.tdpReadFailed(String(err)),
         }),
       );
   };
@@ -229,7 +230,7 @@ export function FrontendPanel({ active }: { active: boolean }) {
           {!driverReady ? (
             <>
               <p className="toolbox-block-body">{m.tdpDriverBody}</p>
-              <p className="tdp-status">{driver?.message || m.tdpNoLauncher}</p>
+              <p className="tdp-status">{driver === null ? m.tdpLoading : driver.message}</p>
               {/* 装驱动要管理员，入口在启动器的工具箱 —— 前端不替任何人装内核驱动。 */}
               <p className="tdp-status">{m.tdpDriverInLauncher}</p>
             </>

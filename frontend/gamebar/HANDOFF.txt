@@ -1,0 +1,76 @@
+FantasyHub Game Bar 源码交接
+
+交付与验证边界
+本目录包含原生 UWP C# / XAML 小组件及同包 .NET Framework 4.8 全信任中转源码。
+仅修改 frontend/gamebar；不修改 Rust 服务、原面板、启动器自启或其他协作者文件。
+当前不是已验证可安装的 Windows 成品。未执行 Windows 编译、PowerShell、.NET Native、签名安装或设备运行。
+本机 Python 静态检查通过：XML=8、PNG=4、WAV=4、XAML handlers=8。
+此前在线比较官方 master 的 ProxyStub ClassId、Path 和 23 个接口集合一致；master 可变，不是固定版本证明。
+静态检查不是 C# 编译、XAML 类型检查、manifest schema 验证或运行时线程正确性的证明。
+
+Windows 构建前提与命令（从仓库根目录运行）
+安装 Visual Studio 2022 的 UWP C#、.NET Native 构建组件、Windows SDK 10.0.22621.0、.NET Framework 4.8 targeting pack。
+目标设备为 x64；UWP 最低系统声明为 10.0.17763.0，仍须确认设备 Game Bar 与 SDK 的实际兼容性。
+固定 NuGet：Microsoft.NETCore.UniversalWindowsPlatform 6.2.9；Microsoft.Gaming.XboxGameBar 7.2.240903001。
+Bridge 使用 Windows.SDK.Contracts 10.0.22621.2428；目标 net48、x64；设备需要 .NET Framework 4.8。
+源码静态检查：python3 frontend/gamebar/check-static.py
+在线官方注册比较：python3 frontend/gamebar/check-static.py --check-official
+Debug 构建：powershell.exe -NoProfile -File .\frontend\gamebar\build-windows.ps1 -Configuration Debug
+Release 构建：powershell.exe -NoProfile -File .\frontend\gamebar\build-windows.ps1 -Configuration Release
+脚本默认 Release；仅 Release 开启 UseDotNetNativeToolchain。使用 VS MSBuild，不使用 dotnet publish。
+可传 -MSBuildPath 指定 MSBuild.exe；脚本串行还原两个工程并构建，不并行执行。
+默认输出未签名包，不能直接安装。签名时传 -CertificateThumbprint，值为 CurrentUser\My 已安装证书的实际 SHA-1 指纹。
+证书必须含私钥、在有效期内、Subject 匹配 CN=FantasyHub；可传 -TimestampUrl 指定 RFC3161 地址。
+脚本不创建证书、不更改信任、不安装包；部署前在目标设备建立合适证书信任并安装本次输出的依赖包。
+输出位于 frontend/gamebar/AppPackages 下的独立配置/时间/随机目录，包含 build-result.json。
+脚本检查成品主包唯一、x64、扩展标识、Bridge exe/config、公共目录、音效、proxy 路径及 net48 配置。
+上述成品检查逻辑尚未在 Windows 执行。尤其必须确认 Release Native 后的代理元数据与 Bridge 依赖实际齐备。
+
+包标识与入口
+源 manifest：Name=FantasyHub.GameBar；Publisher=CN=FantasyHub；Version=0.1.55.0；Application Id=App。
+UWP EntryPoint=FantasyHub.GameBar.App；AppExtension Name=microsoft.gameBarUIExtension；Id=FantasyHubWidget；PublicFolder=GameBar。
+AppService=FantasyHub.WidgetBridge，进程内后台激活，无独立后台任务 EntryPoint。
+全信任入口为 Bridge\FantasyHub.GameBar.Bridge.exe；包族以运行时 Package.Current.Id.FamilyName 为准，不硬编码 PublisherId。
+仅接受官方 ms-gamebarwidget 入站激活及匹配的初次小组件激活；普通启动显示说明页。
+外部定向唤起 URL、AUMID/包族组合及调用入口未确认。入站 scheme 不等于已验证的外部调用契约。
+
+通信契约（待 Rust 服务负责人确认，不能视为已联调）
+方向：Widget SendMessageAsync -> 同包 AppService -> Bridge RequestReceived -> 127.0.0.1 TCP。
+Bridge 作为 AppService 客户端连接 UWP；UWP OnBackgroundActivated 检查服务名和调用包族，保留后台 deferral。
+UWP 不读取发现文件、不接收认证令牌、不直接访问 loopback。Bridge 每次请求读取真实 RoamingAppData 下 handheld-launcher/widget-ipc.json。
+发现文件使用严格 UTF-8、最多 8192 字节；对象字段 proto=1、port=1..65535、token=非空且最多512字符、pid=正整数、version=字符串。
+Rust 应只监听 loopback、验证令牌、限制消息体、保护发现文件的用户访问权限，并原子发布端口/令牌更新。
+AppService 请求为仅含 request 字符串的 ValueSet；响应为仅含 response 字符串的 ValueSet。
+request JSON：proto=1、id=非空且最多64字符、cmd；命令以外的额外字段被拒绝。
+允许命令：status（无参数）；set_tdp（watts 为1..1000整数）；quit_game（gameId 非空白且最多512字符）；set_locale（locale 为 zh-CN 或 en-US）。
+Bridge 加入 token 并追加换行；认证前及认证后请求均最多4096 UTF-8字节，后者包含换行。
+TCP 每请求新建连接，8秒截止；响应必须以换行终止，换行前最多1MiB严格UTF-8 JSON。
+响应为 id、ok、可选 data/error；id 必须匹配，ok 必须为布尔值。Bridge 仅转发这些字段。
+Bridge 递归删除大小写不敏感的 token 键，并替换数据字符串和键名中的令牌文本；返回最多48000 UTF-16字节。
+status.data 预期为 driver、driverError、tdp、tdpError、games、locale；driver 使用 ready、installed、message。
+tdp 使用 supported、minW、maxW、watts、presets、cpuName、vendor、backend、message；范围为1..1000内有序整数。
+watts 可缺省/null，否则必须是范围内整数；预设过滤去重，缺省选范围内5/10/15/25/35/40，仍为空则取minW。
+games 为对象数组，条目使用 id/name；set_tdp.data 必须是有效且 supported=true、含实际 watts 的 TDP 对象。
+quit_game.data.killed 必须是非负整数；set_locale 仅检查成功，不依赖 data。
+现有 Tauri 命令名称或参数不能证明 TCP 协议兼容；本次未定位并确认完整 Rust IPC 服务实现。
+
+生命周期与界面行为
+UWP 最多8个排队/在途请求，串行发送，总截止22秒、传输12秒、冷启动连接等待8秒、拉起节流3秒。
+Bridge 使用同包族命名 Mutex，主线程同线程获取/释放；异步连接放到 MTA 线程池，尚未实机验证 WinRT 回调行为。
+Bridge 最多8个正常排队/执行请求，串行、排队及执行10秒、回包2秒、异常回包1秒、Open5秒。
+断线重连窗口20秒、间隔500ms；只有有效 request 字符串 envelope 的流量才延续窗口。无在途且闲置30秒主动退出，不循环重连。
+取消或断线不自动重放写操作；结果可能已执行，必须刷新状态。超限消息返回忙碌错误。
+最后窗口关闭、挂起及后台取消清理连接/deferral；页面关闭尽力刷新待写TDP最多1秒，然后取消生命周期并退订事件。
+TDP 260ms合并、串行提交；松键/松指针/失焦/隐藏刷新；revision 防止旧查询覆盖新编辑。可见时每5秒轮询。
+原生手柄/键盘焦点、TDP预设和滑块、中英双语、可选音效、运行游戏选择和退出均已实现源码。
+风扇保持禁用，驱动安装/修复引导用户使用启动器管理员工具箱；小组件不安装驱动。
+替代旧前端自启选项只保存本地意图并提示手动关闭；当前协议不能修改启动器自启，不应描述为迁移已完成。
+
+Windows 与掌机验收（全部待执行并记录）
+1. Debug x64与Release Native分别编译；保存MSBuild/Native日志、成品身份、SHA256和依赖清单。
+2. 检查Bridge exe、所有运行依赖及exe.config、GameBar公共目录、音效、图标、最终proxy注册；签名验证后安装。
+3. 从Game Bar发现/添加/固定/缩放小组件；普通启动和外部定向激活分开验证；记录安装后的包族及Game Bar版本。
+4. 冷启动、连续拉起防重复、关闭最后窗口、挂起/恢复、后台取消、30秒空闲退出、断线重连及中途取消不得挂死或重放写入。
+5. 与Rust联调正常/缺失/失效发现文件、令牌轮换、拒绝连接、超时、畸形/超限响应、id不匹配、服务忙碌；确认令牌不进入UWP或日志。
+6. 掌机验证焦点/手柄导航、按住与松开TDP调整、切预设、隐藏时刷新、语言和音效；核对驱动实际瓦数与失败后的状态刷新。
+7. 验证游戏列表及退出结果；验证不支持TDP、驱动错误、空游戏列表和通信故障时禁用相关操作；关闭窗口后无残留轮询。
