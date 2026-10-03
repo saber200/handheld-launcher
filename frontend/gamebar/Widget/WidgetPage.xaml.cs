@@ -25,6 +25,7 @@ namespace FantasyHub.GameBar
         private Window window;
         private TdpInfo info;
         private JsonObject status;
+        private readonly List<PresetOption> presetOptions = new List<PresetOption>();
         private int? pending;
         private int draft = 5;
         private long revision;
@@ -153,7 +154,8 @@ namespace FantasyHub.GameBar
                 if (!closing)
                 {
                     statusAvailable = false;
-                    TdpSlider.IsEnabled = Presets.IsEnabled = QuitButton.IsEnabled = false;
+                    TdpSlider.IsEnabled = QuitButton.IsEnabled = false;
+                    SetPresetsEnabled(false);
                     queryError = e.Message;
                     RenderQueryError();
                 }
@@ -163,7 +165,8 @@ namespace FantasyHub.GameBar
 
         private void RenderQueryError()
         {
-            TdpSlider.IsEnabled = Presets.IsEnabled = QuitButton.IsEnabled = false;
+            TdpSlider.IsEnabled = QuitButton.IsEnabled = false;
+            SetPresetsEnabled(false);
             StatusText.Text = text.Failed + queryError;
             DriverText.Text = text.Pick("无法读取驱动状态", "Unable to read driver status");
         }
@@ -183,7 +186,9 @@ namespace FantasyHub.GameBar
                     : text.Pick("驱动未安装", "Driver not installed")) + " · " + Models.Text(driver, "message");
             info = Models.Tdp(Models.Object(status, "tdp"));
             bool enabled = statusAvailable && ready && info != null && info.Supported && tdpError.Length == 0;
-            TdpSlider.IsEnabled = Presets.IsEnabled = enabled && !closing && !quitting;
+            bool usable = enabled && !closing && !quitting;
+            TdpSlider.IsEnabled = usable;
+            SetPresetsEnabled(usable);
             DeviceText.Text = info == null ? "" : info.Cpu + " · " + info.Vendor + " · " + info.Backend;
             if (info != null)
             {
@@ -192,10 +197,10 @@ namespace FantasyHub.GameBar
                 TdpSlider.Maximum = Math.Max(TdpSlider.Maximum, info.Max);
                 TdpSlider.Minimum = info.Min;
                 TdpSlider.Maximum = info.Max;
-                Presets.ItemsSource = info.Presets;
+                SyncPresets(info.Presets);
                 if (updateDraft) draft = Clamp(info.Watts ?? info.Min);
                 TdpSlider.Value = Clamp(draft);
-                Presets.SelectedItem = Clamp(draft);
+                SetPresetOn(Clamp(draft));
                 WattsText.Text = (info.Watts.HasValue || revision > 0) ? Clamp(draft) + " W" : "— W";
                 RangeText.Text = info.Min + " – " + info.Max + " W";
                 updating = false;
@@ -206,6 +211,31 @@ namespace FantasyHub.GameBar
         }
 
         private int Clamp(int watts) { return Math.Max(info?.Min ?? 5, Math.Min(info?.Max ?? 40, watts)); }
+
+        // 只有预设个数变化才重建 ItemsSource，避免每次 5 秒轮询都重置焦点。
+        private void SyncPresets(List<int> presets)
+        {
+            if (presetOptions.Count != presets.Count)
+            {
+                presetOptions.Clear();
+                foreach (int watts in presets) presetOptions.Add(new PresetOption(watts));
+                Presets.ItemsSource = presetOptions;
+                return;
+            }
+            for (int i = 0; i < presets.Count; i++) presetOptions[i].Watts = presets[i];
+        }
+
+        private void SetPresetOn(int watts)
+        {
+            foreach (PresetOption option in presetOptions) option.On = option.Watts == watts;
+        }
+
+        // 原前端 .tdp-preset:disabled 是 opacity .45，GridView 容器不继承，得自己设。
+        private void SetPresetsEnabled(bool enabled)
+        {
+            Presets.IsEnabled = enabled;
+            Presets.Opacity = enabled ? 1 : 0.45;
+        }
 
         private void RenderGames()
         {
@@ -234,7 +264,7 @@ namespace FantasyHub.GameBar
             revision++;
             updating = true;
             TdpSlider.Value = draft;
-            Presets.SelectedItem = draft;
+            SetPresetOn(draft);
             WattsText.Text = draft + " W";
             updating = false;
             if (immediate) { _ = FlushAsync(); }
@@ -293,9 +323,14 @@ namespace FantasyHub.GameBar
             QueueTdp(next, false);
         }
 
-        private void PresetClick(object sender, ItemClickEventArgs e)
+        private void PresetToggleClick(object sender, RoutedEventArgs e)
         {
-            if (e.ClickedItem is int) { Play("click"); QueueTdp((int)e.ClickedItem, true); }
+            // 预设按钮现在是 ToggleButton：它自己会翻 IsChecked，所以这里只读 Watts，
+            // 真实状态由 QueueTdp/SetPresetOn 写回（On 无条件通知，连点同一个也能复位）。
+            var option = (sender as ToggleButton)?.DataContext as PresetOption;
+            if (option == null || closing) return;
+            Play("click");
+            QueueTdp(option.Watts, true);
         }
 
         private async void SliderKeyDown(object sender, KeyRoutedEventArgs e)
@@ -361,7 +396,8 @@ namespace FantasyHub.GameBar
             quitting = true;
             QuitButton.IsEnabled = false;
             GamesBox.IsEnabled = false;
-            TdpSlider.IsEnabled = Presets.IsEnabled = false;
+            TdpSlider.IsEnabled = false;
+            SetPresetsEnabled(false);
             Play("click");
             string result = "";
             try
@@ -425,7 +461,8 @@ namespace FantasyHub.GameBar
             closing = true;
             refreshTimer.Stop();
             writeTimer.Stop();
-            TdpSlider.IsEnabled = Presets.IsEnabled = QuitButton.IsEnabled = false;
+            TdpSlider.IsEnabled = QuitButton.IsEnabled = false;
+            SetPresetsEnabled(false);
             try { await Task.WhenAny(FlushAsync(), Task.Delay(1000)); }
             finally
             {

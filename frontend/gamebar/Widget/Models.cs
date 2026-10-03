@@ -68,6 +68,44 @@ namespace FantasyHub.GameBar
         internal bool Supported;
         internal string Cpu, Vendor, Backend, Message;
     }
+    /// 预设按钮的显示项。
+    /// 原前端（global.css 的 .tdp-preset）是「文字 + 选中态整块变 accent 色」，
+    /// 这边交给 XAML 的 ToggleButton 承载：IsChecked 只单向反映这里的 On。
+    /// 注意 On 的 setter 无条件发通知 —— 用户连点同一个预设时数值没变，
+    /// 若只在值变化时通知，按钮会停在 ToggleButton 自己切出来的错误状态上。
+    public sealed class PresetOption : System.ComponentModel.INotifyPropertyChanged
+    {
+        private bool on;
+        private int watts;
+        internal PresetOption(int watts) { this.watts = watts; }
+        internal int Watts
+        {
+            get { return watts; }
+            set
+            {
+                watts = value;
+                Notify("Watts");
+                Notify("Label");
+            }
+        }
+        public string Label { get { return watts + "W"; } }
+        public bool On
+        {
+            get { return on; }
+            set
+            {
+                on = value;
+                Notify("On");
+            }
+        }
+        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+        private void Notify(string name)
+        {
+            var handler = PropertyChanged;
+            if (handler != null) handler(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+        }
+    }
+
     internal sealed class RunningGame
     {
         internal string Id;
