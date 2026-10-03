@@ -12,8 +12,11 @@
 - **本轮修的一个真缺口**：`status.data` 少了 `locale`，小组件因此永远读不到语言（`set_locale` 只影响当次会话，重启后又回系统语言）。契约文档（`frontend/gamebar/HANDOFF.txt` 第 50 行）本来就要求这个字段，现已补上。
 - 契约对不上的三处，**记录但没改**：① Rust 实现了 `set_autostart`，Bridge 白名单却只有 status / set_tdp / quit_game / set_locale（`Loopback.cs` 里 `extra == null` 直接拒），所以小组件发不出去 —— 那边的「自启」开关只存本地意图、提示用户手动关，**不能描述成迁移已完成**；② Rust 响应上限是 24000 UTF-16，HANDOFF 写 1 MiB、Bridge 按 48000 收（Rust 更严，属偏安全的文档漂移）；③ `driver` 多一个 `elevated` 字段，C# 侧是逐键带默认值的容错取值（`Models.cs`），多字段无害。
 - **旧界面已经接不上，但代码全部保留**（等真机验证后再单独一次提交清理）：`frontend/src-tauri/src/` 下的 `overlay.rs` / `chord.rs` / `shot.rs` / `topmost.rs` / `library.rs` / `games.rs` 已不在 `mod` 列表；`src/frontend/*`、`frontend.html` 与 `vite.config.ts` 的 `frontend` 入口没有任何窗口加载。**下面三节「未发布」记录（窗口显示候选 / 加载态诊断 / 输入链路）描述的都是这套旧界面**，其中 `topmost.rs` 那个「普通应用窗口显示候选」已不可能生效。
-- 验证边界：本机只跑了 Rust（clippy 退出 0）与源码静态检查（`python3 frontend/gamebar/check-static.py` PASS：XML / PNG / WAV / XAML handler / 工程输入 / NuGet 版本）。**C# 与 XAML 从未编译过**，Windows 打包、签名、安装、真机小组件行为与 Rust↔C# 联调全部未做。
-- 新增 `.github/workflows/gamebar.yml`，钉 `windows-2022`（工程写死 `TargetPlatformVersion=10.0.22621.0`，而 `windows-latest` 只有 26100 SDK）：静态检查是硬闸门，Debug 真编先带 `continue-on-error` 并上传产物 —— 拿到真实 MSBuild 输出、确认打包脚本自己的产物检查也过了，再转硬闸门。
+- 本机只跑了 Rust（clippy 退出 0）与源码静态检查（`python3 frontend/gamebar/check-static.py` PASS：XML / PNG / WAV / XAML handler / 工程输入 / NuGet 版本）。
+- **C# 与 XAML 已经真编过（2026-10-03，CI 的 `windows-2022`）**：Bridge、Widget 两个工程都 `Build succeeded`，打包也过，产出 `FantasyHub.GameBar.Widget_0.1.55.0_x64_Debug.msix`（31 个条目 / 10.6 MB）。核对过包里内容：`Bridge\FantasyHub.GameBar.Bridge.exe` 与 `.exe.config` 在 `Bridge\` 下、`Assets\*.png`(4) + `Assets\Sounds\*.wav`(9) + `GameBar\index.txt` + `Properties\Default.rd.xml` 各只有一份 —— 小组件能取到全部素材，且没有把 Bridge 产物的路径搬到素材名上。
+- **第一次真编确实抓住了东西**：`63414f7` 的 C# 编过了，倒在 AppX 打包的 15 个 `APPX1111`（同一目标路径两份不同大小的文件）。根因是 `FantasyHub.GameBar.Widget.csproj` 的 `BuildBridge` 在 target 里对 `Content` 写未限定的 `<Link>Bridge\%(Filename)%(Extension)</Link>`：`%(...)` 按整个 `Content` 集合分批，把 Bridge 输出那 2 个匹配复制成了 15 个既有素材名。改成先收进独立项目类型 `BridgePayload` 再用 `%(BridgePayload.*)` 限定，`65728b6` 转绿。这类只能在 Windows 上看见的错误，正是这个作业存在的理由。
+- **验证边界（别把上面读成能用）**：包**没有签名**（`AppxPackageSigningEnabled=false`，产物是带 `Install.ps1` 的 `_Test` 侧载目录），装不上也不能装；Game Bar 里到底能不能显示这块小组件、同包 AppService 能否把请求送到 Bridge、Rust↔C# 的请求往返，全部**没在真机上跑过一次**。Bridge 还留着 `MSB3245: System.Runtime.WindowsRuntime` 未解析的警告（编译用的是 NuGet ref 副本，该程序集没进包），运行期是否够用未知。第 8–13 行那些「没有真机证据」的话仍然有效。
+- 新增 `.github/workflows/gamebar.yml`，钉 `windows-2022`（工程写死 `TargetPlatformVersion=10.0.22621.0`，而 `windows-latest` 只有 26100 SDK）：静态检查是硬闸门；Debug 真编已在 `65728b6` 首次全绿（0 error 的 msix），**可以转硬闸门了，但还没转**（仍是 `continue-on-error`）。
 
 
 ## 未发布：普通应用窗口显示候选

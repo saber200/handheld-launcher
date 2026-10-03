@@ -9,8 +9,10 @@
 
 - 独立前端不再创建窗口/WebView，界面交给 Xbox Game Bar 小组件：`frontend/gamebar` 是原生 UWP C#/XAML 小组件（`microsoft.gameBarUIExtension`）+ **同包全信任**的 Bridge。小组件经同包 AppService 把请求交给 Bridge，Bridge 现读 `%APPDATA%\handheld-launcher\widget-ipc.json` 并加 token 连回环 —— token 不进 UWP。前端进程只剩托盘 + 回环监听 + 更新握手，`main.rs` 不再 `mod overlay / chord / shot / topmost / library / games`。
 - 顺手补一个契约缺口：`status` 响应缺 `locale`，小组件因此读不到语言（`set_locale` 只影响当次会话），已补。
-- 本机验证：工作区 Clippy 退出 0；`python3 frontend/gamebar/check-static.py` PASS（XML/PNG/WAV/XAML handler/工程输入/NuGet 版本）。**未验证**：C# 与 XAML 从未编译，Windows 打包、签名、安装、真机小组件行为及 Rust↔C# 联调全部未做；本机没有 Windows C 工具链，没有替代证据。
-- 新增 `.github/workflows/gamebar.yml`（钉 `windows-2022`：工程要 SDK 10.0.22621.0，`windows-latest` 只有 26100）：静态检查是硬闸门，Debug 真编暂设 `continue-on-error` 并上传产物，绿了再转闸门。
+- 本机验证：工作区 Clippy 退出 0；`python3 frontend/gamebar/check-static.py` PASS（XML/PNG/WAV/XAML handler/工程输入/NuGet 版本）。
+- **CI 真编已过关（2026-10-03，`windows-2022`）**：Bridge 与 Widget 的 C# + XAML 都 `Build succeeded`，产出 `FantasyHub.GameBar.Widget_0.1.55.0_x64_Debug.msix`（31 个条目 / 10.6 MB）：`Bridge/FantasyHub.GameBar.Bridge.exe` + `.exe.config` 落在 `Bridge\`，`Assets\*.png`(4)、`Assets\Sounds\*.wav`(9)、`GameBar\index.txt`、`Properties\Default.rd.xml` 各一份且无重复。这一次真编暴露并修掉了一个只有 Windows 才能看见的打包错误（首次运行 `63414f7` 报 15 个 `APPX1111`：csproj 在 target 里对 `Content` 写了未限定的 `%(...)`，详见 `frontend/gamebar/Widget/FantasyHub.GameBar.Widget.csproj` 的注释），修完 `65728b6` 转绿 0 error。
+- **仍未验证**：包没签名（`AppxPackageSigningEnabled=false`，产物是 `_Test` 侧载目录）、没装过、没在真机跑过；Game Bar 里能否显示小组件、同包 AppService 能否通到 Bridge、以及 Rust↔C# 联调全部未做。另有 MSB3245 警告说 `System.Runtime.WindowsRuntime` 没被旧式解析器找到（csc 用了 NuGet 的 ref 副本，编译过；该程序集没进包，运行期是否够用未知）。
+- 新增 `.github/workflows/gamebar.yml`（钉 `windows-2022`：工程要 SDK 10.0.22621.0，`windows-latest` 只有 26100）：静态检查是硬闸门；Debug 真编在 `65728b6` 首次全绿（`check-static.py` + 0 error 的 msix），**已具备转硬闸门的条件但还没转**（仍是 `continue-on-error`，产物照旧上传）。
 - **尚未闭环**：Bridge 白名单没有 `set_autostart`，小组件的「自启」只存本地意图并提示手动关，不能称迁移完成；旧界面代码（`overlay/chord/shot/topmost/library/games`、`src/frontend/*`、`frontend.html`）已接不上但全部保留，等真机验证后单独一次提交清理。
 - 版本号多了第 6 处：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段 `0.1.55.0`），不在原五处联动里，发版必须手动跟上。
 
