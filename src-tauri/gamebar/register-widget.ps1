@@ -67,6 +67,9 @@ function Get-PackageIdentity([string]$packagePath) {
       Name      = [string]$manifest.Package.Identity.Name
       Version   = [version]$manifest.Package.Identity.Version
       Publisher = [string]$manifest.Package.Identity.Publisher
+      # 装依赖前要先比架构（见 Install-Dependencies）：这两个 .NET 框架包的文件名里不带架构，
+      # x64/ARM/ARM64 三份同名，光看文件名分不出来。
+      Architecture = [string]$manifest.Package.Identity.ProcessorArchitecture
     }
   } finally { $zip.Dispose() }
 }
@@ -91,9 +94,25 @@ function Install-Dependencies([string]$dir) {
   }
   $deps = @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Extension -in '.appx', '.msix' -and $_.Length -gt 200 })
+  # 本机架构（PROCESSOR_ARCHITECTURE 在 Windows 上恒有值，PS 5.1 也能读）。
+  $hostArch = switch ($env:PROCESSOR_ARCHITECTURE) {
+    'AMD64' { 'x64' }
+    'ARM64' { 'arm64' }
+    'x86'   { 'x86' }
+    default { '' }
+  }
   foreach ($dep in $deps) {
     $identity = Get-PackageIdentity $dep.FullName
     if ($null -eq $identity) { $results += "no manifest: $($dep.Name)"; continue }
+    # 随包的框架包架构必须和本机一致。2026-10-03 真机踩过：payload 里带的是 Dependencies\ARM
+    # 下的 .NET 框架包，装到 x64 机器上报 0x80073D10「此程序包需要体系结构 ARM」，紧接着小组件
+    # 报 0x80073CF3「找不到框架」—— 两条报错都看不出是 payload 打错了架构。
+    # 这里先自己认出来，直接说清楚是这个安装包的问题。
+    $arch = [string]$identity.Architecture
+    if ($arch -and $arch -ne 'neutral' -and $hostArch -and $arch -ne $hostArch) {
+      $results += "FAILED: $($identity.Name): payload ships the $arch build, this machine is $hostArch (wrong payload; install a newer FantasyHub)"
+      continue
+    }
     $present = $false
     foreach ($package in @(Get-Installed $identity.Name)) {
       if ([version]$package.Version -ge $identity.Version) { $present = $true }

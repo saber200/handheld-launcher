@@ -92,7 +92,8 @@ Write-Step '6/6 复制 widget.msix 与三个框架依赖'
 $package = [string]$result.package
 Copy-Item -LiteralPath $package -Destination (Join-Path $out 'widget.msix') -Force
 
-# 依赖包：MSBuild 把框架包放在主包旁边的 Dependencies\x64 里。
+# 依赖包：MSBuild 把框架包放在主包旁边的 Dependencies\<arch> 下，而那里同时有 x64 / ARM / ARM64
+# 三份（所以下面按包内清单的架构筛选，不认路径）。
 # 这三个文件名必须和 src-tauri/build.rs / src-tauri/tauri.conf.json 里登记的路径一致 ——
 # 不一致的话启动器安装包会带个空占位，装到机器上就是「这个版本没带小组件」。
 $expectedDeps = @(
@@ -106,16 +107,68 @@ if ($Configuration -ne 'Debug') {
     # Release 会换成非 Debug 的框架包（名字也不同），那时记得同步改上面两个文件里的路径。
     Write-Warning "Release 配置的依赖清单还没核对过：请把实际文件名同步进 src-tauri/build.rs 与 tauri.conf.json。"
 }
+# appx 就是 zip：读包内 AppxManifest.xml 的 Identity/ProcessorArchitecture 来认架构。
+# 为什么不能按名字取第一个（2026-10-03 真机踩的坑）：Microsoft.NET.CoreRuntime.2.2.appx 与
+# Microsoft.NET.CoreFramework.Debug.2.2.appx 这两个文件名里**不带架构**，Dependencies 下
+# x64/ARM/ARM64 三份完全同名（只有 VCLibs 的名字自带 x64），Get-ChildItem -Recurse 先命中的
+# 往往是 ARM。那样打出来的安装包：x64 机器装依赖报 0x80073D10「此程序包需要体系结构 ARM」，
+# 紧接着小组件报 0x80073CF3「找不到框架」—— 两句都看不出是 payload 带错了架构。
+# 用 GetAttribute 而不是直接取属性：Set-StrictMode -Latest 下访问不存在的 XML 属性会抛错，
+# 而 neutral 清单本来就不写这个属性。
+function Get-AppxArchitecture([string]$Path) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $entry = $zip.GetEntry('AppxManifest.xml')
+        if ($null -eq $entry) { return '' }
+        $reader = [System.IO.StreamReader]::new($entry.Open())
+        try { [xml]$inner = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        $identity = $inner.Package.Identity
+        if ($null -eq $identity) { return '' }
+        return $identity.GetAttribute('ProcessorArchitecture')
+    } finally { $zip.Dispose() }
+}
+
 $missing = @()
 foreach ($name in $expectedDeps) {
-    $found = @($depSource | Where-Object { $_.Name -eq $name } | Select-Object -First 1)
-    if ($found.Count -eq 0) { $missing += $name; continue }
-    Copy-Item -LiteralPath $found[0].FullName -Destination (Join-Path $depsOut $name) -Force
+    $candidates = @($depSource | Where-Object { $_.Name -eq $name })
+    $picked = $null
+    $pickedArch = ''
+    foreach ($candidate in $candidates) {
+        $arch = Get-AppxArchitecture $candidate.FullName
+        # 只要 x64，以及不写架构（neutral）的；ARM/ARM64/x86 一律不收。
+        if ($arch -eq 'x64' -or [string]::IsNullOrWhiteSpace($arch)) {
+            $picked = $candidate
+            $pickedArch = $arch
+            break
+        }
+    }
+    if ($null -eq $picked) {
+        $seen = @($candidates | ForEach-Object { $_.Name + '[' + (Get-AppxArchitecture $_.FullName) + ']' }) -join ', '
+        if ($seen -eq '') { $seen = 'none' }
+        $missing += "$name (candidates: $seen)"
+        continue
+    }
+    if ($pickedArch -eq '') { $pickedArch = 'neutral' }
+    Copy-Item -LiteralPath $picked.FullName -Destination (Join-Path $depsOut $name) -Force
+    # 这一行是唯一能一眼确认「带出去的依赖是什么架构」的地方，别删。
+    Write-Host ("  {0}  arch={1}  {2} bytes" -f $name, $pickedArch, $picked.Length)
 }
 if ($missing.Count -gt 0) {
-    $actual = ($depSource | ForEach-Object { $_.Name }) -join ', '
-    throw "Dependencies\x64 is missing $($missing -join ', '). Found: $actual"
+    $actual = @($depSource | ForEach-Object { $_.Name + '[' + (Get-AppxArchitecture $_.FullName) + ']' }) -join ', '
+    throw "No x64 build of: $($missing -join '; '). Found: $actual"
 }
+
+# 顺手把小组件清单里声明的框架依赖打出来：漏带一个，装到机器上只会报「缺依赖」，很难对上号。
+$widgetZip = [System.IO.Compression.ZipFile]::OpenRead((Join-Path $out 'widget.msix'))
+try {
+    $widgetManifestEntry = $widgetZip.GetEntry('AppxManifest.xml')
+    $widgetManifestReader = [System.IO.StreamReader]::new($widgetManifestEntry.Open())
+    try { [xml]$widgetManifest = $widgetManifestReader.ReadToEnd() } finally { $widgetManifestReader.Dispose() }
+    foreach ($dependency in @($widgetManifest.SelectNodes('/Package/Dependencies/PackageDependency'))) {
+        Write-Host ("  widget requires: {0} >= {1}" -f $dependency.GetAttribute('Name'), $dependency.GetAttribute('MinVersion'))
+    }
+} finally { $widgetZip.Dispose() }
 
 # 手动补救用的说明：安装器那一步失败时，用户/我们自己能照这个在本机装一遍。
 $install = @"
