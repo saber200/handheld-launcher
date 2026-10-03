@@ -190,7 +190,9 @@ namespace FantasyHub.GameBar
             bool usable = enabled && !closing && !quitting;
             TdpSlider.IsEnabled = usable;
             SetPresetsEnabled(usable);
-            DeviceText.Text = info == null ? "" : info.Cpu + " · " + info.Vendor + " · " + info.Backend;
+            // 原前端 .tdp-cpu 只显示 CPU 名。真机上之前那串「Intel(R) Arc(TM) G3 Extreme · intel · intel-msr」
+            // 一眼就不是原版的样子 —— vendor / backend 是内部字段，只在拿不到 CPU 名时回退去显示，避免这行变空。
+            DeviceText.Text = info == null ? "" : info.Cpu.Length > 0 ? info.Cpu : info.Vendor + " · " + info.Backend;
             if (info != null)
             {
                 updating = true;
