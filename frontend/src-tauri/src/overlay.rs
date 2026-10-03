@@ -6,7 +6,7 @@
 //! **「showed」不等于「看得见」**（0.1.50）：Tauri 的 `is_visible()` 只是在问「系统认为这个
 //! 窗口可见没有」——被整屏窗口压住时它照样返回 true，日志就成了一路正常而人看不见。
 //! 所以每次显示都多走一段：**自检 → 必要时重试 → 无条件留现场**（一行 `frontend layer …`
-//! 告诉 Z 序和前台在谁手上，一张 `overlay-shot.bmp` 告诉屏幕那一片到底是什么）。
+//! 告诉 Z 序和前台在谁手上，一张 `overlay-shot.bmp` 留下 GDI 可读取像素，不证明最终上屏）。
 //! 这一段在后台线程里跑，见 `settle`；动手的 Win32 部分在 `topmost.rs` / `shot.rs`。
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -61,16 +61,37 @@ pub fn request_quit() {
     QUITTING.store(true, Ordering::SeqCst);
 }
 
+/// 只读采样，时间与代数用于区分快速开关和后台采样交错；不据此改变开关判据。
+fn snapshot(window: &WebviewWindow, stage: &str, reason: &str, expected_generation: u64) {
+    let generation = GENERATION.load(Ordering::SeqCst);
+    let time_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let started = std::time::Instant::now();
+    let layer = crate::topmost::probe(window).unwrap_or_else(|| "windows probe unavailable".into());
+    fh_core::logutil::write_line(&format!(
+        "frontend snapshot stage={stage} reason={reason} time_ms={time_ms} expected_generation={expected_generation} generation={generation} generation_end={} sample_ms={} {layer}",
+        GENERATION.load(Ordering::SeqCst), started.elapsed().as_millis()
+    ));
+}
+
 pub fn toggle(app: &AppHandle, reason: &str) {
+    // 在开关决策前保留现场，第二次按键走 hide 时也不能漏掉。
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        snapshot(
+            &window,
+            "before-toggle",
+            reason,
+            GENERATION.load(Ordering::SeqCst),
+        );
+    }
     // 这里曾经只看静态标记，于是「按了没反应」有了一个隐蔽的来源：只要有一次
     // show() 没真把窗口显示出来，标记就已经变成 true，之后每次按键都在做 hide()。
     // 现在每次都问窗口：它说在屏上才关，否则开。
     let visible = window_visible(app).unwrap_or_else(is_visible);
-    // **「系统说可见」不等于「人看得见」**（0.1.53 真机结论）：大屏模式（FSE）下浮层
-    // 常常已经 `show()` 成功、`is_visible()` 也是 true，却被铺满整屏的启动器压在下面 ——
-    // 这时按第二次会走 `hide`，于是「桌面模式正常、大屏模式呼不出来」，而用户那边
-    // 看到的是「按了完全没反应」。真机日志里那次 show 紧跟一次 hide 就是这么来的。
-    // 判据再加上「真的落在置顶层」（`topmost::on_top`）：**可见但被压住 → 再顶一次，绝不 hide**。
+    // 保留现有开关判据：可见位 + 置顶样式，不是无遮挡判据。
+    // 两者都为真时仍可能肉眼看不见；本版只取证，不改手柄与开关行为。
     let on_top = app
         .get_webview_window(WINDOW_LABEL)
         .map(|window| crate::topmost::on_top(&window))
@@ -80,7 +101,7 @@ pub fn toggle(app: &AppHandle, reason: &str) {
     } else {
         if visible {
             fh_core::logutil::write_line(&format!(
-                "frontend visible but buried → re-raise instead of hide ({reason})"
+                "frontend visible but topmost check failed → re-raise instead of hide ({reason})"
             ));
         }
         show(app, reason);
@@ -99,6 +120,13 @@ pub fn show(app: &AppHandle, reason: &str) {
         .map(|u| u.to_string())
         .unwrap_or_else(|_| "?".into());
     fh_core::logutil::write_line(&format!("frontend show begin ({reason}) url={url}"));
+    // 必须早于定位、显示、置顶和抢前台，避免动作覆盖原始现场。
+    snapshot(
+        &window,
+        "before-show",
+        reason,
+        GENERATION.load(Ordering::SeqCst),
+    );
     place(&window, app);
     if let Err(err) = window.set_always_on_top(true) {
         fh_core::logutil::write_line(&format!("frontend always-on-top failed: {err}"));
@@ -121,7 +149,9 @@ pub fn show(app: &AppHandle, reason: &str) {
     }
     let visible = window_visible(app).unwrap_or(true);
     VISIBLE.store(visible, Ordering::SeqCst);
-    fh_core::logutil::write_line(&format!("frontend show end ({reason}) is_visible={visible}"));
+    fh_core::logutil::write_line(&format!(
+        "frontend show end ({reason}) is_visible={visible}"
+    ));
     if !visible {
         // 说了要显示却还是不可见：把窗口的真实位置/尺寸记下来，否则现场只剩一句「没反应」。
         let pos = window
@@ -137,6 +167,7 @@ pub fn show(app: &AppHandle, reason: &str) {
     // 收尾（自检 / 重试 / 留现场）交给后台线程：`show()` 也会从托盘菜单、第二实例的回调里
     // 被调用，那些都在**主线程**上，在这里连等 5 × 120 ms 会把界面冻住。
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    snapshot(&window, "after-show", reason, generation);
     settle(window, reason.to_string(), generation);
 }
 
@@ -185,14 +216,15 @@ fn settle(window: WebviewWindow, reason: String, generation: u64) {
         }
         let layer =
             crate::topmost::probe(&window).unwrap_or_else(|| "probe unavailable".to_string());
-        fh_core::logutil::write_line(&format!("frontend layer ({reason}) on_top={on_top} {layer}"));
+        fh_core::logutil::write_line(&format!(
+            "frontend layer ({reason}) on_top={on_top} {layer}"
+        ));
         match crate::shot::capture(&window) {
             Ok(note) => fh_core::logutil::write_line(&format!("frontend shot ok {note}")),
             Err(err) => fh_core::logutil::write_line(&format!("frontend shot failed: {err}")),
         }
-        // 最后再盯几秒：被人压回去就再顶（日志放在现场快照之后，所以截的是**被压住的那一刻**，
-        // 那正是最需要看的画面）。
-        keep_on_top(&window, &current, &reason);
+        // 保留截图后的短看护；截图只记录当时 GDI 可读内容，不能据此断定遮挡或最终上屏。
+        keep_on_top(&window, &current, &reason, generation);
     });
 }
 
@@ -204,9 +236,9 @@ fn settle(window: WebviewWindow, reason: String, generation: u64) {
 /// 「buried again」这几行，下一次真机排查不用再猜是谁压的。
 ///
 /// 日志只在头 3 次写：8 轮全失败时刷 8 行没有额外信息量。
-fn keep_on_top(window: &WebviewWindow, current: &impl Fn() -> bool, reason: &str) {
+fn keep_on_top(window: &WebviewWindow, current: &impl Fn() -> bool, reason: &str, generation: u64) {
     let mut logged = 0;
-    for _ in 0..WATCH_TRIES {
+    for attempt in 1..=WATCH_TRIES {
         std::thread::sleep(std::time::Duration::from_millis(WATCH_GAP_MS));
         if !current() {
             return;
@@ -216,13 +248,21 @@ fn keep_on_top(window: &WebviewWindow, current: &impl Fn() -> bool, reason: &str
         if !window.is_visible().unwrap_or(true) {
             return;
         }
+        // 即便置顶位正常也采样；只记录首尾，避免每 350ms 刷大量日志。
+        if attempt == 1 || attempt == WATCH_TRIES {
+            snapshot(window, &format!("watch-{attempt}"), reason, generation);
+            // 采样花费时间，之后重新检查代数和可见位，绝不借诊断复活旧窗口。
+            if !current() || !window.is_visible().unwrap_or(true) {
+                return;
+            }
+        }
         if crate::topmost::on_top(window) {
             continue;
         }
         if logged < 3 {
             logged += 1;
             fh_core::logutil::write_line(&format!(
-                "frontend buried again after show ({reason}) — re-raise {logged}"
+                "frontend topmost check failed after show ({reason}) — re-raise {logged}"
             ));
         }
         crate::topmost::hard_raise(window);
@@ -239,7 +279,9 @@ pub fn hide(app: &AppHandle, reason: &str) {
     }
     let visible = window_visible(app).unwrap_or(false);
     VISIBLE.store(visible, Ordering::SeqCst);
-    fh_core::logutil::write_line(&format!("frontend hide end ({reason}) is_visible={visible}"));
+    fh_core::logutil::write_line(&format!(
+        "frontend hide end ({reason}) is_visible={visible}"
+    ));
 }
 
 /// 贴右、置顶、整屏高。

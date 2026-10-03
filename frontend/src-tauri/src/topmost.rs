@@ -24,7 +24,7 @@
 //! **只在 `show()` 里调用**：`force_topmost` 带 `SWP_SHOWWINDOW`，对一个隐藏窗口
 //! 调用会把它显示出来 —— 0.1.45「窗口在屏上、状态却是关的」正是这么来的（那时在
 //! `create_hidden()` 里先 `force_topmost` 再 `hide()`）。在这里它是显示动作的一部分，
-//! 紧接着就会把真实可见性写进日志，不会出现那种状态与现场不符。
+//! 随后记录系统窗口状态；这不保证 FSE 中用户实际看得见。
 //!
 //! **0.1.50 补的三件事**（都是为了「别再静默失败」）：
 //!
@@ -68,7 +68,7 @@ pub fn retry_top(window: &WebviewWindow) {
 
 /// **最硬的一下**：抢前台 + 再顶一次，然后把结果写进日志。
 ///
-/// 只在自检判定「被压住了」之后用（`overlay.rs` 的重试与看护循环）。与 `grab` 的区别是
+/// 只在可见位/置顶样式检查未通过之后用（`overlay.rs` 的重试与看护循环）。与 `grab` 的区别是
 /// 它**不省那一次前台抢占** —— `retry_top` 刻意只顶不抢，是怕每 120 ms 敲一次 Alt；
 /// 而这里本来就是「怎么都不上屏」的补救路径，值得动一次前台锁。
 /// 顺序与 0.1.45 的真机结论一致：抢前台会改变 Z 序，所以抢完必须再顶一次。
@@ -83,12 +83,7 @@ pub fn hard_raise(window: &WebviewWindow) {
     ));
 }
 
-/// 自检：窗口现在**真的**在屏上、并且落在置顶层？
-///
-/// 为什么不用 `window.is_visible()`：它只是在问「系统认为这个窗口可见没有」，**被整屏窗口
-/// 压住时它一样返回 true** —— 0.1.48 的现场就是这样：日志写 `is_visible=true`，人看不见。
-/// 这里问的是更硬的两件事：`IsWindowVisible` + 扩展样式里的 `WS_EX_TOPMOST`（置顶那步到底
-/// 写进去没有）。它仍然证明不了「肉眼可见」——那要靠 `::probe` 的 `above=` 和截屏比对。
+/// 自检仅查询可见位与置顶样式，不证明无遮挡或 FSE 最终输出可见。
 #[cfg(windows)]
 pub fn on_top(window: &WebviewWindow) -> bool {
     win::on_top(window)
@@ -134,7 +129,16 @@ mod win {
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
     use tauri::WebviewWindow;
-    use windows_sys::Win32::Foundation::{GetLastError, SetLastError, HWND, LPARAM, RECT};
+    use windows_sys::Win32::Foundation::{GetLastError, SetLastError, HANDLE, HWND, LPARAM, RECT};
+    use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFOEXW, MONITOR_DEFAULTTONULL,
+    };
+    use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, GetProcessWindowStation, GetThreadDesktop, GetUserObjectInformationW,
+        OpenInputDesktop, UOI_NAME,
+    };
     use windows_sys::Win32::System::Threading::{
         AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
     };
@@ -361,7 +365,7 @@ mod win {
     }
 
     /// 自检：`IsWindowVisible` + 扩展样式里的 `WS_EX_TOPMOST`。
-    /// 两件都成立才叫「系统看来它该在屏上、而且落在置顶层」；肉眼可见与否还要靠 `probe`。
+    /// 两件都成立才叫「系统看来它该在屏上、而且落在置顶层」；它与 probe 都不能单独证明肉眼可见。
     pub fn on_top(window: &WebviewWindow) -> bool {
         let Some(hwnd) = hwnd_of(window) else {
             return false;
@@ -372,52 +376,47 @@ mod win {
         }
     }
 
-    /// 一行现场：句柄来源 + 可见性 + 前台窗口 + 我们的置顶位/真实矩形 + 压在我们上面的可见窗口。
-    /// `above` 里出现 `FantasyHub` 就是被全屏启动器压住；`topmost=false` 说明置顶没写进去；
-    /// `fg=true` 说明前台也抢到了；`hwnd=none` 说明连句柄都没拿到（置顶那几步全是空操作）。
-    /// 四种症状对应四种修法，别再靠猜。**拿不到句柄也返回 `Some`**，这一行不许消失。
+    /// 只读现场：相交的 Z 序候选也不等于实际遮挡，采样不是原子快照。
     pub fn probe(window: &WebviewWindow) -> Option<String> {
+        let environment = environment();
+        let foreground = unsafe { GetForegroundWindow() };
         let Some(hwnd) = hwnd_of(window) else {
             return Some(format!(
-                "hwnd={} visible=? — no handle, nothing to inspect",
-                source_name()
+                "hwnd={} unknown(no handle) | {environment} | fg=[{}]",
+                source_name(),
+                window_state(foreground)
             ));
         };
         unsafe {
-            let foreground = GetForegroundWindow();
-            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-            let mut rect = RECT {
-                left: 0,
-                top: 0,
-                right: 0,
-                bottom: 0,
-            };
-            GetWindowRect(hwnd, &mut rect);
-            let mut above: Vec<String> = Vec::new();
+            let ours_rect = window_rect(hwnd);
+            let mut above = Vec::new();
             let mut cursor = GetWindow(hwnd, GW_HWNDPREV);
-            while !cursor.is_null() && above.len() < 4 {
+            let mut scanned = 0;
+            // Z 序可能在采样途中变化，限制遍历数量，避免诊断卡住输入线程。
+            while !cursor.is_null() && above.len() < 4 && scanned < 256 {
+                scanned += 1;
                 if IsWindowVisible(cursor) != 0 {
-                    above.push(describe(cursor));
+                    let other_rect = window_rect(cursor);
+                    let overlaps = match (&ours_rect, &other_rect) {
+                        (Ok(a), Ok(b)) => Some(
+                            a.left < b.right
+                                && b.left < a.right
+                                && a.top < b.bottom
+                                && b.top < a.bottom,
+                        ),
+                        _ => None,
+                    };
+                    if overlaps != Some(false) {
+                        above.push(format!("[{} overlap={overlaps:?}]", window_state(cursor)));
+                    }
                 }
                 cursor = GetWindow(cursor, GW_HWNDPREV);
             }
-            let above = if above.is_empty() {
-                "none".to_string()
-            } else {
-                above.join(", ")
-            };
             Some(format!(
-                "hwnd={} visible={} | fg={} | ours topmost={} fg={} rect={},{} {}x{} | above={}",
-                source_name(),
-                IsWindowVisible(hwnd) != 0,
-                describe(foreground),
-                ex & WS_EX_TOPMOST != 0,
-                foreground == hwnd,
-                rect.left,
-                rect.top,
-                rect.right - rect.left,
-                rect.bottom - rect.top,
-                above
+                "hwnd={} | {environment} | ours=[{}] | fg=[{}] ours_fg={} | above_intersect={} scanned={scanned} truncated={}",
+                source_name(), window_state(hwnd), window_state(foreground), foreground == hwnd,
+                if above.is_empty() { "none".into() } else { above.join(", ") },
+                !cursor.is_null()
             ))
         }
     }
@@ -430,13 +429,162 @@ mod win {
         unsafe {
             let mut class = [0u16; 64];
             let class_len = GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32);
-            let mut title = [0u16; 96];
-            let title_len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32);
             let mut pid = 0u32;
             GetWindowThreadProcessId(hwnd, &mut pid);
+            let mut title = [0u16; 96];
+            // 同进程 GetWindowTextW 会同步发消息给 UI；诊断不能把手柄线程卡在这里。
+            let title_len = if pid == GetCurrentProcessId() {
+                0
+            } else {
+                GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32)
+            };
             let class = String::from_utf16_lossy(&class[..class_len.max(0) as usize]);
             let title = String::from_utf16_lossy(&title[..title_len.max(0) as usize]);
             format!("{class}\"{}\"(pid={pid})", tidy(&title))
+        }
+    }
+
+    fn window_rect(hwnd: HWND) -> Result<RECT, String> {
+        unsafe {
+            let mut rect = std::mem::zeroed();
+            if GetWindowRect(hwnd, &mut rect) == 0 {
+                Err(format!("unknown(GetWindowRect err={})", GetLastError()))
+            } else {
+                Ok(rect)
+            }
+        }
+    }
+
+    fn rect_text(rect: &RECT) -> String {
+        format!("{},{},{},{}", rect.left, rect.top, rect.right, rect.bottom)
+    }
+
+    fn session(pid: u32) -> String {
+        unsafe {
+            let mut id = 0;
+            if ProcessIdToSessionId(pid, &mut id) == 0 {
+                format!("unknown(session err={})", GetLastError())
+            } else {
+                id.to_string()
+            }
+        }
+    }
+
+    /// 借用的线程桌面/进程窗口站不能关闭；仅输入桌面是本次打开的句柄。
+    fn object_name(handle: HANDLE) -> String {
+        unsafe {
+            if handle.is_null() {
+                return format!("unknown(object handle err={})", GetLastError());
+            }
+            let mut needed = 0;
+            GetUserObjectInformationW(handle, UOI_NAME, std::ptr::null_mut(), 0, &mut needed);
+            if needed == 0 || needed > 65536 {
+                return format!("unknown(object size={needed} err={})", GetLastError());
+            }
+            let mut name = vec![0u16; (needed as usize).div_ceil(2)];
+            if GetUserObjectInformationW(
+                handle,
+                UOI_NAME,
+                name.as_mut_ptr().cast(),
+                (name.len() * 2) as u32,
+                &mut needed,
+            ) == 0
+            {
+                return format!("unknown(object name err={})", GetLastError());
+            }
+            let end = name.iter().position(|c| *c == 0).unwrap_or(name.len());
+            tidy(&String::from_utf16_lossy(&name[..end]))
+        }
+    }
+
+    fn environment() -> String {
+        unsafe {
+            let pid = GetCurrentProcessId();
+            let station = object_name(GetProcessWindowStation());
+            // DESKTOP_READOBJECTS=1：只查询名字，不请求切换/写入权限。
+            let input = OpenInputDesktop(0, 0, 1);
+            let input_name = object_name(input);
+            let close = if input.is_null() || CloseDesktop(input) != 0 {
+                String::new()
+            } else {
+                format!(" close_input_err={}", GetLastError())
+            };
+            format!(
+                "process_pid={pid} session={} station={station} input_desktop={input_name}{close}",
+                session(pid)
+            )
+        }
+    }
+
+    /// 窗口桌面取 HWND 所属线程，不能误取后台诊断线程的桌面。
+    fn window_state(hwnd: HWND) -> String {
+        if hwnd.is_null() {
+            return "none(no foreground/window at sample)".into();
+        }
+        unsafe {
+            let mut pid = 0;
+            let tid = GetWindowThreadProcessId(hwnd, &mut pid);
+            let identity = if tid == 0 {
+                format!("unknown(window thread err={})", GetLastError())
+            } else {
+                format!(
+                    "pid={pid} tid={tid} session={} desktop={}",
+                    session(pid),
+                    object_name(GetThreadDesktop(tid))
+                )
+            };
+            let rect = window_rect(hwnd)
+                .map(|r| rect_text(&r))
+                .unwrap_or_else(|e| e);
+            SetLastError(0);
+            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+            let err = GetLastError();
+            let style = if ex == 0 && err != 0 {
+                format!("unknown(style err={err})")
+            } else {
+                format!("0x{ex:x} topmost={}", ex & WS_EX_TOPMOST != 0)
+            };
+            let mut cloaked = 0u32;
+            let hr = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_CLOAKED as u32,
+                (&mut cloaked as *mut u32).cast(),
+                std::mem::size_of::<u32>() as u32,
+            );
+            let cloak = if hr < 0 {
+                format!("unknown(DWM hr=0x{:08x})", hr as u32)
+            } else {
+                format!("0x{cloaked:x}")
+            };
+            format!("{} hwnd={hwnd:p} {identity} visible={} style={style} rect={rect} cloaked={cloak} {}",
+                describe(hwnd), IsWindowVisible(hwnd) != 0, monitor_state(hwnd))
+        }
+    }
+
+    fn monitor_state(hwnd: HWND) -> String {
+        unsafe {
+            // 不用最近显示器兜底：否则离屏窗口也会被误记为在某块屏内。
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+            if monitor.is_null() {
+                return "monitor=none(no intersection reported)".into();
+            }
+            let mut info: MONITORINFOEXW = std::mem::zeroed();
+            info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+            if GetMonitorInfoW(monitor, &mut info.monitorInfo) == 0 {
+                return format!("monitor=unknown(GetMonitorInfo err={})", GetLastError());
+            }
+            let end = info
+                .szDevice
+                .iter()
+                .position(|c| *c == 0)
+                .unwrap_or(info.szDevice.len());
+            format!(
+                "monitor={} bounds={} work={} flags=0x{:x}",
+                tidy(&String::from_utf16_lossy(&info.szDevice[..end])),
+                rect_text(&info.monitorInfo.rcMonitor),
+                rect_text(&info.monitorInfo.rcWork),
+                info.monitorInfo.dwFlags
+            )
         }
     }
 

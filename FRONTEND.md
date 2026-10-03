@@ -1,7 +1,15 @@
 # 前端独立化（0.1.46 起）
 
-> 状态：**独立前端已实现，当前发布版本 0.1.54**。下文保留最初拆分设计；最新修正和验收边界见下一节。
+> 状态：**独立前端已实现，当前版本 0.1.55（FSE 取证版，尚未确认修复）**。下文保留最初拆分设计；历史归因不能替代本版取证结论。
 > 相关文档：`STATUS.md`（当前进度）、`FUTURE.md`（功能 2 / 功能 3 是本前端的由来）。
+
+## 0.1.55：FSE 呼出前后只读取证
+
+- 用户已确认最新日志末尾操作发生在 Xbox 全屏体验内；按键、显示调用、可见位及置顶位正常，仍不能证明用户能看见。根因未确定，本版不改自启、手柄触发、显示策略及重试次数。
+- 新增 `frontend snapshot`：`before-toggle` 在开关决策前，`before-show` 在定位/置顶/抢前台前，`after-show` 在显示流程后；短看护第 1、8 轮即使置顶位正常也记录。毫秒时间、采样耗时、预期代数与实际首尾代数用于辨别快速开关和并发交错；采样并非原子快照，短时间关闭会取消旧轮延迟采样。
+- 记录当前进程会话/窗口站/输入桌面，以及自身、前台和最多 4 个上方相交候选窗口的 PID、线程所属桌面、会话、矩形、置顶位、DWM 遮蔽标志、显示器设备/边界/工作区。遍历最多 256 个窗口，截断明确标记；无法读矩形时保留未知候选，失败记录未知及错误码。输入桌面只读打开并关闭，不切换桌面；同进程窗口不读取标题，避免同步消息阻塞 UI/手柄线程。
+- **判读边界覆盖下文历史描述**：`on_top` 仍只是 `IsWindowVisible && WS_EX_TOPMOST`，不是无遮挡判据；即便都为真，第二次按键仍可能 hide。相交 Z 序、同名桌面、DWM 未遮蔽都不能单独证明 FSE 最终输出可见；GDI 截图有面板或非黑像素也不能反驳用户观察。主显示器定位策略保持不变，不能预先认定放错屏。
+- 同步采样和日志写入有耗时，不宣称时序完全不变；原有置顶/抢前台动作保留，“只读”指新增查询。Windows 编译、安装包构建与掌机实际可见性分别验收。
 
 ## 0.1.54：自启与更新边界
 
@@ -43,10 +51,10 @@
 - **TDP：走本地 IPC 问启动器**（见 §4）。启动器没跑时，TDP 区显示「启动器未运行」/「需要管理员」，其余功能照常，绝不阻塞打开。
 - 手柄输入：自带 XInput 轮询（不依赖窗口焦点），所以在游戏里、在启动器全屏上都能唤出。
 - **大屏模式（FSE）下的层级**：全屏的启动器是**前台窗口**，而 `set_always_on_top` 只保证窗口**属于**置顶层 —— 同层里谁压谁看**激活顺序**，后台进程的 `show()` / `set_focus()` 又会被 Windows 的前台锁静默挡掉（不报错）。三件事凑一起就是「窗口已显示、位置也对、`is_visible()` 也是 true，人却看不见」。0.1.39–0.1.45 的解法是 `detach_owner` + `force_topmost` + `steal_foreground` 这三件 Win32 手法，0.1.46 拆成独立程序时漏掉了（只剩一句 `set_always_on_top`），0.1.48 补回。现在它们住在 `frontend/src-tauri/src/topmost.rs`，由 `overlay.rs::show()` 在显示前后各调一次，**不要删**。桌面模式看不出差别（启动器只是窗口化的普通窗口），只有大屏模式会露。
-- **排查层级问题**：每次显示都会记一行 `frontend layer (...) on_top=.. hwnd=.. visible=.. | fg=<前台窗口> | ours topmost=.. fg=.. rect=.. | above=<压在我们上面的可见窗口>`。`above` 里出现 `FantasyHub` = 被全屏启动器压住；`topmost=false` = 置顶没写进去；`fg=true` = 前台也抢到了；`hwnd=none` = 连窗口句柄都没拿到（那么置顶那几步全是空操作）。启动器那边另有 `big-screen mode (fill screen)` / `desktop mode (leave fullscreen + start explorer)` 标明当时是哪种模式 —— 否则日志根本看不出按下快捷键时身处哪一屏。
-- **0.1.53 起：大屏模式壳体「常态让位」**。以前只在「看到浮层真的上屏」那一刻让位（上面 `overlay yield` / `overlay raise` 那套），真机上仍然会出现「FSE 里怎么按都不出来」—— 那一刻的时机太窄。现在 `startup.rs` 在切换模式时会调 `overlay_watch::set_big_screen()`：**大屏模式里壳体根本不进置顶层**（`overlay yield: shell notopmost for big-screen ok=…`），回到桌面模式按原样还回去（`… shell topmost back after big-screen ok=…`）。浮层侧也补了「最硬的一下」`topmost::hard_raise`（抢前台 + 再顶，`frontend hard raise: on_top=…`）与上屏后 8 × 350 ms 的短看护（被压回去就再顶，`frontend buried again after show … re-raise n`），并且**判据不再用「系统说可见」**：`toggle()` 只有在「可见 **且** `topmost::on_top`」时才 hide，可见但被压住就再顶一次（`frontend visible but buried → re-raise instead of hide`）—— 0.1.53 真机上「按第二次其实把它关掉了、人却什么都没看见」就是这么来的。
+- **排查层级问题**：0.1.55 的快照字段与边界见顶部。窗口在上方仅是 Z 序候选，不证明遮挡；启动器的大屏/桌面日志是应用状态，不是系统 FSE 会话的独立证明。
+- **0.1.53 起：大屏模式壳体常态让位**。保留壳体降层、前端抢前台与短看护；开关判据为可见位与置顶样式，而非实际遮挡检查，因此仍可能 hide 肉眼不可见的窗口。旧版将此称为修复的结论已撤回，0.1.55 只补取证。
   - **这一行必须永远出现（0.1.50）**：0.1.48 的现场快照挂在 `if let Some(..)` 后面，而它在真机上一次都没打印出来 —— 于是既不知道 Z 序、也不知道前台、更没有像素。现在无论成功失败都写（`hwnd=none visible=? — no handle` 也是一种结论）。
-  - **截图取证（0.1.50）**：显示之后（含自检重试）会把浮层那块屏幕区域用 `GetDC(NULL)` + `BitBlt` 拷成一张 24 位 BMP，写在日志同目录 `%APPDATA%\handheld-launcher\overlay-shot.bmp`（每次显示覆盖上一张），并记一行 `frontend shot ok overlay-shot.bmp 660x1200 nonBlack=…% path=…`。「窗口说自己在屏上」和「屏上真有它」是两件事，**像素**是唯一分得开「被压住 / 画到别处 / 页面没渲染」的证据：图里有那块深色面板 = 真画上去了；`nonBlack=0%` = 没画上去，或者那一片抓不到（独占全屏 / 受保护内容抓下来也是黑的，与「没画上去」仍要分开判断）。
+  - **截图取证（0.1.50）**：显示及自检后用 `GetDC(NULL)` + `BitBlt` 保存 `overlay-shot.bmp`，每次覆盖。只证明 GDI 可读到的像素；有面板或非黑像素不保证 FSE 物理输出可见，黑图也不能区分未渲染与抓取限制。
   - **自检 + 重试（0.1.50）**：显示之后每 120 ms 问一次 `IsWindowVisible` + `WS_EX_TOPMOST`（`topmost::on_top`，**不是** Tauri 的 `is_visible()` —— 那个被压住时照样 true），最多 5 轮；没到位就再顶一次（`retry_top`，**不碰前台锁**，不像 `grab` 那样补按 Alt），每次重试记 `frontend show retry n/5 (…)`。这段跑在**后台线程**上（托盘菜单与第二实例的回调都在主线程，连等 600 ms 会冻住界面），并且每次显示 / 隐藏都会把代数 `GENERATION` 加一，让上一轮作废 —— 否则它的 `SetWindowPos(..., SWP_SHOWWINDOW)` 会把用户刚关掉的窗口又显示出来。
   - **「谁在跑 / 按键到没到」也要可观测（0.1.51）**：`chord.rs` 第一轮**一定**打印一条手柄状态（`chord pad connected index=0` / `chord pad none（读不到手柄：Back+Start 不会有反应）`，`pad_index` 初值给不可能的 `u32::MAX` 以保证必写），之后只在变化时记；和弦触发多一行 `chord fired (Back+Start)`（它 + `frontend show begin` 才是「按了、也进来了，卡在显示」）；每 5 分钟一行 `chord alive pad=… visible=…`，证明 XInput 轮询线程没死。启动器那边同步记前端**进程**的生死（`overlay watch: frontend process up/down`，第一轮必记），两个程序也都会把 panic 写进同一份日志（`<tag> panic (文件:行, thread=…): 原文`，见 `fh_core::logutil::install_panic_hook`）。**为什么值得单列**：0.1.50 的真机日志里前端起来之后一行按键记录都没有，而「前端没在跑 / 崩了 / 手柄没读到」这三种情况在那份日志里长得一模一样，排查成本全花在了猜上。
   - **「进程没了」也要说清是谁的锅（0.1.52）**：0.1.51 那轮的日志给出了第一种确凿情形 —— 前端起来过、手柄也读到了（`chord pad connected index=0`），可**按 `Back+Start` 时前端进程已经不在**（启动器自己记的 `overlay watch: frontend process down`），而两边都没有一行退出记录。三处补齐：① **前端自己记退出**（`main.rs` 用 `build()` + `app.run(..)`）：`frontend exit requested (code=…)` 与 `frontend exit` —— 托盘退出 / 关掉最后一个窗口 / 安装器握手走的都是 `app.exit()`，有这两行才能说清它是「自己退的」；两行都没有才是被杀或原生崩溃。② **启动器的进程扫描分三段**（`overlay_watch.rs`）：`frontend process up (pid=…)` / `… down（…；相关进程：…）` / `… scan failed: …（这一轮没查成，不代表它没在跑）` —— 报 down 时把镜像名带 `fantasyhub` 的在场进程一起写出来（真出现 `FantasyHubFrontend.exe` 就是判据看漏了），快照失败时不动状态、只记一次原因。③ **启动时补一次「前端在跑」**（`frontend_tool::ensure_running`，见 §2 的例外说明），并记 `frontend ensure: started pid=…`。
