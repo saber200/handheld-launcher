@@ -5,7 +5,7 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
-**这一版（0.1.60）= 文件管理增强（桌面「FantasyHub-文件管理增强」改造包的 8 项全做）**：把「文件管理」从「通用文件管理器」变成「按目标选」的任务层 —— 8 个任务入口（导入 ROM / 装 Mod / 备份存档 / 恢复存档 / 处理截图 / 清理空间 / U 盘 / 最近传输）+ 四步向导 + 快速预览面板（含缩略图）+ 后台任务中心（+ 侧栏进度环）+ 批量重命名对照表 + 冲突「应用到全部」+ 确认前置总量摘要。**只新增了 1 个 Rust 命令 `file_thumb`**（改造包 §6 允许的那一个），另给 `file_extract` 加了一个 `listOnly` 可选参数（复用它的「看一眼包里有什么」，不解压）。细则见下面「0.1.60」两节。**装包这一步仍在你手上。**
+**这一版（0.1.60）= 文件管理增强（桌面「FantasyHub-文件管理增强」改造包的 8 项全做）**：把「文件管理」从「通用文件管理器」变成「按目标选」的任务层 —— 8 个任务入口（导入 ROM / 装 Mod / 备份存档 / 恢复存档 / 处理截图 / 清理空间 / U 盘 / 最近传输）+ 四步向导 + 快速预览面板（含缩略图）+ 后台任务中心（+ 侧栏进度环）+ 批量重命名对照表 + 冲突「应用到全部」+ 确认前置总量摘要。**只新增了 1 个 Rust 命令 `file_thumb`**（改造包 §6 允许的那一个），另给 `file_extract` 加了一个 `listOnly` 可选参数（复用它的「看一眼包里有什么」，不解压）。**已发布 `v0.1.60`（2026-10-05）**：启动器包 `FantasyHub_0.1.60_x64-setup.exe` **30.56 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.60_x64-setup.exe` 3.23 MB；CI 三项全绿 —— **Lint**（windows-latest，`cargo clippy --workspace --all-targets --locked`）2m31s、**Game Bar (Windows)** 2m41s、tag 触发的 **Build Windows**（`gamebar-payload` 2m36s + `windows` 7m36s）都 success。**Windows Lint 这一关是这版最要紧的验收**：`file_thumb` 的 `image` 解码与 zip 列表那段 PowerShell 都在 `#[cfg(windows)]` 里，本机编不到。**装包这一步在你手上** —— 真机要看什么逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.60）」。细则见下面「0.1.60」一节。
 
 **上一版（0.1.59）= 界面大改的第一次真机验证版**：把 M0 壳（设计令牌 + 左侧栏）/ M1 游戏库 K1 / M2 软件库 K2 / M3 文件页 K7 / M4 工具箱 K4 + 设置抽屉 K3，连 M6（一）清死 CSS 与双语探针一起发出去。用户给的 9 张画板里 **K5 首页 / K6 下载还是「排期中」占位页**（要新数据源：最近启动记录 / 存储容量 / 统一下载任务模型），**K8 前端浮层（M5）一行没动**（那是独立前端程序，要在 Windows 上编）。硬要求「现有能力一项都不能丢」在 M1–M4 里逐页核对过；**这一版故意没做的东西逐条记在 `FUTURE.md` 功能 14**（17 条，带勾选框），不是漏掉。**已发布 `v0.1.59`（2026-10-04）**：启动器包 `FantasyHub_0.1.59_x64-setup.exe` **30.37 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.59_x64-setup.exe` 3.21 MB；CI 三项全绿 —— **Lint** 2m05s、**Game Bar (Windows)** 2m35s（带新版的 msix 在 artifact 里）、**Build Windows**（`gamebar-payload` + `windows` 两个作业）都 success。**装包这一步在用户手上：这版就是给真机测的**（手柄焦点移动 / 左右键进出侧栏 / 字体与缩放是第一轮要看的东西）。
 
@@ -40,6 +40,7 @@
   - `file_extract(archive, listOnly?)`：加一个可选参数，只看包里的条目（zip 走 .NET 读中央目录、7z 走 `sevenz-rust2` 的元数据），**不建目录、不解压**。纯解析那段单独拎出来做单元测试（PowerShell 本机跑不了）。
 - **本机门禁**：`npx tsc --noEmit` / `npm run build` / `node scripts/audit-ui.mjs`（**0 阻塞 / 待迁移 30，与上一版一致**）/ `cargo clippy --workspace --all-targets --locked` 退出 0 / `cargo test`（26 条，含新加的 base64 向量、缩略图两种情况、zip 目录解析两种形状）/ 探针 1280×720 全绿（几何 + 六页签 + 英文一遍）。
 - **没装的**：真机（Windows 掌机）一次都没跑过 —— 任务层是新页面，只有 CI 的 Windows Lint 能把 `#[cfg(windows)]` 那段（zip 列表的 PowerShell 分支）编过一遍。
+- **CI / 发版**：`Lint`（windows-latest，run `37222321693`，2m31s）**绿** / `Game Bar (Windows)`（run `37222321691`，2m41s）**绿** / tag `v0.1.60` 触发的 `Build Windows`（run `37222505093`，`gamebar-payload` 2m36s + `windows` 7m36s）**绿**，Release `v0.1.60` 已挂上两个安装包（30.56 MB / 3.23 MB）。
 - **故意没做的 5 条**（都记进 `FUTURE.md` 功能 15）：清空回收站（要新命令）、U 盘安全弹出（要新命令）、暂停 / 继续（要动后端传输循环）、`.iso` 的 PS2 魔数判定（要读文件头的新原语，现在只按扩展名认）、游戏目录显示游戏封面（要跨到游戏库的封面路径，本版没接）。**「导入 ROM 取消后回滚」已做**（改造包点名的第一条），**「恢复存档覆盖前留 .bak」已做**（第二条）。
 
 ## 0.1.59：界面大改 M0–M4 首次上真机 + 欠账清单归档（2026-10-04）
