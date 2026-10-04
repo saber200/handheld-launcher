@@ -18,8 +18,11 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+// Windows 上必须走 fileURLToPath：URL.pathname 会给出 "/C:/Users/..." 这种带前导斜杠的路径，
+// readdirSync 直接 ENOENT —— 本机（macOS）跑得通、CI（windows-latest）红，是最难查的那种。
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const strict = process.argv.includes("--strict");
 
 /** 还没迁到令牌的旧页面：手写数值先只报告不拦。迁移完一个就删一个。 */
@@ -58,7 +61,7 @@ const blocking = [];
 const pending = [];
 
 for (const file of files(join(ROOT, "src"))) {
-  const rel = relative(ROOT, file);
+  const rel = relative(ROOT, file).split("\\").join("/");
   const text = readFileSync(file, "utf8");
   const legacy = LEGACY.includes(rel);
   const push = (msg) => (legacy && !strict ? pending : blocking).push(`${rel}: ${msg}`);
