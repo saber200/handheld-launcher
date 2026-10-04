@@ -1,11 +1,13 @@
-# 进度对照（v0.1.55）
+# 进度对照（v0.1.56）
 
 > **发布基准：`v0.1.0` 稳定版** — 内容与内部构建 0.1.38 一致（见 `v0.1.0` 标签 / `release/0.1.0` 分支）。
-> `0.1.31`–`0.1.53` 均为测试版，仅内部验证用，不作为发布版。
+> `0.1.31`–`0.1.55` 均为测试版，仅内部验证用，不作为发布版。
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
-## 未发布：文件管理器深度优化（`FUTURE.md` 功能 12，三批全做）
+**0.1.56 装了四件事**（下面四节都是这一版的内容，除文件管理器外都是 0.1.55 之后积压的）：① 文件管理器深度优化（功能 12 三批）；② 独立前端改成 Game Bar 小组件后台（**首次随包装出去**）；③ 驱动状态与窗口快照诊断补充；④ 输入链路与显示调度修正。这些**都没在真机上验过**，验证边界各节末尾都写了。
+
+## 0.1.56 这一版（一）：文件管理器深度优化（`FUTURE.md` 功能 12，三批全做）
 
 把「能用」做到「手柄上真的好用」。后端 `files.rs` 从 11 个命令扩到 17 个，文件页整体重做。
 
@@ -17,17 +19,17 @@
 - **没验证的**：文件页整个没在 Windows 上跑过（本机只过了类型检查与构建）；**搜索 / 批量重命名的输入框要用系统键盘**（手柄没有文字输入，现有的数字键盘只够数字），真机才知道这条路够不够用；缩略图、复制到受保护目录的「一键提权重启」这一版没做（只在属性面板给提示）。
 - 权限：6 个新命令都在 `src-tauri/permissions/files.toml` + `capabilities/default.json` 里登记 —— 漏一个就是运行期被拒，本机测不出来。
 
-## 未发布：独立前端转为 Game Bar 小组件后台（未验证）
+## 0.1.56 这一版（二）：独立前端转为 Game Bar 小组件后台（**本版首次随包发出去**，未验证）
 
 - 独立前端不再创建窗口/WebView，界面交给 Xbox Game Bar 小组件：`frontend/gamebar` 是原生 UWP C#/XAML 小组件（`microsoft.gameBarUIExtension`）+ **同包全信任**的 Bridge。小组件经同包 AppService 把请求交给 Bridge，Bridge 现读 `%APPDATA%\handheld-launcher\widget-ipc.json` 并加 token 连回环 —— token 不进 UWP。前端进程只剩托盘 + 回环监听 + 更新握手，`main.rs` 不再 `mod overlay / chord / shot / topmost / library / games`。
 - 顺手补一个契约缺口：`status` 响应缺 `locale`，小组件因此读不到语言（`set_locale` 只影响当次会话），已补。
 - 本机验证：工作区 Clippy 退出 0；`python3 frontend/gamebar/check-static.py` PASS（XML/PNG/WAV/XAML handler/工程输入/NuGet 版本）。
-- **CI 真编已过关（2026-10-03，`windows-2022`）**：Bridge 与 Widget 的 C# + XAML 都 `Build succeeded`，产出 `FantasyHub.GameBar.Widget_0.1.55.0_x64_Debug.msix`（31 个条目 / 10.6 MB）：`Bridge/FantasyHub.GameBar.Bridge.exe` + `.exe.config` 落在 `Bridge\`，`Assets\*.png`(4)、`Assets\Sounds\*.wav`(9)、`GameBar\index.txt`、`Properties\Default.rd.xml` 各一份且无重复。这一次真编暴露并修掉了一个只有 Windows 才能看见的打包错误（首次运行 `63414f7` 报 15 个 `APPX1111`：csproj 在 target 里对 `Content` 写了未限定的 `%(...)`，详见 `frontend/gamebar/Widget/FantasyHub.GameBar.Widget.csproj` 的注释），修完 `65728b6` 转绿 0 error。
+- **CI 真编已过关（2026-10-03，`windows-2022`）**：Bridge 与 Widget 的 C# + XAML 都 `Build succeeded`，产出 `FantasyHub.GameBar.Widget_0.1.55.0_x64_Debug.msix`（31 个条目 / 10.6 MB）：`Bridge/FantasyHub.GameBar.Bridge.exe` + `.exe.config` 落在 `Bridge\`，`Assets\*.png`(4)、`Assets\Sounds\*.wav`(9)、`GameBar\index.txt`、`Properties\Default.rd.xml` 各一份且无重复。这一次真编暴露并修掉了一个只有 Windows 才能看见的打包错误（首次运行 `63414f7` 报 15 个 `APPX1111`：csproj 在 target 里对 `Content` 写了未限定的 `%(...)`，详见 `frontend/gamebar/Widget/FantasyHub.GameBar.Widget.csproj` 的注释），修完 `65728b6` 转绿 0 error。**本版（0.1.56）清单已改成 `0.1.56.0`，下次构建产出的包名随之变成 `FantasyHub.GameBar.Widget_0.1.56.0_x64_Debug.msix`。**
 - **仍未验证**：包没签名（`AppxPackageSigningEnabled=false`，产物是 `_Test` 侧载目录）、没装过、没在真机跑过；Game Bar 里能否显示小组件、同包 AppService 能否通到 Bridge、以及 Rust↔C# 联调全部未做。另有 MSB3245 警告说 `System.Runtime.WindowsRuntime` 没被旧式解析器找到（csc 用了 NuGet 的 ref 副本，编译过；该程序集没进包，运行期是否够用未知）。
 - 新增 `.github/workflows/gamebar.yml`（钉 `windows-2022`：工程要 SDK 10.0.22621.0，`windows-latest` 只有 26100）：静态检查是硬闸门；Debug 真编在 `65728b6` 首次全绿（`check-static.py` + 0 error 的 msix），**2026-10-03 已转硬闸门**（删掉 `continue-on-error`，见下面那条代价昂贵的教训）。
 - **`continue-on-error` 的代价（2026-10-03，本轮）**：第三轮界面改动给 `Grid` 写了 `IsEnabled="False"`（`Grid` 是 `Panel`，UWP 的 `IsEnabled` 在 `Control` 上，只有 WPF 放在 `UIElement`），CI 报 `XamlCompiler WMC0011: Unknown member 'IsEnabled' on element 'Grid'`；可这一步带着 `continue-on-error`，作业照样报 **success**，于是 `Build Windows` 打出来的启动器包**整块少了小组件** —— 体积从 30.22 MB 掉到 7.8 MB，release 里也只有一条成功记录。**症状与根因**：安装包体积是「payload 有没有带上」的可靠信号（差 ~22 MB 就是 msix + 三个框架依赖）；`gamebar-payload` 作业上传的 artifact 大小同样能一眼看出来（正常十几 MB，空转时只有 885 字节）。**教训写进 workflow 注释**：带 `continue-on-error` 的构建步骤，绿颜色什么都说明不了；判断小组件到底编没编，得在日志里找 `Build succeeded` / `error WMC|CS|XLS`，或者看安装包体积。已改为硬闸门，并且 `SetPresetsEnabled` 改成逐个按钮设 `IsEnabled`（容器只负责变暗）。
 - **尚未闭环**：Bridge 白名单没有 `set_autostart`，小组件的「自启」只存本地意图并提示手动关，不能称迁移完成；旧界面代码（`overlay/chord/shot/topmost/library/games`、`src/frontend/*`、`frontend.html`）已接不上但全部保留，等真机验证后单独一次提交清理。
-- 版本号多了第 6 处：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段 `0.1.55.0`），不在原五处联动里，发版必须手动跟上。
+- 版本号多了第 6 处：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段，如本版的 `0.1.56.0`），不在原五处联动里，发版必须手动跟上。
 - **小组件改成「随启动器一起装」（本轮新做，未验证）**：CI 现打一张自签证书给 msix 签名，把「msix + 证书 + 三个框架依赖」摆进 `src-tauri/payload/gamebar/`，由启动器安装包带上；装的时候 NSIS 钩子跑一行等价命令、启动器每次启动再幂等补一次（`src-tauri/gamebar/register-widget.ps1`），设置页也加了「装 Game Bar 小组件」。证书只进当前用户「受信任人」，所以目标机**不需要管理员、也不需要开发者模式**。没在真机验证：普通机器能否装上、Game Bar 重启后能否立刻看到、CI 的 `signtool verify /pa` 是否稳定。
 - **真机第一轮（2026-10-03，x64 掌机，安装包 28.28 MiB）：证书这条路是通的，栽在依赖架构上**。启动器装上了，小组件没出现在 Win+G；`%APPDATA%\handheld-launcher\widget-last-error.txt` 给出根因：随包的 `Microsoft.NET.CoreRuntime.2.2` 与 `Microsoft.NET.CoreFramework.Debug.2.2` 是 **ARM 版**，`Add-AppxPackage` 报 `0x80073D10 此程序包需要体系结构 ARM，但此计算机是 x64`，紧接着小组件报 `0x80073CF3 找不到框架`。原因：MSBuild 的 `Dependencies\` 下 x64/ARM/ARM64 三份**同名**共存，而这两个包的文件名里不带架构，`package-payload.ps1` 按名字取第一个命中了 ARM（`Microsoft.VCLibs.x64.Debug.14.00.appx` 的名字自带 x64，所以只有它一直是对的 —— 这正好解释了为什么只有那两个包报错）。已改成读每个候选包内 `AppxManifest.xml` 的 `Identity/ProcessorArchitecture`，只收 x64/neutral，找不到 x64 就带着候选架构列表报错，另外每带一个依赖打一行 `arch=`、并把小组件清单声明的依赖一并打出来；`register-widget.ps1` 装依赖前也先比架构，不一致直接点名是 payload 带错了。**同一轮确认**：`Import-Certificate` 进当前用户「受信任人」成功、AppxDeployment 正常处理我们签的包，所以「不需要开发者模式、不需要管理员」这个前提成立；仍未验证的是 Game Bar 重启后是否立刻枚举到、以及 Debug 框架包会不会和目标机已装版本打架。
 
@@ -38,20 +40,20 @@
 - **常驻（pin）的机制结论**：Game Bar 只有「小组件」这一种扩展形态（官方 overview 原话是 widget = 渲染进 Game Bar UI 的 UWP XAML 视图），微星那类厂商面板同样是 widget —— 能不能常驻取决于清单里的 `<PinningSupported>true</PinningSupported>`（**我们已开**），剩下那一下只能由用户在小组件菜单里点图钉。`Microsoft.Gaming.XboxGameBar.winmd` 里只有 `Pinned`/`PinnedChanged`/`PinningSupported`/`get_Pinned`，**没有 `Pin()`/`Unpin()`**，所以程序无法自动固定。这条是从 SDK 元数据（`nuget` 包里的 winmd，`strings` 查符号）得出的，不是猜的。
 - 第一次真跑 CI 就挂住：想让自签证书通过 `signtool verify /pa` 就得把根写进 Root 信任存储，而往 Root 写证书（`Import-Certificate` / `X509Store.Add` 同一个底层 API）会弹确认框，CI 上没人点 → 那一步永久挂着（实测卡十几分钟只能人工取消）。已改成 **CI 不建立信任 + `-SkipVerify` 跳过链验证**，签名有效性交给目标机安装时校验；脚本加了 `==> n/6` 分步日志用于定位。坑记在 FRONTEND.md。
 
-## 未发布：普通应用窗口显示候选
+## 已归档（0.1.56 起没有验证对象）：普通应用窗口显示候选
 
 - 独立前端取消隐藏任务栏，呼出时清除工具窗样式、设置普通应用样式；保留原有置顶调用，不增加重试，不改变独立生命周期。显示期间进入任务栏/Alt+Tab 是本候选的预期变化。
 - 此改动用于验证 FSE 的应用筛选是否影响前端显示，并非已定位根因。未改私有窗口带、系统 FSE 模式或启动器全屏策略。
 - 本机网页构建、工作区 Clippy 和差异检查通过（已有 dead_code 警告）。Windows CI、安装包和 FSE/桌面实屏对照尚未完成，未提交、推送、升版，不宣称修复成功。
 - **本节的窗口已由上一节取代**：前端不再创建窗口，`topmost.rs` 也不再被 `main.rs` 引用，此候选已无验证对象，仅作判据留档。
 
-## 本轮未发布诊断补充（未升版）
+## 0.1.56 这一版（三）：驱动状态与窗口快照诊断补充
 
 - 最新掌机反馈仍失败，不能用可见位、前台或 GDI 截图认定物理上屏。截图时序早于页面接收显示代数；驱动状态为空时的旧默认提示也会说“启动器没运行”，尚无证据认定 TDP 通信失败。
 - 已区分驱动加载态与真实错误，增加前端驱动请求结果/耗时日志；窗口快照补客户区、DWM 框架、普通样式及 DPI，保留现有显示策略和生命周期。
 - 本轮网页构建、工作区 Clippy、差异检查通过，存在已有 dead_code 警告。Windows 新增分支尚待 CI；未提交、推送或打包，FSE 根因和真机可见性仍未闭环。
 
-## 未发布修正（基于 0.1.55，未升版）
+## 0.1.56 这一版（四）：输入链路与显示调度修正
 
 - 修正可复现的输入边界：触发手柄负责导航、断连回退、组合键完全释放后才重新触发；Start 单键不关闭。页面常驻监听、失败重试，监听恢复/换代/换控制者必须经过中性包，关闭入口可手柄聚焦。
 - 本进程状态带显示代数，页面拒绝迟到查询；关闭与显示统一由 Rust 调度。后台抬升在主线程重新核验代数，避免关闭后旧重试复活；补限流的发送/注册/收包/动作/失败诊断。
@@ -199,7 +201,7 @@
 ### 库与文件
 
 - Steam / Epic 扫描、封面缓存、分组、手动添加、运行中边框、强制退出游戏
-- 文件管理：功能 12 三批已做（双栏（左源右目标）· 可点面包屑 · 常用位置 · 选择模式与区间选择 · 带进度与取消的传输 · 搜索 · 批量重命名 · 属性 · 拖拽移动）。**真机未验证**，见开头「未发布」一节
+- 文件管理：功能 12 三批已做（双栏（左源右目标）· 可点面包屑 · 常用位置 · 选择模式与区间选择 · 带进度与取消的传输 · 搜索 · 批量重命名 · 属性 · 拖拽移动）。**真机未验证**，见开头「0.1.56 这一版（一）」
 
 ### 前端（0.1.46 起独立成软件）
 
@@ -257,12 +259,12 @@
 6. 无代码签名（SmartScreen）；无自动化测试（**0.1.47 起有 lint 门**：编辑器 / pre-commit / 每次推送的 Windows lint 作业 / 打包前编译检查；单元测试仍未做）
 7. **全屏回库**：0.1.44 起主窗不再隐藏 / 让出，退出游戏后直接就是启动器；游戏里按 Back+Start 呼出浮层可直接「退出游戏」（探不到进程时会提示没找到，库页面卡片菜单里也能退）
 8. **冰箱（重点 → `FUTURE.md` 功能 11）**：游戏里锁屏 / 息屏 → **静默**冻结当前游戏 + 休眠断电，唤醒后接着玩，且**不被误唤醒**（包里不空转）。关键在三个 Win32 动作（挂起进程 / `SetSuspendState(TRUE,TRUE,TRUE)` / 关掉能唤醒的设备）与「先拿事件再动手」的顺序，需要掌机上一轮轮试；参考壹号本冰箱
-9. **文件管理器深度优化（重点 → `FUTURE.md` 功能 12）**：三批已落地（见开头「未发布」一节），**真机未验证**。这一版没做：手柄上的文字输入（搜索 / 批量重命名要借系统键盘）、缩略图、复制到受保护目录的一键提权重启（只在属性面板提示）。
+9. **文件管理器深度优化（重点 → `FUTURE.md` 功能 12）**：三批已落地（见开头「0.1.56 这一版（一）」），**真机未验证**。这一版没做：手柄上的文字输入（搜索 / 批量重命名要借系统键盘）、缩略图、复制到受保护目录的一键提权重启（只在属性面板提示）。
 10. **界面改版：向 Steam 大屏看齐（重点 → `FUTURE.md` 功能 13）**：固定导航条 + 横版货架（最近游玩 hero）+ 卡片焦点动效 + 常驻按键提示条 + 游戏详情页；先做「外壳 + 游戏库」，其余页随后对齐
 
 ## 近期改动备忘
 
-- 未发版（基于 0.1.55）：**文件管理器按 `FUTURE.md` 功能 12 三批全做** —— 传输引擎（进度 + 取消 + 同名策略 + 失败原因分类）、改名 / 批量改名 / 属性 / 搜索、双栏与选择模式。细节与「验证到哪一步 / 没验证什么」见开头那一节。
+- 0.1.56：**文件管理器按 `FUTURE.md` 功能 12 三批全做** —— 传输引擎（进度 + 取消 + 同名策略 + 失败原因分类）、改名 / 批量改名 / 属性 / 搜索、双栏与选择模式。细节与「验证到哪一步 / 没验证什么」见开头那一节。同版还第一次把 Game Bar 小组件后台打进安装包（见「0.1.56 这一版（二）」）。
 
 - 0.1.53：**「FSE 里前端不是被杀，是没被启动」+「前端其实活着，是浮层上不去」—— 两条结论都是你的真机观察给的**。你补的现场是：「桌面模式能正常唤出；全屏模式（FSE）唤不出，**哪怕先在桌面模式把它启动了**再回全屏也一样；切回桌面模式又好了」。前半句的解释在日志里现成：启动器是 **Win11「Xbox 模式（全屏体验）」的主页应用**（`fse register: 已登记。请打开 Windows 设置 → 游戏 → Xbox 模式(全屏体验)…`），而那个会话里**没有桌面 shell（explorer）**；前端的开机自启用的是 **HKCU Run 键**，Run 键正是由 explorer 在登录时处理的 —— 于是 FSE 里它根本不会被执行（OneXConsole 那类厂商程序用**服务/计划任务**，任务计划程序拉起、不依赖 explorer，这就是它「死不了」的真正原因）。后半句更有价值：进程若已死，切回桌面不可能自己恢复 —— 所以是**浮层上不去**；日志里 10-01 那次测试演得清清楚楚：`frontend show end … is_visible=true` 紧跟 `frontend hide end … is_visible=false`（第二次按键把它**关掉**了，人什么都没看见）。四条改动：**一、自启改计划任务**（新模块 `crates/fh-core/src/autostart.rs`，用 Windows 自带的 `schtasks /create /xml`：登录后延迟 10 秒、**普通权限**运行 `--autostart`、`IgnoreNew`、`ExecutionTimeLimit=PT0S`（**永不超时结束** —— 托盘常驻程序缺这条会被任务计划程序三天后杀掉）、`RestartOnFailure` 1 分钟×2 次 —— 于是「崩溃/被杀会被拉回、托盘退出（exit code 0）不重启」，保命与尊重用户意图用同一套机制拿到；启动器启动时建任务（不存在才建）、补启动改成 `schtasks /run`（**不再继承启动器的管理员权限**）、这一轮登录里用户主动退过就不补启动（`frontend-stopped` 标记，下次登录由任务清掉）；托盘「开机自启」勾选框改为驱动任务并清掉老的 Run 值）；**二、浮层判据从「系统说可见」改成「真的没被压住」**（`overlay.rs::toggle` 用 `visible && topmost::on_top`，可见但被压住 → **再顶一次、绝不 hide**）；**三、大屏模式壳体常态让位**（`overlay_watch::set_big_screen`，由 `startup.rs` 的进/出大屏模式与 `lib.rs` 启动处调用：大屏里壳体根本不进置顶层、回桌面按原样还回；前端侧加 `topmost::hard_raise`（抢前台+再顶）与上屏后 8×350ms 的短看护 `keep_on_top`）；**四、托盘不再是致命依赖**（`tray::install(...)?` → 失败只记一行继续跑；FSE/无 shell 的会话里 `Shell_NotifyIcon` 可能建不起来，而浮层、手柄、热键都不依赖它）。验证：本机 `cargo clippy --workspace --all-targets` 零错误、未新增警告；Windows 侧 `cargo check -p fantasyhub-frontend --target x86_64-pc-windows-msvc` 编过整套前端（含 `fh_core::autostart` 的 schtasks 实现），启动器侧新代码搬进 `/tmp/win-probe5`（补 `Win32_UI_WindowsAndMessaging`）交叉编译通过 —— 启动器整包仍受 `ring` 的 C 代码限制（见 0.1.47）
 

@@ -1,7 +1,7 @@
 {
   "name": "fantasyhub-frontend",
   "private": true,
-  "version": "0.1.55",
+  "version": "0.1.56",
   "description": "独立前端（Tauri 壳）的构建入口。Web 资源由仓库根的 Vite 工程构建，所以这里不装依赖：tauri CLI 从仓库根 node_modules 解析。",
   "scripts": {
     "tauri": "npx --no-install tauri"

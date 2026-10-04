@@ -1,9 +1,9 @@
 # 前端独立化（0.1.46 起）
 
-> 状态：**独立前端已改成无窗口的 Game Bar 后台（未验证），界面由 `frontend/gamebar` 的原生小组件承担**。下文保留最初拆分设计与 0.1.46–0.1.55 的浮层排查记录；那些窗口已经从代码里接不上，历史归因不能替代本节的验证边界。
+> 状态：**独立前端已改成无窗口的 Game Bar 后台（未验证），界面由 `frontend/gamebar` 的原生小组件承担**。这一套已经随 **0.1.56** 的安装包第一次发出去，真机上一次都没验过。下文保留最初拆分设计与 0.1.46–0.1.55 的浮层排查记录；那些窗口已经从代码里接不上，历史归因不能替代本节的验证边界。
 > 相关文档：`STATUS.md`（当前进度）、`FUTURE.md`（功能 2 / 功能 3 是本前端的由来）。
 
-## 未发布：小组件改成「随启动器一起装」（没在真机验证过）
+## 未发布：小组件改成「随启动器一起装」（已随 0.1.56 发出去，没在真机验证过）
 
 - 目标：用户只装**一个**启动器安装包，装完按 Win+G 就能看到小组件 —— 不用自己开开发者模式、不用手动 `Add-AppxPackage`、也不用（更不能）双击那个未签名的 `.msix`。
 - 怎么走通的：CI 现打一张自签证书（`frontend/gamebar/package-payload.ps1`，Code Signing EKU，Subject 必须**逐字等于**清单里的 Publisher `CN=FantasyHub`）→ `build-windows.ps1 -CertificateThumbprint` 签名并 `signtool verify /pa` → 把「签好名的 `widget.msix` + 公钥 `widget.cer` + 三个框架依赖」摆进 `src-tauri/payload/gamebar/`（启动器 `bundle.resources` 带上它们；仓库里另有 0 字节占位兜底，见 `src-tauri/build.rs`）。目标机上由 `src-tauri/gamebar/register-widget.ps1` 完成：证书进当前用户「受信任人」→ 装依赖 → 注册小组件 → 重启 Game Bar。**不需要管理员、也不需要开发者模式**（有签名 + 证书受信任就够）。
@@ -19,7 +19,7 @@
 - 踩过的坑（第一次跑 CI 就撞上，两轮才定位到根因）：想让 `signtool verify /pa` 通过，就得把自签根写进 Root 信任存储；而在 Windows 上往 Root 写证书（`Import-Certificate` 和 `X509Store.Add` 底层是同一个 API，换写法不换行为）会弹「安全警告」等用户点确认 —— **CI 上没人点，这一步就永久挂着**（实测卡十几分钟，只能人工取消；而且作业没结束前 `gh` 拿不到日志，只能靠脚本自己打的 `==> n/6` 进度定位到具体是哪一步）。最终修法：**CI 不建立信任**，`widget.cer` 只用 .NET `Export` 写文件、完全不碰证书存储，`build-windows.ps1 -SkipVerify` 跳过链验证，签名有效性交给目标机安装时 AppxDeployment 的校验（那才是权威裁判）。`build-result.json` / `widget-payload.json` 因此多了 `chainVerified` 字段（CI 上恒为 false）。
 - 后续可选：把签名证书固定下来（PFX 存 GitHub secret，`package-payload.ps1` 优先用它）→ 版本更新时证书不变，可以省掉「先卸再装」；框架依赖从 Debug 换成 Release（那时依赖清单要同步改 `build.rs` 与 `tauri.conf.json` 里的路径）。
 
-## 未发布：独立前端改做 Game Bar 后台，界面交给原生小组件（未验证）
+## 0.1.56：独立前端改做 Game Bar 后台，界面交给原生小组件（首次随包发出去，未验证）
 
 - 独立前端**不再创建窗口**：`frontend/src-tauri/tauri.conf.json` 的 `windows` 为空，`main.rs` 只起托盘 + 回环监听 + 更新握手，不再 `mod overlay / chord / shot / topmost / library / games`。界面改由 `frontend/gamebar` 承担：原生 UWP C#/XAML 小组件（`microsoft.gameBarUIExtension`）+ **同包全信任**的 Bridge `FantasyHub.GameBar.Bridge.exe`。
 - 这一刀为什么能了结 0.1.33–0.1.55 那串「浮层在屏上却看不见、关不掉」的旧账：窗口不再由我们显示 / 置顶 / 抢前台，而是 Game Bar 显示它自己的小组件宿主。**这是结构性判断，还没有任何真机证据**。
@@ -27,7 +27,7 @@
 - Rust 侧（本轮唯一真正验证过的部分）：`widget.rs` 只绑回环、一连接一请求、令牌定长逐字节比较（不提前返回）、请求行 4096 字节上限、读 / 工作 / 总预算分开计时；`widget_protocol.rs` 用 `deny_unknown_fields` 拒绝多余字段，并校验 proto=1、id≤64 UTF-16、watts 1..1000、gameId≤512、locale 只认两种；`widget_discovery.rs` 用 ACL + 原子替换，失败时把临时文件截到 0 字节（不把密钥留在盘上）。`cargo clippy --workspace --all-targets` 退出 0。
 - **本轮修的一个真缺口**：`status.data` 少了 `locale`，小组件因此永远读不到语言（`set_locale` 只影响当次会话，重启后又回系统语言）。契约文档（`frontend/gamebar/HANDOFF.txt` 第 50 行）本来就要求这个字段，现已补上。
 - 契约对不上的三处，**记录但没改**：① Rust 实现了 `set_autostart`，Bridge 白名单却只有 status / set_tdp / quit_game / set_locale（`Loopback.cs` 里 `extra == null` 直接拒），所以小组件发不出去 —— 那边的「自启」开关只存本地意图、提示用户手动关，**不能描述成迁移已完成**；② Rust 响应上限是 24000 UTF-16，HANDOFF 写 1 MiB、Bridge 按 48000 收（Rust 更严，属偏安全的文档漂移）；③ `driver` 多一个 `elevated` 字段，C# 侧是逐键带默认值的容错取值（`Models.cs`），多字段无害。
-- **旧界面已经接不上，但代码全部保留**（等真机验证后再单独一次提交清理）：`frontend/src-tauri/src/` 下的 `overlay.rs` / `chord.rs` / `shot.rs` / `topmost.rs` / `library.rs` / `games.rs` 已不在 `mod` 列表；`src/frontend/*`、`frontend.html` 与 `vite.config.ts` 的 `frontend` 入口没有任何窗口加载。**下面三节「未发布」记录（窗口显示候选 / 加载态诊断 / 输入链路）描述的都是这套旧界面**，其中 `topmost.rs` 那个「普通应用窗口显示候选」已不可能生效。
+- **旧界面已经接不上，但代码全部保留**（等真机验证后再单独一次提交清理）：`frontend/src-tauri/src/` 下的 `overlay.rs` / `chord.rs` / `shot.rs` / `topmost.rs` / `library.rs` / `games.rs` 已不在 `mod` 列表；`src/frontend/*`、`frontend.html` 与 `vite.config.ts` 的 `frontend` 入口没有任何窗口加载。**下面三节记录（窗口显示候选 / 加载态诊断 / 输入链路）描述的都是这套旧界面**，其中 `topmost.rs` 那个「普通应用窗口显示候选」已不可能生效。
 - 本机只跑了 Rust（clippy 退出 0）与源码静态检查（`python3 frontend/gamebar/check-static.py` PASS：XML / PNG / WAV / XAML handler / 工程输入 / NuGet 版本）。
 - **C# 与 XAML 已经真编过（2026-10-03，CI 的 `windows-2022`）**：Bridge、Widget 两个工程都 `Build succeeded`，打包也过，产出 `FantasyHub.GameBar.Widget_0.1.55.0_x64_Debug.msix`（31 个条目 / 10.6 MB）。核对过包里内容：`Bridge\FantasyHub.GameBar.Bridge.exe` 与 `.exe.config` 在 `Bridge\` 下、`Assets\*.png`(4) + `Assets\Sounds\*.wav`(9) + `GameBar\index.txt` + `Properties\Default.rd.xml` 各只有一份 —— 小组件能取到全部素材，且没有把 Bridge 产物的路径搬到素材名上。
 - **第一次真编确实抓住了东西**：`63414f7` 的 C# 编过了，倒在 AppX 打包的 15 个 `APPX1111`（同一目标路径两份不同大小的文件）。根因是 `FantasyHub.GameBar.Widget.csproj` 的 `BuildBridge` 在 target 里对 `Content` 写未限定的 `<Link>Bridge\%(Filename)%(Extension)</Link>`：`%(...)` 按整个 `Content` 集合分批，把 Bridge 输出那 2 个匹配复制成了 15 个既有素材名。改成先收进独立项目类型 `BridgePayload` 再用 `%(BridgePayload.*)` 限定，`65728b6` 转绿。这类只能在 Windows 上看见的错误，正是这个作业存在的理由。
@@ -50,7 +50,7 @@
 - 窗口快照追加普通样式、客户区本地坐标、DWM 框架边界及窗口 DPI；用于核对外框超出 22×56 的原因，不认定它造成整页不可见。不改定位、置顶次数或独立生命周期。
 - 本轮网页构建、工作区 Clippy 和差异检查通过（已有 dead_code 警告）；新增 Windows API 尚待 Windows CI，未提交、推送或打包，不以先前测试包 CI 替代。
 
-## 未发布：输入链路与显示调度修正（版本仍为 0.1.55）
+## 0.1.56：输入链路与显示调度修正
 
 - 组合键触发者取得导航所有权，断连才回退；组合键部分释放不再重触发，参与手柄全部中性后才重新解锁。Start 单键不关闭，保留 B / Esc / 关闭按钮。
 - 页面常驻监听本进程 `frontend-pad`；显示代数拒绝迟到状态，`overlay_state` 每次查询完成后 400 ms 串行兜底。注册失败重试；监听建立、换代、换手柄或隔离之后，须收到未隔离中性包才接受输入。关闭按钮可用手柄聚焦。
@@ -284,7 +284,7 @@
 
 ## 11. 文件管理器（功能 12）：设计与坑
 
-启动器壳里的文件页（不是独立前端）。写在这里是因为它属于「掌机手柄体验」这一层的设计记录。
+启动器壳里的文件页（不是独立前端）。写在这里是因为它属于「掌机手柄体验」这一层的设计记录。**随 0.1.56 首发，真机未验证。**
 
 ### 传输：命令立刻回来，进度走事件
 - `file_transfer(id, items, destDir, mode, conflict)` 只做**能立刻拒绝**的检查（目标是不是文件夹、清单空不空），登记一个可取消的 token、`std::thread::spawn` 干重活，自己马上返回。
