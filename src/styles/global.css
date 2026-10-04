@@ -72,6 +72,10 @@ button {
   z-index: 1;
   flex: 1;
   min-height: 0;
+  /* min-width 必须归零：`.flex: 1` 的自动最小尺寸是 min-content —— 页面里只要有横向
+     滚动的内容（K1 的卡片条就是这样），它的 min-content 会把内容区顶得比窗口还宽，
+     整个壳子横向溢出（实测 1280 窗口下内容区被顶到 1662px）。 */
+  min-width: 0;
 }
 
 .tab-panel-view {

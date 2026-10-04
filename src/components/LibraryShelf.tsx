@@ -14,11 +14,46 @@ type CardOptions = {
   picked?: boolean;
   onPick?: () => void;
   name?: string;
+  /**
+   * 这张卡画在哪儿：`"shelf"` = K1 的横向卡片条（只有聚焦的那张放大、露第二行），
+   * `"picker"` = 「添加卡片 / 从扫描添加」对话框里的网格 —— 那个沿用旧卡片样式，
+   * 不然对话框里会跟着卡片条的尺寸一起变形。
+   */
+  variant?: "shelf" | "picker";
 };
 
 type MenuView = "actions" | "group" | "rename";
 
 type FileTarget = { mode: "add" } | { mode: "path"; id: string };
+
+/** 系统设了「减少动态效果」时，居中直接跳过去，不做平滑滚动。 */
+function reduceMotion(): boolean {
+  return (
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/**
+ * hero 交叉淡入：聚焦项一换就换图，旧图留 160ms 慢慢淡掉（时长与 CSS 里
+ * `.k1-hero-layer.is-leaving` 的动画对齐，改一个就得改另一个）。
+ *
+ * 依赖里的 item 是库数组里的同一个对象；库重建后对象会变新，但 id 没变就什么都不做 ——
+ * 只是重新排序不该重放一次换图动画。
+ */
+function useHeroCrossFade<T extends Item>(item: T | undefined): T | null {
+  const [leaving, setLeaving] = useState<T | null>(null);
+  const previous = useRef<T | null>(null);
+  const id = item?.id ?? null;
+  useEffect(() => {
+    const last = previous.current;
+    previous.current = item ?? null;
+    if (!last || !item || last.id === item.id) return;
+    setLeaving(last);
+    const timer = window.setTimeout(() => setLeaving(null), 160);
+    return () => window.clearTimeout(timer);
+  }, [id, item]);
+  return leaving;
+}
 
 type Props<T extends Item> = {
   kind: "games" | "apps";
@@ -45,6 +80,22 @@ type Props<T extends Item> = {
   onCancelMods?: () => void;
   onScan: () => void;
   scanning?: boolean;
+  /**
+   * 布局。`"shelf"` = 画板 K1 的横向卡片条（游戏库用）；`"grid"`（默认）= 旧网格 ——
+   * 软件库要到 M2 才换 K2，在它换掉之前这条老路径**一行都不动**。
+   */
+  layout?: "grid" | "shelf";
+  /** 卡片条上方的页面标题（画板里是 23dp 粗体）。不传就没有标题行。 */
+  heading?: string;
+  /**
+   * 卡片条顶部的大图。**图从哪来由页面定**（宽图 → 封面 → 程序化占位是页面的回退链），
+   * 这里只负责换图时的交叉淡入与压暗遮罩。
+   */
+  renderHero?: (item: T) => ReactNode;
+  /** 信息面板内容（聚焦项的名称 / 元信息 / 数据格）。ctx.name 是改名后的名字。 */
+  renderInfo?: (item: T, ctx: { name: string }) => ReactNode;
+  /** 操作区（主按钮 + 状态行）。ctx.status 是页面自己的提示（扫描说明 / 操作结果）。 */
+  renderActions?: (item: T, ctx: { name: string; status: string }) => ReactNode;
   renderCard: (item: T, cardRef: Ref<HTMLButtonElement> | undefined, options?: CardOptions) => ReactNode;
 };
 
@@ -68,9 +119,18 @@ export function LibraryShelf<T extends Item>({
   onCancelMods,
   onScan,
   scanning = false,
+  layout = "grid",
+  heading,
+  renderHero,
+  renderInfo,
+  renderActions,
   renderCard,
 }: Props<T>) {
   const library = useLibraryGroups(kind);
+  const shelf = layout === "shelf";
+  const stripRef = useRef<HTMLElement>(null);
+  // 卡片条里「当前聚焦」的是哪一张：hero 换图、信息面板、操作按钮都跟着它走。
+  const [focusId, setFocusId] = useState<string | null>(null);
   const firstRef = useRef<HTMLButtonElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   const createRef = useRef<HTMLButtonElement>(null);
@@ -131,6 +191,23 @@ export function LibraryShelf<T extends Item>({
   const activeName =
     library.groups.find((group) => group.id === library.activeId)?.name ?? text().library.all;
   const customGroup = library.activeId !== "all";
+  // 焦点可能停在工具栏/操作区上（这时 focusId 还是上一张卡），也可能因为换了分组而不在可见列表里 ——
+  // 两种情况都必须回落到第一张，否则信息面板会对着一个已经看不到的游戏。
+  const focused = visible.find((item) => item.id === focusId) ?? visible[0];
+  const heroLeaving = useHeroCrossFade(shelf ? focused : undefined);
+  const nameOf = (item: T) => library.names[item.id] || item.name;
+  const shelfSummary = [
+    text().library.gameCount(items.length),
+    focused ? text().library.focusLine(nameOf(focused)) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  // chip 上的数字是真的：全部 = 还没分组的（沿用旧语义，见 library.ungrouped），分组 = 组内张数。
+  const chipCount = (groupId: string) =>
+    items.filter((item) =>
+      groupId === "all" ? !library.membership[item.id] : library.membership[item.id] === groupId,
+    ).length;
+  const cardStatus = status || hint || note;
   const modPercent =
     modProgress && modProgress.totalBytes > 0
       ? Math.min(100, Math.round((modProgress.bytes / modProgress.totalBytes) * 100))
@@ -148,12 +225,16 @@ export function LibraryShelf<T extends Item>({
         library.cycle(dir);
         playSfx("click");
       },
-      openCardMenu: () => {
+      openCardMenu: (id) => {
         if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || modForRef.current || blocked()) return false;
-        const cardId = (document.activeElement as HTMLElement | null)
-          ?.closest("[data-card-id]")
-          ?.getAttribute("data-card-id");
+        const cardId =
+          id ??
+          (document.activeElement as HTMLElement | null)
+            ?.closest("[data-card-id]")
+            ?.getAttribute("data-card-id");
         if (!cardId) return false;
+        // 菜单的定位与后续操作全按 id 走：从动作区点名打开时焦点还在按钮上，
+        // 这里顺手把焦点交给那张卡，关掉菜单后回到的也是它（见下面的 closeDialog）。
         setMenuView("actions");
         setMenuCardId(cardId);
         return true;
@@ -220,7 +301,9 @@ export function LibraryShelf<T extends Item>({
       return;
     }
     const current = document.activeElement as HTMLElement | null;
-    if (current?.closest("[data-focus-zone='library-tools'], [data-focus-zone='library-groups']")) return;
+    // 焦点在工具栏 / 分组 chip / 操作区上时不要抢回来：这些区域是自己能聚焦的，
+    // 抢焦点会让 K1 操作区的按钮按不动（它不在卡片里，下面的卡片判断也救不了它）。
+    if (current?.closest("[data-focus-zone='library-tools'], [data-focus-zone='library-groups'], [data-focus-zone='library-actions']")) return;
     const id = current?.closest("[data-card-id]")?.getAttribute("data-card-id");
     if (id && visible.some((item) => item.id === id)) return;
     if (firstRef.current) firstRef.current.focus();
@@ -247,6 +330,26 @@ export function LibraryShelf<T extends Item>({
   useEffect(() => {
     document.querySelector(".group-chip.is-current")?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [library.activeId]);
+
+  // 聚焦项居中于内容区（画板 §3.3）。卡片是宽高过渡的（180ms），刚拿到焦点时量到的还是旧宽度 ——
+  // 立刻居中一次、动画走完再补一次，否则会差半个身位（21dp 上下）。
+  useLayoutEffect(() => {
+    if (!shelf || !focusId) return;
+    const strip = stripRef.current;
+    if (!strip) return;
+    const center = () => {
+      const card = strip.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(focusId)}"]`);
+      if (!card) return;
+      const stripRect = strip.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const left =
+        strip.scrollLeft + (cardRect.left - stripRect.left) - (strip.clientWidth - cardRect.width) / 2;
+      strip.scrollTo({ left: Math.max(0, left), behavior: reduceMotion() ? "auto" : "smooth" });
+    };
+    center();
+    const timer = window.setTimeout(center, 200);
+    return () => window.clearTimeout(timer);
+  }, [shelf, focusId, visibleKey]);
 
   useEffect(() => {
     if (menuView === "rename") renameRef.current?.focus();
@@ -299,9 +402,27 @@ export function LibraryShelf<T extends Item>({
     else library.assignCard(cardId, library.activeId);
   };
 
+  const chipClass = (active: boolean) =>
+    ["group-chip", shelf ? "k1-chip" : "", active ? "is-current" : ""].filter(Boolean).join(" ");
+
   return (
-    <main className="page library-page">
-      <div className="library-head">
+    <main className={shelf ? "page library-page k1-page" : "page library-page"}>
+      {/* K1 的顶部大图铺满内容区、卡片条压在图上（画板就是这样），图本身由页面给：
+          宽图 → 封面 → 程序化占位这条回退链在页面侧，这里只管换图时的交叉淡入。 */}
+      {shelf && renderHero && (
+        <div className="k1-hero" aria-hidden>
+          {heroLeaving && <span className="k1-hero-layer is-leaving">{renderHero(heroLeaving)}</span>}
+          {focused && <span className="k1-hero-layer is-current">{renderHero(focused)}</span>}
+          <span className="k1-hero-shade" />
+        </div>
+      )}
+      <div className={shelf ? "library-head k1-head" : "library-head"}>
+        {shelf && (
+          <div className="k1-title">
+            <h2>{heading}</h2>
+            <p className="k1-sub">{shelfSummary}</p>
+          </div>
+        )}
         <div className="library-group-row" data-focus-zone="library-groups" aria-live="polite">
         <div className="group-strip">
           <span className="group-switch-side">LT</span>
@@ -310,7 +431,7 @@ export function LibraryShelf<T extends Item>({
               type="button"
               role="tab"
               aria-selected={library.activeId === "all"}
-              className={library.activeId === "all" ? "group-chip is-current" : "group-chip"}
+              className={chipClass(library.activeId === "all")}
               data-focusable
               onClick={() => {
                 if (library.activeId === "all") return;
@@ -319,6 +440,7 @@ export function LibraryShelf<T extends Item>({
               }}
             >
               {text().library.all}
+              {shelf && <span className="k1-chip-count tnum">{chipCount("all")}</span>}
             </button>
             {library.groups.map((group) => (
               <button
@@ -326,7 +448,7 @@ export function LibraryShelf<T extends Item>({
                 type="button"
                 role="tab"
                 aria-selected={library.activeId === group.id}
-                className={library.activeId === group.id ? "group-chip is-current" : "group-chip"}
+                className={chipClass(library.activeId === group.id)}
                 data-focusable
                 onClick={() => {
                   if (library.activeId === group.id) return;
@@ -335,13 +457,14 @@ export function LibraryShelf<T extends Item>({
                 }}
               >
                 {group.name}
+                {shelf && <span className="k1-chip-count tnum">{chipCount(group.id)}</span>}
               </button>
             ))}
           </div>
           <span className="group-switch-side">RT</span>
         </div>
         </div>
-        <div className="library-tools" data-focus-zone="library-tools">
+        <div className={shelf ? "library-tools k1-tools" : "library-tools"} data-focus-zone="library-tools">
           <button
             ref={createRef}
             type="button"
@@ -399,9 +522,40 @@ export function LibraryShelf<T extends Item>({
             </button>
           )}
         </div>
-        <p className="preview-note">{status || hint || note}</p>
+        {!shelf && <p className="preview-note">{cardStatus}</p>}
       </div>
-      {visible.length === 0 && items.length > 0 ? (
+      {shelf ? (
+        <div className="k1-strip-wrap">
+          {visible.length === 0 ? (
+            <p className="group-empty k1-empty">
+              {customGroup && items.length > 0 ? text().library.noCards : text().library.ungrouped}
+            </p>
+          ) : (
+            <section
+              ref={stripRef}
+              key={library.activeId}
+              className="k1-strip"
+              data-focus-zone="library-grid"
+              aria-label={label}
+            >
+              {visible.map((item, index) => (
+                // 外面的 div 只为量焦点/放大：卡片本身是页面给的（保持 useLocalLibrary 那边一行不动），
+                // 聚焦事件从卡片冒泡到这里，就能知道"现在聚焦哪张"。
+                <div
+                  key={item.id}
+                  className={focused?.id === item.id ? "k1-item is-current" : "k1-item"}
+                  onFocus={() => setFocusId(item.id)}
+                >
+                  {renderCard(item, index === 0 ? firstRef : undefined, {
+                    variant: "shelf",
+                    name: library.names[item.id] || item.name,
+                  })}
+                </div>
+              ))}
+            </section>
+          )}
+        </div>
+      ) : visible.length === 0 && items.length > 0 ? (
         <p className="group-empty">
           {customGroup
             ? text().library.noCards
@@ -416,10 +570,23 @@ export function LibraryShelf<T extends Item>({
         >
           {visible.map((item, index) =>
             renderCard(item, index === 0 ? firstRef : undefined, {
+              variant: "picker",
               name: library.names[item.id] || item.name,
             }),
           )}
         </section>
+      )}
+      {/* 信息面板 + 操作区：内容全在页面侧（游戏库才知道来源/路径/运行状态），
+          这里只保证「聚焦项一变它就跟着变」。 */}
+      {shelf && focused && (
+        <div className="k1-foot">
+          <section className="k1-panel" aria-label={text().library.focusLabel}>
+            {renderInfo?.(focused, { name: nameOf(focused) })}
+          </section>
+          <div className="k1-actions" data-focus-zone="library-actions">
+            {renderActions?.(focused, { name: nameOf(focused), status: cardStatus })}
+          </div>
+        </div>
       )}
       {hiding && (
         <div className="group-dialog focus-trap open">
@@ -946,6 +1113,7 @@ export function LibraryShelf<T extends Item>({
             <section className="library-grid picker-grid" aria-label={text().library.currentLibrary}>
               {items.map((item) =>
                 renderCard(item, undefined, {
+                  variant: "picker",
                   name: library.names[item.id] || item.name,
                   picked: library.membership[item.id] === library.activeId,
                   onPick: () => toggleCard(item.id),
@@ -975,6 +1143,7 @@ export function LibraryShelf<T extends Item>({
               <section className="library-grid picker-grid" aria-label={text().library.addFromScan}>
                 {restorable.map((item) =>
                   renderCard(item, undefined, {
+                    variant: "picker",
                     name: library.names[item.id] || item.name,
                     onPick: () => {
                       setHint(onRestore(item.id));

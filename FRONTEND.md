@@ -15,6 +15,16 @@
 - **锁定态（商店 / 社区）**：能不能被手柄走到由 `src/types.ts` 的 `NAV_ROUTES` 决定，`App.tsx` 里锁定项不给 `data-focusable`。加新区块时**别把它塞进 `NAV_ROUTES`**，否则 LB/RB 会停在禁用项上。
 - **焦点域**：侧栏是 `data-focus-zone="shell-rail"`。`moveDirectionalFocus` 的规则是「左右在域内走、上下跨域」，所以在侧栏里一直往下按会从最后一行（存储卡的「打开管理器」）进到内容区 —— 这是现有内核的行为，没改。
 
+## 未发布：界面大改 M1 游戏库（K1，2026-10-04）
+
+M0 定的顺序里的第一页：游戏库换成画板 K1 的横向卡片条。**样式全在新文件 `src/styles/games.css`**，`global.css` 里那套旧 `.library-*` 只被覆盖、没有被改（软件库还走旧网格，K2 才动它）。两条渲染路径靠 `LibraryShelf` 的 `layout="shelf" | "grid"` 分，卡片本身靠 `variant="shelf" | "picker"` 分 —— 选择对话框里还是旧卡片，别把它们一起改。
+
+- **几何**：一律 `calc(N * var(--dp))`，数字取自改造包 §3.1（标题 62 / chip 行 174 / 卡 116×146 在 300、聚焦 158×190 在 278 / 面板 430×138 在 482 / 操作区 x=712 / 主按钮 178×46 / 状态行 566）。画板原文写「放大 1.36×」但 146→190 只有 1.30，**以绝对尺寸为准**（`games.css` 里注明了）。K1 专用的两个时长（180ms 卡片放大、160ms hero 淡入）是 `games.css` 里的局部变量 `--k1-grow` / `--k1-fade`，**不是通用令牌，别挪进 `tokens.css`**；其中 `--k1-fade` 必须和 `LibraryShelf.tsx` 里 `useHeroCrossFade` 的 160ms 一致。
+- **两个布局坑**（以后加横向滚动页面会再遇到）：① CSS grid 里靠自动排列时，**DOM 顺序决定行**：K1 的分组行夹在标题和工具栏之间，工具栏会被顶到第三行（实测头部高出 50dp）→ 三块都写显式 `grid-area`；② `flex: 1` 的自动最小尺寸是 **min-content**，横向滚动内容的 min-content 会把内容区顶宽（实测 `tab-panel` 从 1044px 顶到 1662px，1280 窗口下整个壳横向溢出）→ `.tab-panel` 与 `.k1-page` / `.k1-strip-wrap` 都补 `min-width: 0`。
+- **焦点域**：卡片条 `data-focus-zone="library-grid"`、分组行 `library-groups`、工具栏 `library-tools`、K1 新增的操作区 `library-actions`。`LibraryShelf` 那个「自动把焦点安顿到第一张卡」的 effect 只认这三个旧域 —— 加新区块时**必须一起加进它的白名单**，否则操作区里的按钮会被反复抢走焦点（按不动）。上下跨域、左右域内走的规则没改。
+- **hero 的图从哪来由页面定**（`renderHero`），`LibraryShelf` 只负责换图时的交叉淡入与压暗；页面侧的回退链是 Steam 宽图 → 本地封面 → 渐变占位。宽图没有本地缓存（`cache_covers` 只存 600×900 竖封面），断网时自动退回封面。
+- **不摆假数据**：画板里有、本地没数据源的（时长·体积 / 四格数据 / 收藏 / 筛选 / 排序 / 网格列表切换）一律不做，右上角那一格放的是真按钮（新建分组 / 添加游戏 / 从扫描添加 / 重新扫描）。
+
 ## 0.1.58（一）：小组件删掉「自启」行；设置页那行改名「安装前端」（2026-10-04，已随 `v0.1.58` 发布）
 
 - 小组件不再提供自启开关：那行只在 UWP 本地设置里记 `disableAutostartRequested`，真实自启（启动器的计划任务）它改不了，用户说「没用、不需要」。删了 `WidgetPage.xaml` 的整张卡片、`WidgetPage.xaml.cs` 的文案赋值与 `StartupClick`、`Strings.cs` 的 `Startup` / `StartupHint`；`using Windows.Storage;` 一并去掉（那两行是它在本文件仅有的用处）。契约文档 `frontend/gamebar/HANDOFF.txt` 第 67 行同步改写。启动器设置页自己的「开机自启」不受影响（那是 Rust `set_autostart` 在管）。

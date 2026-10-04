@@ -104,6 +104,34 @@ export function GamepadIcon() {
   );
 }
 
+/** K1 操作区：开始游戏。 */
+export function PlayIcon() {
+  return (
+    <svg {...base}>
+      <path d="M8.6 5.4 18.4 12l-9.8 6.6z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** 卡片菜单（画板上的三横）。 */
+export function MenuIcon() {
+  return (
+    <svg {...base}>
+      <path d="M4.4 7.6h15.2M4.4 12h15.2M4.4 16.4h15.2" />
+    </svg>
+  );
+}
+
+/** 重新扫描。 */
+export function RefreshIcon() {
+  return (
+    <svg {...base}>
+      <path d="M20 12a8 8 0 1 1-2.4-5.7" />
+      <path d="M20 4.4V10h-5.6" />
+    </svg>
+  );
+}
+
 export function BatteryIcon({ level }: { level: number }) {
   const safe = Math.max(0, Math.min(1, level));
   return (

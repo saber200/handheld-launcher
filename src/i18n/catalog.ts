@@ -250,6 +250,21 @@ export type Catalog = {
     steamMissing: string;
     steamApplied: (id: string) => string;
     previewNoScan: string;
+    /* ── K1（画板）横向卡片条用的文案。画板上的「时长·体积 / 兼容性 / 收藏」这些格子
+       本地没有数据源或能力，一律不摆（见 STATUS.md 的 M1 一节），所以这里只有真字段。 ── */
+    focusLabel: string;
+    focusLine: (name: string) => string;
+    gameCount: (count: number) => string;
+    startGame: string;
+    cardMenu: string;
+    platformSteam: string;
+    platformEpic: string;
+    platformManual: string;
+    fieldSource: string;
+    fieldState: string;
+    fieldPath: string;
+    stateRunning: string;
+    stateIdle: string;
   };
   files: {
     folder: string;
@@ -689,6 +704,19 @@ export const zh: Catalog = {
     steamMissing: "没有找到这个 Steam 编号的封面。",
     steamApplied: (id) => `已用 Steam ${id} 的封面。`,
     previewNoScan: "浏览器预览不会扫描本机。",
+    focusLabel: "本次聚焦",
+    focusLine: (name) => `当前聚焦：${name}`,
+    gameCount: (count) => `${count} 个游戏`,
+    startGame: "开始游戏",
+    cardMenu: "卡片菜单",
+    platformSteam: "Steam",
+    platformEpic: "Epic",
+    platformManual: "手动添加",
+    fieldSource: "来源",
+    fieldState: "状态",
+    fieldPath: "安装位置",
+    stateRunning: "运行中",
+    stateIdle: "未运行",
   },
   files: {
     folder: "文件夹",
@@ -1129,6 +1157,19 @@ export const en: Catalog = {
     steamMissing: "No cover found for that Steam ID.",
     steamApplied: (id) => `Using the Steam ${id} cover.`,
     previewNoScan: "Browser preview doesn't scan this PC.",
+    focusLabel: "In focus",
+    focusLine: (name) => `In focus: ${name}`,
+    gameCount: (count) => `${count} games`,
+    startGame: "Start game",
+    cardMenu: "Card menu",
+    platformSteam: "Steam",
+    platformEpic: "Epic",
+    platformManual: "Added by hand",
+    fieldSource: "Source",
+    fieldState: "State",
+    fieldPath: "Install path",
+    stateRunning: "Running",
+    stateIdle: "Not running",
   },
   files: {
     folder: "Folder",

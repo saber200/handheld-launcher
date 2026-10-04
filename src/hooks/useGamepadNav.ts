@@ -344,8 +344,17 @@ export function moveDirectionalFocus(dx: number, dy: number) {
   }
 
   if (here) {
-    const other = nearest(nodes.filter((node) => focusZone(node) !== here));
-    focusWithSfx(other);
+    // 跨域优先看「横向有没有压着」：只看上下距离的话，内容区底部的操作区往上一按会跳到
+    // 左侧栏（栏里那一行的 top 离得更近）—— 用户的视线还在卡片条上，焦点却换页了。
+    // 没有任何横向重叠时仍按原来的上下距离走，所以侧栏那种窄列的行为一个字没变。
+    const others = nodes.filter((node) => focusZone(node) !== here);
+    const overlapping = nearest(
+      others.filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.left < current.right && r.right > current.left;
+      }),
+    );
+    focusWithSfx(overlapping ?? nearest(others));
     return;
   }
 

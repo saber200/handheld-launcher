@@ -7,6 +7,9 @@ import { I18nProvider } from "./i18n";
 import "./styles/tokens.css";
 import "./styles/global.css";
 import "./styles/shell.css";
+// 画板 K1（游戏库）的样式：新页面按里程碑逐页迁，旧的 .library-* 还在 global.css 里，
+// 所以必须排在 global.css 之后，同优先级的覆盖才有效（见 styles/games.css 顶部说明）。
+import "./styles/games.css";
 import { watchUiScale } from "./styles/scale";
 
 // 设计画布是 1280×720，--dp 决定 1dp 等于几个物理 px（1080p→1.5、1440p→2.0）。
