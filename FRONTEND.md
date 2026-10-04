@@ -67,6 +67,17 @@ M0 定的顺序里的第一页：游戏库换成画板 K1 的横向卡片条。*
 - **`scripts/probe-ui.mjs`**：新增 10 条 K2 断言（6 列 / 卡 152.7×176 / 第一行 134 / 列行间隙 16 / 包头行 16+20 / 图标区 44+58 / 名称 114 / 底部行距下缘 16 / 操作条 48 / 头部有标题），并在六页签巡检里**顺手给每个页签存一张 `tab-<页>-<尺寸>.png`**（以前只有游戏库那一张，逐页迁移时看不到别的页）。自检图 `docs/redesign/preview/m2-k2-apps-1280.png` 就是这张。
 - **本机验证**：`npx tsc --noEmit` / `npm run build` / `node scripts/audit-ui.mjs`（阻塞 0，待迁移仍是 46 处 —— 软件库换掉之后 `global.css` 那套 `.library-*` 只剩文件页在用，M3 一起收）；探针在 1280×720 与 1920×1080 全绿（含 K2 的 10 条），并逐像素核对了卡片四段的起点与底部操作条（note 行 + accent 按钮 96×32 + panel-3 按钮 96×32）。**CI**：`Lint` 在 `windows-latest` 上已绿（run 37208942966）。**真机（Windows 掌机）没装过**（这一轮没动 Rust）。
 
+## 未发布：界面大改 M6（一）清掉死 CSS + 双语一遍（2026-10-04）
+
+M1–M4 逐页换完视觉之后，`global.css` 里那批「只被旧页面用」的规则没人引用了。这轮把它们清掉，并给探针补一条**英文一遍**（改造包 §16 的验收项「中英双语切换后无截断、无溢出」）。
+
+- **清掉 40 条死规则**（`global.css` 1756 → 1415 行）：先用一个脚本把 `global.css` 里的类名和 `src/**`（含 `src/frontend/`、`index.html`）里的引用对一遍，只删**选择器里每个类名都没人引用**的规则（混着活类名的分组选择器一律保留）。删掉的是 K1/K2/K7/K4/K3 迁完之后留下的那批：`files-title-row / file-view* / file-sort* / file-panes / file-pane* / file-crumb* / file-tile* / file-check / file-progress* / toolbox-panel|block|list|row / group-switch* / lang-switch / settings-foot / power-menu`。
+  - **`file-row` / `file-list` / `file-mark` / `file-name` / `file-size` / `file-picker-*` 留着了** —— 「选择程序」对话框（FilePicker）还在用；`toolbox-block-body` / `tdp-status` 也留着 —— 独立前端的面板在用。
+  - 副作用是好的：手写 px 的「待迁移」数从 44 → **30**（audit 仍然是 0 阻塞）。
+- **英文一遍**（`scripts/probe-ui.mjs` 新增 `englishPass()`）：把 `localStorage` 的语言设成 `en`、刷新，**按侧栏位置**逐页点过去（英文里侧栏文字是 Home / Library…，按文字找会全 miss），每页查两件事 —— ① 整页没有横向溢出；② 交互控件（侧栏项 / 工具按钮 / chip / 面包屑 / 提示条按键对 / K4 的卡按钮）的字没被截（`scrollWidth > clientWidth`）。正文不查：文件名那一列本来就该省略号收尾。1280×720 与 1920×1080 全过，截图存 `docs/redesign/preview/m6-en-files-1280.png`。
+- **本机验证**：`npx tsc --noEmit` / `npm run build` / `node scripts/audit-ui.mjs`（0 阻塞 / 待迁移 30）；探针三个部分（几何 + 六页签巡检 + 英文一遍）在 1280×720 与 1920×1080 全绿；另把英文下的文件页与工具箱截图看过（长文案自己换行，没有挤破卡片）。**真机（Windows 掌机）没装过**。
+- **M6 还欠的**：`audit-ui.mjs --strict` 还过不了（global.css 里仍有 30 处写死 px，多是弹窗与独立前端那几块）；空 / 错态逐页过一遍；版本号六处联动与发版。
+
 ## 未发布：界面大改 M4（二）设置抽屉换画板 K3（2026-10-04）
 
 画板 K3：**标题行（标题 + 「双击 Back 呼出 · Esc 关闭」+ 34×34 关闭按钮）+ 设置行（高 52 / 步进 62 / 圆角 12）+ 底部提示行**。新样式文件 `src/styles/settings.css`；旧的 `.setting-*` / `.switch` **一个没删** —— 独立前端的 `FrontendPanel` 也 import 同一份 `global.css` 并在用它们。

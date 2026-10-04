@@ -288,65 +288,11 @@ button {
   line-height: 1.4;
 }
 
-.toolbox-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-top: 10px;
-}
-
-/* Toolbox tab: scrolls on its own, capped so rows stay readable on wide screens. */
-.toolbox-page-body {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  max-width: 760px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.toolbox-block {
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.toolbox-block-title {
-  margin: 0 0 6px;
-  font-size: 16px;
-}
-
 .toolbox-block-body {
   margin: 0 0 12px;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
-}
-
-.toolbox-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.toolbox-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.toolbox-row strong {
-  display: block;
-  font-size: 15px;
-  margin-bottom: 2px;
-}
-
-.toolbox-row small {
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .settings-body {
@@ -404,24 +350,6 @@ button {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 16px;
-}
-
-.group-switch {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-width: min(360px, 100%);
-  padding: 10px 18px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.28);
-}
-
-.group-switch-name {
-  flex: 1;
-  text-align: center;
-  font-size: 18px;
-  letter-spacing: 0.04em;
 }
 
 .group-switch-side {
@@ -673,8 +601,7 @@ button {
 @keyframes library-running-border {
   to {
     --run-angle: 360deg;
-  }
-}
+  }}
 
 @media (prefers-reduced-motion: reduce) {
   .library-card.is-running .game-cover,
@@ -682,8 +609,7 @@ button {
     animation: none;
     border: 2px solid var(--accent);
     background: rgba(255, 255, 255, 0.04);
-  }
-}
+  }}
 
 .game-cover-fallback {
   display: block;
@@ -815,12 +741,6 @@ img.app-icon {
   font-weight: 700;
 }
 
-.lang-switch {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
 .status-msg {
   margin-top: 16px;
   color: var(--accent);
@@ -867,29 +787,13 @@ img.app-icon {
   }
   100% {
     background-position: -28% 50%;
-  }
-}
+  }}
 
 @media (prefers-reduced-motion: reduce) {
   .about-line {
     animation: none;
     background-position: -28% 50%;
-  }
-}
-
-.settings-foot {
-  margin-top: auto;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 16px;
-}
-
-.power-menu {
-  position: relative;
-  flex-shrink: 0;
-}
+  }}
 
 .power-options {
   position: absolute;
@@ -1038,41 +942,6 @@ img.app-icon {
   background: rgba(61, 214, 198, 0.08);
 }
 
-.files-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  width: 100%;
-}
-
-.files-title-row .group-switch {
-  flex: 1;
-  min-width: 0;
-}
-
-.file-view-toggle {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-}
-
-.file-view {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.04);
-  transition:
-    color var(--dur-fast) var(--ease-soft),
-    background-color var(--dur-fast) var(--ease-soft),
-    border-color var(--dur-fast) var(--ease-soft),
-    transform var(--dur-fast) var(--ease-out);
-}
-
 .file-view.is-current {
   color: #06241f;
   background: var(--accent);
@@ -1085,82 +954,15 @@ img.app-icon {
   min-width: 0;
 }
 
-.file-line,
-.file-tile-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.file-check {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  color: #06241f;
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 14px;
-  font-weight: 700;
-  transition:
-    background-color var(--dur-fast) var(--ease-soft),
-    border-color var(--dur-fast) var(--ease-soft),
-    transform var(--dur-fast) var(--ease-out);
-}
-
 .file-check.on {
   background: var(--accent);
   border-color: transparent;
   transform: scale(1.05);
 }
 
-.file-tile-wrap .file-check {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 1;
-}
-
-.file-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  text-align: left;
-  scroll-margin: 12px;
-}
-
-.file-tile-face {
-  width: 100%;
-  aspect-ratio: 1;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
-  font-size: 28px;
-  font-weight: 700;
-  transition:
-    transform var(--dur-ui) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-soft),
-    box-shadow var(--dur-fast) var(--ease-soft);
-}
-
 .file-tile-face.is-dir {
   color: #06241f;
   background: var(--accent);
-}
-
-.file-tile:focus {
-  background: transparent;
-  box-shadow: none;
 }
 
 .file-tile:focus .file-tile-face,
@@ -1172,24 +974,6 @@ img.app-icon {
 
 .file-row.is-picked {
   border-color: var(--accent);
-}
-
-/* ---- 功能 12：双栏 / 面包屑 / 排序 / 进度 / 新弹窗 ---- */
-
-.file-panes {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  gap: 14px;
-}
-
-.file-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
 }
 
 /* 双栏时两栏要能一眼看出「现在哪一栏听键盘」 */
@@ -1204,52 +988,10 @@ img.app-icon {
   border-color: var(--accent);
 }
 
-.file-pane-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.file-pane-tag {
-  flex-shrink: 0;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 13px;
-}
-
 .file-pane-tag.is-current {
   color: #06241f;
   background: var(--accent);
   border-color: transparent;
-}
-
-.file-pane-path {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.file-crumbs {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 2px;
-}
-
-.file-crumb {
-  padding: 5px 10px;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 14px;
 }
 
 .file-crumb.is-here {
@@ -1258,85 +1000,10 @@ img.app-icon {
   border-color: var(--line);
 }
 
-.file-crumb:focus {
-  color: var(--ink);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-.file-sort-group {
-  display: flex;
-  flex-shrink: 0;
-  gap: 6px;
-}
-
-.file-sort {
-  padding: 9px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 14px;
-}
-
 .file-sort.is-current {
   color: #06241f;
   background: var(--accent);
   border-color: transparent;
-}
-
-.file-view-wide {
-  width: 52px;
-}
-
-.file-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.file-progress-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.file-progress-name {
-  flex-shrink: 0;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 15px;
-}
-
-.file-progress-bar {
-  flex: 1;
-  min-width: 0;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-}
-
-.file-progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-  transition: width var(--dur-fast) linear;
-}
-
-.file-progress-meta {
-  flex-shrink: 0;
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .library-tool.is-current {
@@ -1650,8 +1317,7 @@ img.app-icon {
   }
   100% {
     opacity: 0;
-  }
-}
+  }}
 
 @keyframes boot-char-in {
   from {
@@ -1661,8 +1327,7 @@ img.app-icon {
   to {
     opacity: 1;
     filter: blur(0);
-  }
-}
+  }}
 
 @keyframes rise-in {
   from {
@@ -1672,8 +1337,7 @@ img.app-icon {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
+  }}
 
 @keyframes fade-in {
   from {
@@ -1681,8 +1345,7 @@ img.app-icon {
   }
   to {
     opacity: 1;
-  }
-}
+  }}
 
 @keyframes soft-pop {
   from {
@@ -1692,8 +1355,7 @@ img.app-icon {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
+  }}
 
 @keyframes slide-in-end {
   from {
@@ -1703,8 +1365,7 @@ img.app-icon {
   to {
     opacity: 1;
     transform: translateX(0);
-  }
-}
+  }}
 
 @keyframes slide-in-up {
   from {
@@ -1714,8 +1375,7 @@ img.app-icon {
   to {
     opacity: 1;
     transform: translate(-50%, 0);
-  }
-}
+  }}
 
 @media (prefers-reduced-motion: reduce) {
   .tab-panel-view,
@@ -1752,5 +1412,4 @@ img.app-icon {
   .library-tool:active,
   .gamepad-key:active {
     transform: none;
-  }
-}
+  }}

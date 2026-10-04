@@ -13,6 +13,17 @@
 
 **上上版（0.1.56）装了四件事**（下面「0.1.56 这一版」四节是那一版的内容）：① 文件管理器深度优化（功能 12 三批）；② 独立前端改成 Game Bar 小组件后台（**首次随包装出去**）；③ 驱动状态与窗口快照诊断补充；④ 输入链路与显示调度修正。这些**都没在真机上验过**，验证边界各节末尾都写了。
 
+## 未发布：界面大改 M6（一）清掉死 CSS + 探针的英文一遍（2026-10-04）
+
+M1–M4 把六页换完之后，`global.css` 里那批「只被旧页面用」的规则没人引用了。这轮清掉，并给探针补一条英文一遍（改造包 §16 的验收项「中英双语切换后无截断、无溢出」）。
+
+- **清掉 40 条死规则**（`global.css` 1756 → 1415 行）：先跑一个脚本把 `global.css` 的类名与 `src/**`（含 `src/frontend/` 与 `index.html`）里的引用对一遍，只删「选择器里每个类名都没人引用」的规则（混着活类名的分组选择器一律保留）。删掉的是 K1/K2/K7/K4/K3 迁完留下的那批：`files-title-row / file-view* / file-sort* / file-panes / file-pane* / file-crumb* / file-tile* / file-check / file-progress* / toolbox-panel|block|list|row / group-switch* / lang-switch / settings-foot / power-menu`。
+  - `file-row` / `file-list` / `file-mark` / `file-name` / `file-size` / `file-picker-*` 留着 —— 「选择程序」对话框（FilePicker）还在用；`toolbox-block-body` / `tdp-status` 也留着 —— 独立前端的面板在用。
+  - 顺带好处：手写 px 的「待迁移」数 44 → **30**（阻塞仍是 0）。
+- **探针加英文一遍**：把 `localStorage` 的语言设成 `en` 刷新，**按侧栏位置**逐页点过去（英文里侧栏是 Home / Library…，按文字找会全 miss），每页查「整页无横向溢出」+「交互控件的字没被截」。1280×720 与 1920×1080 全过；英文截图存 `docs/redesign/preview/m6-en-files-1280.png`。
+- **本机验证**：`npx tsc --noEmit` / `npm run build` / `node scripts/audit-ui.mjs`（0 阻塞 / 待迁移 30）；探针三部分全绿；英文下文件页与工具箱的截图人工看过。**真机（Windows 掌机）没装过**。
+- **M6 还欠**：`audit-ui.mjs --strict`（global.css 里还剩 30 处写死 px，多在弹窗与独立前端那两块）、空 / 错态逐页过一遍、版本号六处联动与发版。
+
 ## 未发布：界面大改 M4（二）设置抽屉换画板 K3（2026-10-04）
 
 画板 K3：标题行（标题 + 「双击 Back 呼出 · Esc 关闭」+ 34×34 关闭按钮）+ 设置行（高 52 / 步进 62 / 圆角 12 / 内边距 16）+ 底部提示行。新样式文件 `src/styles/settings.css`，旧的 `.setting-*` / `.switch` 一个没删（独立前端的 FrontendPanel 还在用）。

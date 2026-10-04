@@ -719,9 +719,67 @@ const scanTabs = async () => {
   }
 };
 
+/**
+ * 英文一遍（改造包 §16 的验收项「中英双语切换后无截断、无溢出」）：
+ * 把 localStorage 里的语言设成 en、刷新，再把六个页签走一遍 —— 查两件事：
+ *   ① 整页没有横向溢出（scrollWidth > 视口宽）；
+ *   ② 交互控件上的字没被截（scrollWidth > clientWidth，容 2px 的亚像素零头）。
+ * 只查控件，不查正文：文件名那一列本来就该省略号收尾，那是设计不是 bug。
+ */
+const englishPass = async () => {
+  for (const [width, height] of SIZES) {
+    console.log(`\n=== 英文一遍 ${width}×${height} ===`);
+    const page = await connect({ width, height });
+    try {
+      await page.goto(URL);
+      await page.eval(`
+        localStorage.setItem('handheld-launcher.locale', 'en');
+        return true;
+      `);
+      await page.goto(URL);
+      await page.wait(5000);
+      for (const [index, name] of ["首页", "游戏库", "软件库", "下载", "文件", "工具箱"].entries()) {
+        // 英文界面上侧栏文字是 Home / Library…，所以按**位置**点（顺序固定）而不是按文字找
+        const ok = await page.eval(`
+          const items = [...document.querySelectorAll('.nav-item')];
+          const hit = items[${index}];
+          if (!hit) return false;
+          hit.click();
+          await new Promise((r) => setTimeout(r, 800));
+          return true;
+        `);
+        if (!ok) continue;
+        const en = await page.eval(`
+          const width = innerWidth;
+          const overflow = document.documentElement.scrollWidth > width + 1;
+          const sel = '.nav-item, .k7-tool, .k7-search, .k7-sort, .k7-chip, .k7-crumb, .k7-place, .k2-btn, .k1-btn, .hint-pair, .k4-selfcheck, .k4-card-action, .k4-primary, .k4-row-item, .library-tool';
+          const clipped = [...document.querySelectorAll(sel)]
+            .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 2)
+            .map((el) => (el.className || '').split(' ')[0] + '|' + (el.textContent || '').trim().slice(0, 16));
+          return { overflow, clipped: clipped.slice(0, 5), n: clipped.length, lang: document.documentElement.lang };
+        `);
+        const label = `${name}（英文 lang=${en.lang}）`;
+        note(!en.overflow, `${label}：整页没有横向溢出`);
+        note(en.n === 0, `${label}：控件上的字都没被截${en.n ? "（" + en.clipped.join("、") + "）" : ""}`);
+        if (SHOTS) {
+          const p = join(SHOTS, `en-${name}-${width}x${height}.png`);
+          await page.shot(p);
+        }
+      }
+      await page.eval(`
+        localStorage.setItem('handheld-launcher.locale', 'zh');
+        return true;
+      `);
+    } finally {
+      await page.close();
+    }
+  }
+};
+
 for (const [w, h] of SIZES) await run(w, h);
 console.log("\n=== 六个页签的焦点环巡检 ===");
 await scanTabs();
+await englishPass();
 
 console.log(problems.length ? `\n❌ ${problems.length} 项没过：\n  - ${problems.join("\n  - ")}` : "\n✅ 全部通过");
 process.exit(problems.length ? 1 : 0);
