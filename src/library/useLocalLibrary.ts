@@ -125,7 +125,25 @@ export type ModTarget = {
   installPath?: string;
 };
 
+export type ModVersion = {
+  version: string;
+  /** GitHub 上的标签（`v0.9.4`）：安装时按它去查具体那个 release。 */
+  tag: string;
+  bytes: number;
+  latest: boolean;
+};
+
 export const DEFAULT_MOD_HOOK = "dxgi.dll";
+
+/** 能装的版本列表（最近的几个）。拿不到就空数组，界面按「装最新」走。 */
+export async function modVersions(): Promise<ModVersion[]> {
+  if (!inTauri()) return [];
+  try {
+    return await invoke<ModVersion[]>("toolbox_optiscaler_versions");
+  } catch {
+    return [];
+  }
+}
 
 /**
  * 安装前的状态：装哪儿、装了没有、会不会冲突。
@@ -151,6 +169,7 @@ export async function modStatus(item: ModTarget, hook?: string): Promise<ModStat
 export async function installLibraryGameMods(
   item: ModTarget,
   hook: string = DEFAULT_MOD_HOOK,
+  version?: string,
 ): Promise<string> {
   if (!inTauri()) {
     return text().library.installModsPreview;
@@ -164,6 +183,8 @@ export async function installLibraryGameMods(
       launchPath: item.launchPath ?? "",
       installPath: item.installPath ?? "",
       hook,
+      // 空 = 装最新（后端按 latest 查）。
+      version: version ?? null,
     });
     playSfx("done");
     return text().library.installModsResult(item.name, message);

@@ -8,6 +8,7 @@ import {
   installLibraryGameMods,
   launchLibraryItem,
   modStatus,
+  modVersions,
   quitLibraryGame,
   uninstallLibraryGameMods,
   useLocalGames,
@@ -58,15 +59,17 @@ export function GamesPage() {
         setStatus("");
         return library.setSteamCover(id, appId);
       }}
-      onInstallMods={(id, hook) => {
+      onInstallMods={(id, hook, version) => {
         const game = library.items.find((item) => item.id === id);
         if (!game) return text().library.failed;
         setStatus("");
         return installLibraryGameMods(
           { name: game.name, launchPath: game.launchPath, installPath: game.installPath },
           hook,
+          version,
         );
       }}
+      onModVersions={() => modVersions()}
       onModStatus={(id, hook) => {
         const game = library.items.find((item) => item.id === id);
         if (!game) return Promise.resolve(null);

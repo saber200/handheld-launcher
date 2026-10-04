@@ -49,6 +49,7 @@
     "allow-toolbox-runtimes",
     "allow-toolbox-install-runtime",
     "allow-toolbox-optiscaler-status",
+    "allow-toolbox-optiscaler-versions",
     "allow-toolbox-install-optiscaler",
     "allow-toolbox-uninstall-optiscaler",
     "allow-toolbox-cancel-mod",
@@ -73,6 +74,7 @@
     "allow-file-transfer",
     "allow-file-cancel",
     "allow-file-extract",
+    "allow-file-compress",
     "allow-files-show-keyboard"
   ]
 }

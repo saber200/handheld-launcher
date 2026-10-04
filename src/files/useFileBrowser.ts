@@ -990,7 +990,30 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
     [location, preview, reloadNative, tree],
   );
 
-  /** 解压到压缩包旁边的同名新目录（后端决定名字，名字撞了就加序号）。 */
+  /** 把选中的项目打成一个 zip，放在同一个目录里（同名自动加序号）。 */
+  const compress = useCallback(
+    async (items: FileEntry[], name?: string) => {
+      if (items.length === 0) return;
+      if (preview) {
+        setNote(text().files.previewHint);
+        return;
+      }
+      const t = text().files;
+      setNote(t.compressing(items.length));
+      try {
+        const outcome = await invoke<{ archive: string; items: number }>("file_compress", {
+          paths: items.map((entry) => entry.path),
+          name: name ?? null,
+        });
+        setNote(t.compressDone(outcome.items, outcome.archive));
+        await reloadNative(location);
+      } catch (err) {
+        setNote(t.compressFailed(toFileError(err).message));
+      }
+    },
+    [location, preview, reloadNative],
+  );
+
   const extract = useCallback(
     async (entry: FileEntry) => {
       if (preview) {
@@ -1164,6 +1187,7 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
     openExternal,
     remove,
     extract,
+    compress,
     rename,
     renameMany,
     properties,

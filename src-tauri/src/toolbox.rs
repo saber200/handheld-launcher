@@ -127,6 +127,16 @@ pub struct OptiScalerStatus {
     pub message: String,
 }
 
+/// 面板上能选的一个版本。`tag` 是 GitHub 上的标签（`v0.9.4`），安装时按它去查。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModVersion {
+    pub version: String,
+    pub tag: String,
+    pub bytes: u64,
+    pub latest: bool,
+}
+
 /// 一次安装/卸载的取消开关。同一时刻只会有一个这类任务（前端也拦着重复点），
 /// 所以一个进程级标志就够，不必像文件传输那样按 id 建表。
 static MOD_CANCEL: AtomicBool = AtomicBool::new(false);
@@ -155,9 +165,10 @@ pub async fn toolbox_install_optiscaler(
     launch_path: String,
     install_path: String,
     hook: String,
+    version: Option<String>,
 ) -> Result<String, String> {
     match crate::off_main(move || {
-        toolbox_install_optiscaler_now(app, launch_path, install_path, hook)
+        toolbox_install_optiscaler_now(app, launch_path, install_path, hook, version)
     })
     .await
     {
@@ -171,20 +182,40 @@ fn toolbox_install_optiscaler_now(
     launch_path: String,
     install_path: String,
     hook: String,
+    version: Option<String>,
 ) -> Result<String, String> {
     #[cfg(windows)]
     {
         // 每次开工先清掉上一轮的取消标记，否则第一次取消之后再也装不上。
         MOD_CANCEL.store(false, Ordering::Relaxed);
-        return windows::install_optiscaler(&app, &launch_path, &install_path, &hook);
+        return windows::install_optiscaler(&app, &launch_path, &install_path, &hook, version.as_deref());
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, launch_path, install_path, hook);
+        let _ = (app, launch_path, install_path, hook, version);
         Err(pick(
             "OptiScaler 安装只能在 Windows 上使用。",
             "OptiScaler install only works on Windows.",
         ))
+    }
+}
+
+/// 能装的版本列表（最近的几个，第一个是「最新」）。前端拿它做版本选择。
+#[tauri::command]
+pub async fn toolbox_optiscaler_versions() -> Vec<ModVersion> {
+    crate::off_main(toolbox_optiscaler_versions_now)
+        .await
+        .unwrap_or_default()
+}
+
+fn toolbox_optiscaler_versions_now() -> Vec<ModVersion> {
+    #[cfg(windows)]
+    {
+        return windows::optiscaler_versions();
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
     }
 }
 
@@ -568,6 +599,7 @@ mod windows {
         launch_path: &str,
         install_path: &str,
         hook: &str,
+        version: Option<&str>,
     ) -> Result<String, String> {
         let hook = canonical_hook(hook).ok_or_else(|| {
             pick(
@@ -610,7 +642,7 @@ mod windows {
             legacy_cleanup(&dir)?;
         }
 
-        let release = latest_optiscaler_release()?;
+        let release = optiscaler_release(version)?;
         let cache = cache_dir(app)?;
         let archive_path = cache.join(&release.file_name);
         // 缓存里那份大小对得上就直接用：官方包 50 MB 上下，重装不该再下一次。
@@ -1357,82 +1389,127 @@ mod windows {
     /// 一次下载所需的全部信息（版本号要写进账本、大小用来判断缓存和校验完整性）。
     struct ReleaseAsset {
         version: String,
+        tag: String,
         url: String,
         file_name: String,
         bytes: u64,
     }
 
-    /// OptiScaler 官方 Release 从 0.4 起只发 `.7z`，所以这里按扩展名挑压缩包，
-    /// 不能只认 `.zip`（旧实现因此永远找不到下载）。
-    /// 顺便把版本号与 asset 大小带回来：版本进账本、大小用来复用缓存和查下载是否完整。
-    fn latest_optiscaler_release() -> Result<ReleaseAsset, String> {
-        let body = ureq::get("https://api.github.com/repos/optiscaler/OptiScaler/releases/latest")
+    /// 最近的几个可装版本（跳过草稿与预发布；没有 7z/zip 附件的也不要）。
+    pub fn optiscaler_versions() -> Vec<ModVersion> {
+        let Some(json) = optiscaler_release_json(
+            "https://api.github.com/repos/optiscaler/OptiScaler/releases?per_page=10",
+        ) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (index, release) in json.as_array().into_iter().flatten().enumerate() {
+            if release
+                .get("draft")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+                || release
+                    .get("prerelease")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+            {
+                continue;
+            }
+            let Some(tag) = release.get("tag_name").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let Some((_, bytes)) = release_archive(release) else {
+                continue;
+            };
+            out.push(ModVersion {
+                version: tag.trim_start_matches('v').to_string(),
+                tag: tag.to_string(),
+                bytes,
+                latest: index == 0,
+            });
+            if out.len() >= 5 {
+                break;
+            }
+        }
+        out
+    }
+
+    /// 查某个版本的下载信息；`tag` 为 None 时取 latest。
+    fn optiscaler_release(tag: Option<&str>) -> Result<ReleaseAsset, String> {
+        let url = match tag {
+            // 传进来的就是 GitHub 上的标签（前端列表里带的），原样拼回地址。
+            Some(tag) if !tag.trim().is_empty() => format!(
+                "https://api.github.com/repos/optiscaler/OptiScaler/releases/tags/{}",
+                tag.trim()
+            ),
+            _ => "https://api.github.com/repos/optiscaler/OptiScaler/releases/latest".to_string(),
+        };
+        let json = optiscaler_release_json(&url).ok_or_else(|| {
+            pick(
+                "无法查询 OptiScaler 版本（网络不通或 GitHub 拒绝）。",
+                "Couldn't query the OptiScaler release (no network or GitHub refused).",
+            )
+        })?;
+        let tag_name = json
+            .get("tag_name")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let (url, bytes) = release_archive(&json)
+            .ok_or_else(|| pick("找不到 OptiScaler 的压缩包下载。", "Couldn't find an OptiScaler archive download."))?;
+        let extension = if url.to_ascii_lowercase().ends_with(".zip") {
+            ".zip"
+        } else {
+            ".7z"
+        };
+        Ok(ReleaseAsset {
+            version: tag_name.trim_start_matches('v').to_string(),
+            tag: tag_name.to_string(),
+            url,
+            // 一个版本一个缓存名：换版本重装时不会拿旧版本的文件顶上。
+            file_name: format!("OptiScaler-{}{extension}", tag_name.trim_start_matches('v')),
+            bytes,
+        })
+    }
+
+    /// 拉一个 release（或 release 列表）的 JSON。网络/解析失败一律 None —— 调用方各自决定怎么报。
+    fn optiscaler_release_json(url: &str) -> Option<serde_json::Value> {
+        let body = ureq::get(url)
             .set("User-Agent", "FantasyHub-Toolbox")
             .set("Accept", "application/vnd.github+json")
             .call()
-            .map_err(|err| {
-                pick(
-                    &format!("无法查询 OptiScaler 版本：{err}"),
-                    &format!("Couldn't query OptiScaler release: {err}"),
-                )
-            })?
+            .ok()?
             .into_string()
-            .map_err(|err| {
-                pick(
-                    &format!("读取版本信息失败：{err}"),
-                    &format!("Couldn't read release info: {err}"),
-                )
-            })?;
-        let json: serde_json::Value = serde_json::from_str(&body).map_err(|err| {
-            pick(
-                &format!("解析版本信息失败：{err}"),
-                &format!("Couldn't parse release info: {err}"),
-            )
-        })?;
-        let version = json
-            .get("tag_name")
-            .and_then(|value| value.as_str())
-            .unwrap_or("")
-            .trim_start_matches('v')
-            .to_string();
-        let assets = json
-            .get("assets")
-            .and_then(|value| value.as_array())
-            .ok_or_else(|| pick("Release 没有附件。", "Release has no assets."))?;
-        let mut fallback: Option<ReleaseAsset> = None;
+            .ok()?;
+        serde_json::from_str(&body).ok()
+    }
+
+    /// 从一个 release 对象里挑压缩包：优先名字里带 optiscaler 的，否则拿第一个 7z/zip。
+    /// 返回 (下载地址, 字节数)。
+    fn release_archive(release: &serde_json::Value) -> Option<(String, u64)> {
+        let assets = release.get("assets")?.as_array()?;
+        let mut fallback: Option<(String, u64)> = None;
         for asset in assets {
             let name = asset.get("name").and_then(|value| value.as_str()).unwrap_or("");
             let lower = name.to_ascii_lowercase();
-            let extension = if lower.ends_with(".7z") {
-                ".7z"
-            } else if lower.ends_with(".zip") {
-                ".zip"
-            } else {
+            if !lower.ends_with(".7z") && !lower.ends_with(".zip") {
                 continue;
-            };
+            }
             let Some(url) = asset.get("browser_download_url").and_then(|value| value.as_str())
             else {
                 continue;
             };
-            let entry = ReleaseAsset {
-                version: version.clone(),
-                url: url.to_string(),
-                file_name: format!("OptiScaler-latest{extension}"),
-                bytes: asset.get("size").and_then(|value| value.as_u64()).unwrap_or(0),
-            };
+            let entry = (
+                url.to_string(),
+                asset.get("size").and_then(|value| value.as_u64()).unwrap_or(0),
+            );
             if lower.contains("optiscaler") {
-                return Ok(entry);
+                return Some(entry);
             }
             if fallback.is_none() {
                 fallback = Some(entry);
             }
         }
-        fallback.ok_or_else(|| {
-            pick(
-                "找不到 OptiScaler 的压缩包下载。",
-                "Couldn't find an OptiScaler archive download.",
-            )
-        })
+        fallback
     }
 
     /// 官方包是 `.7z`（个别老包是 `.zip`），按扩展名选解压方式。

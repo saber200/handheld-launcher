@@ -129,6 +129,11 @@ description = "Check where OptiScaler would go and whether it is installed (fold
 commands.allow = ["toolbox_optiscaler_status"]
 
 [[permission]]
+identifier = "allow-toolbox-optiscaler-versions"
+description = "List the recent OptiScaler releases that can be installed."
+commands.allow = ["toolbox_optiscaler_versions"]
+
+[[permission]]
 identifier = "allow-toolbox-install-optiscaler"
 description = "Download and install OptiScaler into a game folder."
 commands.allow = ["toolbox_install_optiscaler"]

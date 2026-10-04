@@ -450,6 +450,134 @@ fn count_files(dir: &Path) -> u64 {
     total
 }
 
+/// 打包结果：zip 落在哪儿、装了几项。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompressOutcome {
+    pub archive: String,
+    pub items: u64,
+}
+
+/// 把选中的项目打成一个 zip，放在它们所在的那个目录里。
+#[tauri::command]
+pub async fn file_compress(
+    paths: Vec<String>,
+    name: Option<String>,
+) -> Result<CompressOutcome, FileError> {
+    worker(move || compress_entries(paths, name)).await
+}
+
+fn compress_entries(paths: Vec<String>, name: Option<String>) -> Result<CompressOutcome, FileError> {
+    if paths.is_empty() {
+        return Err(FileError::rule(pick(
+            "先选中要压缩的项目",
+            "Select the items to compress first.",
+        )));
+    }
+    let sources: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    if sources.iter().any(|source| !source.exists()) {
+        return Err(FileError::new(
+            "missing",
+            pick("要压缩的项目里有的已经不在了", "One of the items is gone."),
+        ));
+    }
+    // 必须都在同一个目录：zip 就放在那个目录，名字也从它推。
+    let parent = sources[0].parent().ok_or_else(|| {
+        FileError::rule(pick(
+            "不能在盘符根目录打包",
+            "Can't compress at a volume root.",
+        ))
+    })?;
+    if sources.iter().any(|source| source.parent() != Some(parent)) {
+        return Err(FileError::rule(pick(
+            "选中的项目不在同一个目录里",
+            "The selected items aren't in the same folder.",
+        )));
+    }
+    // 名字：用户给的优先（先去掉 .zip 再走同一套文件名校验），没给就用目录名。
+    let base = match name.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+        Some(value) => {
+            let trimmed = value.strip_suffix(".zip").unwrap_or(&value);
+            check_name(trimmed)?.to_string()
+        }
+        None => parent
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "archive".to_string()),
+    };
+    let archive = fresh_file(parent, &base).ok_or_else(|| {
+        FileError::rule(pick(
+            "同名压缩包太多了，先清理一下再打包",
+            "Too many archives with that name; clean up and retry.",
+        ))
+    })?;
+    zip_up(&sources, &archive)?;
+    Ok(CompressOutcome {
+        archive: archive.display().to_string(),
+        items: sources.len() as u64,
+    })
+}
+
+/// 同名文件已存在就加 ` (2)`、` (3)`…：打包绝不覆盖已有文件。
+fn fresh_file(parent: &Path, stem: &str) -> Option<PathBuf> {
+    for index in 0..50 {
+        let name = if index == 0 {
+            format!("{stem}.zip")
+        } else {
+            format!("{stem} ({}).zip", index + 1)
+        };
+        let candidate = parent.join(&name);
+        if !candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn zip_up(sources: &[PathBuf], archive: &Path) -> Result<(), FileError> {
+    // `-LiteralPath @('a','b')`：逐个用单引号包住、内部单引号翻倍。
+    let list = sources
+        .iter()
+        .map(|source| format!("'{}'", escape_ps(source)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        "Compress-Archive -LiteralPath @({list}) -DestinationPath '{}' -Force",
+        escape_ps(archive)
+    );
+    let status = hidden_command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|err| FileError::io("无法启动压缩程序", "Couldn't start the archiver", &err))?;
+    if status.success() {
+        return Ok(());
+    }
+    // Compress-Archive 的老毛病：单个文件超过 2 GB 就失败（PowerShell 5.1 的限制）。
+    Err(FileError::new(
+        "other",
+        pick(
+            &format!(
+                "压缩失败（PowerShell 退出码 {:?}）：单个文件超过 2 GB 时它做不了",
+                status.code()
+            ),
+            &format!(
+                "Compress failed (PowerShell exit {:?}): it can't handle a file over 2 GB",
+                status.code()
+            ),
+        ),
+    ))
+}
+
+#[cfg(not(windows))]
+fn zip_up(_sources: &[PathBuf], _archive: &Path) -> Result<(), FileError> {
+    Err(FileError::rule(pick(
+        "压缩只能在 Windows 上使用",
+        "Compressing only works on Windows.",
+    )))
+}
+
 #[cfg(windows)]
 fn expand_zip(archive: &Path, dest: &Path) -> Result<(), FileError> {
     // zip 交给 PowerShell 的 `Expand-Archive`：底层 .NET 的 `ExtractToDirectory`
@@ -459,7 +587,7 @@ fn expand_zip(archive: &Path, dest: &Path) -> Result<(), FileError> {
         escape_ps(archive),
         escape_ps(dest)
     );
-    let status = std::process::Command::new("powershell")
+    let status = hidden_command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|err| FileError::io("无法启动解压程序", "Couldn't start the extractor", &err))?;
@@ -539,6 +667,19 @@ fn expand_7z(_archive: &Path, _dest: &Path) -> Result<(), FileError> {
 #[cfg(windows)]
 fn escape_ps(path: &Path) -> String {
     path.to_string_lossy().replace('\'', "''")
+}
+
+/// 起一个**不弹黑框**的子进程。
+///
+/// Windows 上从 GUI 程序 spawn `powershell` 会闪一个控制台窗口（掌机上很扎眼）；
+/// `CREATE_NO_WINDOW` 才是解，`-WindowStyle Hidden` 已经晚了一步 —— 窗口先闪过了。
+#[cfg(windows)]
+fn hidden_command(program: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut command = std::process::Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
 }
 
 fn is_drive_root(path: &Path) -> bool {
@@ -2001,7 +2142,7 @@ fn part_path(dest: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_kind, check_name, copy_path, dir_sizes, file_delete, file_move, fresh_dir,
+        archive_kind, check_name, copy_path, dir_sizes, file_delete, file_move, fresh_dir, fresh_file,
         io_reason, is_drive_root, is_editable_name, is_escaping_name, is_system_dir, part_path,
         read_text, relative_dir, rename_many, run_transfer, sibling_name, ArchiveKind, Conflict,
         FileError, RenamePair, Runner, TransferProgress,
@@ -2025,6 +2166,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// 打包的名字：同名不覆盖，自动加 ` (2)`。
+    #[test]
+    fn compress_picks_a_free_name() {
+        let root = temp_dir("compress-name");
+        let first = fresh_file(&root, "saves").unwrap();
+        assert_eq!(first, root.join("saves.zip"));
+        std::fs::write(&first, b"x").unwrap();
+        assert_eq!(
+            fresh_file(&root, "saves").unwrap(),
+            root.join("saves (2).zip")
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// 跑一次传输并把进度收下来。进度走注入的 sink，所以最容易出人命的几条路径

@@ -1242,6 +1242,19 @@ export function FilesPage() {
                 className="library-tool"
                 data-focusable
                 onClick={() => {
+                  const items = targets;
+                  setMenu(null);
+                  // 不弹名字输入：默认用当前目录名（和资源管理器一个习惯），重名自动加序号。
+                  void active.compress(items);
+                }}
+              >
+                {text().files.compress}
+              </button>
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => {
                   setTrash(targets);
                   setMenu(null);
                 }}

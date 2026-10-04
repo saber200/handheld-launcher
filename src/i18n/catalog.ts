@@ -167,6 +167,7 @@ export type Catalog = {
     modsInstalledLegacy: string;
     modsHook: string;
     modsHookHint: string;
+    modsLatest: string;
     modsConflict: (name: string) => string;
     modsArch: (name: string) => string;
     modsRunning: string;
@@ -299,6 +300,10 @@ export type Catalog = {
     extracting: (name: string) => string;
     extractDone: (files: number, dir: string) => string;
     extractFailed: (name: string, detail: string) => string;
+    compress: string;
+    compressing: (count: number) => string;
+    compressDone: (items: number, archive: string) => string;
+    compressFailed: (detail: string) => string;
     showHidden: string;
     hideHidden: string;
     keyboard: string;
@@ -565,6 +570,7 @@ export const zh: Catalog = {
     modsInstalledLegacy: "已安装（旧版装的，没有完整记录）",
     modsHook: "注入文件名",
     modsHookHint: "默认 dxgi；游戏自带 dxgi.dll 或已被别的 Mod 占用时改选 winmm.dll。",
+    modsLatest: "最新",
     modsConflict: (name) => `目录里已经有一个 ${name}（不是我们装的）：会被备份后覆盖，卸载时还原。`,
     modsArch: (name) => `${name} 是 32 位程序，OptiScaler 只有 64 位版，装进去游戏会起不来。`,
     modsRunning: "游戏正在运行，先退出再装。",
@@ -697,6 +703,10 @@ export const zh: Catalog = {
     extracting: (name) => `正在解压「${name}」…`,
     extractDone: (files, dir) => `解压完成：${files} 个文件 → ${dir}`,
     extractFailed: (name, detail) => `解压「${name}」失败：${detail}`,
+    compress: "压缩成 zip",
+    compressing: (count) => `正在压缩 ${count} 项…`,
+    compressDone: (items, archive) => `已压缩 ${items} 项 → ${archive}`,
+    compressFailed: (detail) => `压缩失败：${detail}`,
     showHidden: "显示隐藏",
     hideHidden: "不显示隐藏",
     keyboard: "软键盘",
@@ -964,6 +974,7 @@ export const en: Catalog = {
     modsInstalledLegacy: "Installed (legacy install, no full record)",
     modsHook: "Hook file name",
     modsHookHint: "dxgi by default; pick winmm.dll if the game ships its own dxgi.dll or another mod uses it.",
+    modsLatest: "Latest",
     modsConflict: (name) => `This folder already has ${name} (not ours): it will be backed up, and restored on uninstall.`,
     modsArch: (name) => `${name} is 32-bit. OptiScaler is x64-only and would stop the game from starting.`,
     modsRunning: "The game is running. Quit it first.",
@@ -1096,6 +1107,10 @@ export const en: Catalog = {
     extracting: (name) => `Extracting “${name}”…`,
     extractDone: (files, dir) => `Extracted ${files} files → ${dir}`,
     extractFailed: (name, detail) => `Couldn't extract “${name}”: ${detail}`,
+    compress: "Zip these",
+    compressing: (count) => `Compressing ${count} items…`,
+    compressDone: (items, archive) => `Zipped ${items} items → ${archive}`,
+    compressFailed: (detail) => `Compress failed: ${detail}`,
     showHidden: "Show hidden",
     hideHidden: "Hide hidden",
     keyboard: "Keyboard",

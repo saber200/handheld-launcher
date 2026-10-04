@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref 
 import { FilePicker } from "../files/FilePicker";
 import { setLibraryActions } from "../library/actions";
 import { useLibraryGroups } from "../library/useLibraryGroups";
-import { DEFAULT_MOD_HOOK, type ModStatus } from "../library/useLocalLibrary";
+import { DEFAULT_MOD_HOOK, type ModStatus, type ModVersion } from "../library/useLocalLibrary";
 import type { PickedProgram } from "../library/useLocalLibrary";
 import { useModProgress } from "../library/useModProgress";
 import { text } from "../i18n";
@@ -34,9 +34,11 @@ type Props<T extends Item> = {
   onRestore?: (id: string) => string;
   onSteamCover?: (id: string, appId: string) => string | Promise<string>;
   /** Games only: install mods / tools (OptiScaler) for this game. */
-  onInstallMods?: (id: string, hook: string) => string | Promise<string>;
+  onInstallMods?: (id: string, hook: string, version?: string) => string | Promise<string>;
   /** Games only: what's installed right now / can it be installed（点开菜单时问一次）。 */
   onModStatus?: (id: string, hook: string) => Promise<ModStatus | null>;
+  /** Games only: 能装的版本列表（拿不到就空数组，按「装最新」走）。 */
+  onModVersions?: () => Promise<ModVersion[]>;
   /** Games only: uninstall OptiScaler and restore the overwritten files. */
   onUninstallMods?: (id: string) => string | Promise<string>;
   /** Games only: 打断正在下载的安装。 */
@@ -61,6 +63,7 @@ export function LibraryShelf<T extends Item>({
   onSteamCover,
   onInstallMods,
   onModStatus,
+  onModVersions,
   onUninstallMods,
   onCancelMods,
   onScan,
@@ -92,6 +95,9 @@ export function LibraryShelf<T extends Item>({
   const [modState, setModState] = useState<ModStatus | null>(null);
   const [modLoading, setModLoading] = useState(false);
   const [modHook, setModHook] = useState(DEFAULT_MOD_HOOK);
+  const [modVersions, setModVersions] = useState<ModVersion[]>([]);
+  // null = 装最新（默认）。选老版本时才带上 tag。
+  const [modTag, setModTag] = useState<string | null>(null);
   const [modBusy, setModBusy] = useState(false);
   const modProgress = useModProgress();
   const modRef = useRef<HTMLButtonElement>(null);
@@ -501,6 +507,27 @@ export function LibraryShelf<T extends Item>({
                 {modState?.conflict && (
                   <p className="group-empty">{text().library.modsConflict(modState.conflict)}</p>
                 )}
+                {!modState?.installed && modVersions.length > 1 && (
+                  <div className="library-tools">
+                    {modVersions.map((entry) => {
+                      // 默认装最新（tag = null），选老版本才带 tag。
+                      const tag = entry.latest ? null : entry.tag;
+                      return (
+                        <button
+                          key={entry.tag}
+                          type="button"
+                          className={`library-tool${modTag === tag ? " is-current" : ""}`}
+                          data-focusable
+                          onClick={() => setModTag(tag)}
+                        >
+                          {entry.latest
+                            ? `v${entry.version} · ${text().library.modsLatest}`
+                            : `v${entry.version}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <p className="group-empty">{text().library.modsWarn}</p>
               </>
             )}
@@ -557,7 +584,7 @@ export function LibraryShelf<T extends Item>({
                       onClick={() => {
                         const id = modFor.id;
                         setModBusy(true);
-                        void Promise.resolve(onInstallMods(id, modHook)).then((message) => {
+                        void Promise.resolve(onInstallMods(id, modHook, modTag ?? undefined)).then((message) => {
                           setHint(message);
                           setModBusy(false);
                           if (onModStatus) void onModStatus(id, modHook).then(setModState);
@@ -808,6 +835,9 @@ export function LibraryShelf<T extends Item>({
                       setModFor({ id, name: item ? library.names[id] || item.name : id });
                       setModState(null);
                       setModHook(DEFAULT_MOD_HOOK);
+                      setModTag(null);
+                      // 版本列表与状态一起问：列表拿不到就按「装最新」走，不挡路。
+                      void onModVersions?.().then(setModVersions);
                       // 先问状态：装哪儿、装了没有、会不会冲突 —— 让用户带着事实决定，
                       // 而不是点一下才发现装到了别的目录（老实现就是闷着装的）。
                       if (onModStatus) {

@@ -94,6 +94,11 @@ description = "Extract a zip or 7z archive next to itself."
 commands.allow = ["file_extract"]
 
 [[permission]]
+identifier = "allow-file-compress"
+description = "Zip the selected items next to themselves."
+commands.allow = ["file_compress"]
+
+[[permission]]
 identifier = "allow-files-show-keyboard"
 description = "Open the Windows touch keyboard."
 commands.allow = ["files_show_keyboard"]
