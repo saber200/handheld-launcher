@@ -414,6 +414,8 @@ export type Catalog = {
     up: string;
     emptyFolder: string;
     emptyHint: string;
+    /** 位置读不出来时的补一句（盘拔了 / 权限没了 —— 和「空文件夹」不是一回事）。 */
+    emptyReadFailHint: string;
     unselect: (name: string) => string;
     select: (name: string) => string;
     dirMark: string;
@@ -1169,6 +1171,7 @@ export const zh: Catalog = {
     up: "返回上一级",
     emptyFolder: "这个文件夹是空的。",
     emptyHint: "这个文件夹是空的。用上方按钮新建，或先复制一项再粘贴。",
+    emptyReadFailHint: "换个位置试试；如果是 U 盘 / SD 卡，检查它还在不在。",
     unselect: (name) => `取消选择 ${name}`,
     select: (name) => `选择 ${name}`,
     dirMark: "夹",
@@ -1907,6 +1910,7 @@ export const en: Catalog = {
     up: "Up",
     emptyFolder: "This folder is empty.",
     emptyHint: "This folder is empty. Create something above, or copy an item and paste it here.",
+    emptyReadFailHint: "Try another place; if this is a USB stick or SD card, check it's still connected.",
     unselect: (name) => `Deselect ${name}`,
     select: (name) => `Select ${name}`,
     dirMark: "D",

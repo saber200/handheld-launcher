@@ -256,7 +256,7 @@ button {
 
 .tdp-slider {
   width: 100%;
-  height: 28px;
+  height: calc(28 * var(--dp));
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
@@ -373,7 +373,7 @@ button {
 
 .library-tool {
   padding: 10px 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   border: 1px solid rgba(61, 214, 198, 0.4);
   color: var(--accent);
   background: rgba(61, 214, 198, 0.08);
@@ -453,7 +453,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 22px;
+  padding: calc(22 * var(--dp));
   border-radius: 18px;
   border: 1px solid var(--line);
   background: rgba(12, 18, 32, 0.98);
@@ -484,7 +484,7 @@ button {
 .group-name-input {
   width: 100%;
   padding: 12px 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
   color: var(--ink);
@@ -549,8 +549,8 @@ button {
   top: 10px;
   right: 10px;
   z-index: 1;
-  width: 26px;
-  height: 26px;
+  width: calc(26 * var(--dp));
+  height: calc(26 * var(--dp));
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -652,8 +652,8 @@ img.app-icon {
 .placeholder-panel {
   border: 1px dashed rgba(255, 255, 255, 0.18);
   border-radius: var(--radius);
-  padding: 28px;
-  max-width: 640px;
+  padding: calc(28 * var(--dp));
+  max-width: calc(640 * var(--dp));
   background: rgba(0, 0, 0, 0.18);
 }
 
@@ -672,7 +672,7 @@ img.app-icon {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 720px;
+  max-width: calc(720 * var(--dp));
 }
 
 .setting-row {
@@ -682,7 +682,7 @@ img.app-icon {
   gap: 16px;
   width: 100%;
   text-align: left;
-  padding: 18px 20px;
+  padding: calc(18 * var(--dp)) calc(20 * var(--dp));
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
@@ -722,10 +722,10 @@ img.app-icon {
 }
 
 .switch {
-  min-width: 48px;
+  min-width: calc(48 * var(--dp));
   text-align: center;
   padding: 8px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-tag);
   border: 1px solid var(--line);
   color: var(--muted);
   transition:
@@ -802,7 +802,7 @@ img.app-icon {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 140px;
+  min-width: calc(140 * var(--dp));
   border-radius: 12px;
   padding: 10px;
   background-color: rgb(28 39 59 / 98%);
@@ -825,8 +825,8 @@ img.app-icon {
 }
 
 .power-toggle {
-  width: 44px;
-  height: 44px;
+  width: calc(44 * var(--dp));
+  height: calc(44 * var(--dp));
   font-size: 20px;
 }
 
@@ -871,8 +871,8 @@ img.app-icon {
 .file-mark {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: calc(36 * var(--dp));
+  height: calc(36 * var(--dp));
   flex-shrink: 0;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.06);
@@ -925,7 +925,7 @@ img.app-icon {
 
 .file-editor {
   width: 100%;
-  min-height: 280px;
+  min-height: calc(280 * var(--dp));
   resize: none;
   padding: 16px;
   border-radius: 14px;
@@ -1035,7 +1035,7 @@ img.app-icon {
   flex-direction: column;
   gap: 4px;
   flex: 1;
-  min-width: 180px;
+  min-width: calc(180 * var(--dp));
   color: var(--muted);
   font-size: 13px;
 }
@@ -1050,7 +1050,7 @@ img.app-icon {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 180px;
+  max-height: calc(180 * var(--dp));
   overflow: auto;
   margin: 0;
   padding: 0 2px;
@@ -1092,7 +1092,7 @@ img.app-icon {
   flex-direction: column;
   gap: 8px;
   margin: 0;
-  max-height: 380px;
+  max-height: calc(380 * var(--dp));
   overflow: auto;
 }
 
@@ -1103,7 +1103,7 @@ img.app-icon {
 
 .file-props-list dt {
   flex-shrink: 0;
-  width: 96px;
+  width: calc(96 * var(--dp));
   color: var(--muted);
   font-size: 14px;
 }
@@ -1120,8 +1120,8 @@ img.app-icon {
   flex-direction: column;
   gap: 6px;
   flex: 1;
-  min-height: 120px;
-  max-height: 360px;
+  min-height: calc(120 * var(--dp));
+  max-height: calc(360 * var(--dp));
   overflow: auto;
   padding: 2px;
 }
@@ -1130,7 +1130,7 @@ img.app-icon {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 9px 12px;
+  padding: calc(9 * var(--dp)) calc(12 * var(--dp));
   border-radius: 12px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
@@ -1165,7 +1165,7 @@ img.app-icon {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 380px;
+  max-height: calc(380 * var(--dp));
   overflow: auto;
 }
 
@@ -1202,7 +1202,7 @@ img.app-icon {
 .group-chip {
   flex-shrink: 0;
   padding: 8px 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   border: 1px solid var(--line);
   color: var(--muted);
   background: rgba(255, 255, 255, 0.04);
@@ -1227,7 +1227,7 @@ img.app-icon {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 280px;
+  width: calc(280 * var(--dp));
   transform: translateX(-50%);
   padding: 12px 16px 18px;
   background: rgba(11, 18, 32, 0.96);
@@ -1245,7 +1245,7 @@ img.app-icon {
 
 .gamepad-key {
   flex: 1;
-  height: 52px;
+  height: calc(52 * var(--dp));
   padding: 0 10px;
   border-radius: 10px;
   border: 1px solid var(--line);

@@ -151,7 +151,16 @@ export function FilePane({
         ))}
       </div>
       {rows.length === 0 ? (
-        <p className="k7-empty">{text().files.emptyHint}</p>
+        // 空 vs 读不了：读失败时**不写**「这个文件夹是空的」—— 那是假话（盘拔了、
+        // 权限没了都走这条）。这里把真原因写出来，再给一条能走的路。
+        browser.loadError ? (
+          <p className="k7-empty is-error">
+            {browser.loadError}
+            <em className="k7-empty-hint">{text().files.emptyReadFailHint}</em>
+          </p>
+        ) : (
+          <p className="k7-empty">{text().files.emptyHint}</p>
+        )
       ) : (
         <div
           className={layout === "grid" ? "k7-grid motion-stagger" : "k7-list motion-stagger"}

@@ -580,6 +580,14 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
     preview ? [] : cachedRows(cacheKey, lastListing(cacheKey)?.location ?? null),
   );
   const [note, setNote] = useState("");
+  /**
+   * 当前这个位置**读失败**的原因（FUTURE.md 功能 14 第 15 条）。
+   *
+   * 为什么单独一个 state，而不是只往 `note` 里塞一句话：列表读不出来时，`.k7-empty`
+   * 还在写「这个文件夹是空的」—— 那是假话（盘拔了、权限没了都会走这条）。分开之后
+   * 面板能说清楚是「空」还是「读不了」，再给一句往哪走。
+   */
+  const [loadError, setLoadError] = useState("");
   const [clip, setClip] = useState<Clip | null>(null);
   const [pendingFocus, setPendingFocus] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>(() => loadSort().key);
@@ -608,10 +616,12 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
         rememberRows(cacheKey, path, rows);
         setNativeEntries(rows);
         setRowsFor(path);
+        setLoadError("");
       } catch (err) {
         setNativeEntries([]);
         setRowsFor(path);
         const message = toFileError(err).message;
+        setLoadError(message);
         setNote((current) => (current ? `${current}\n${message}` : message));
       }
     },
@@ -632,12 +642,15 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
           rememberRows(cacheKey, location, rows);
           setNativeEntries(rows);
           setRowsFor(location);
+          setLoadError("");
         }
       } catch (err) {
         if (!cancel) {
           setNativeEntries([]);
           setRowsFor(location);
-          setNote(toFileError(err).message);
+          const message = toFileError(err).message;
+          setLoadError(message);
+          setNote(message);
         }
       }
     })();
@@ -1166,6 +1179,7 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
     crumbs,
     entries,
     note,
+    loadError,
     clip,
     pendingFocus,
     clearPendingFocus: useCallback(() => setPendingFocus(""), []),

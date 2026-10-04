@@ -424,6 +424,20 @@
   font-size: var(--font-body);
 }
 
+/* 读不出来（不是「空」）：`warning` 色 + 下面那句「怎么办」。
+   两者共用 `.k7-empty` 的盒子，所以布局一点不变，只是话说得不一样。 */
+.k7-empty.is-error {
+  color: var(--warning);
+}
+
+.k7-empty-hint {
+  display: block;
+  margin-top: calc(6 * var(--dp));
+  color: var(--ink-3);
+  font-style: normal;
+  font-size: var(--font-caption);
+}
+
 
 /* ── 文件表 ── */
 /* 表头三列的 x 是画板实测值（相对表格左缘 476）：名称 +16、大小 +396、修改时间 +506。
