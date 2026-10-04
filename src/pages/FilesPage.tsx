@@ -6,6 +6,7 @@ import {
   jobId,
   toFileError,
   useFileBrowser,
+  isArchiveName,
   type Conflict,
   type FileEntry,
   type FileErrorInfo,
@@ -1152,6 +1153,20 @@ export function FilesPage() {
                   {text().files.batchRename}
                 </button>
               )}
+              {targets.length === 1 && targets[0].kind === "file" && isArchiveName(targets[0].name) && (
+                <button
+                  type="button"
+                  className="library-tool"
+                  data-focusable
+                  onClick={() => {
+                    const entry = targets[0];
+                    setMenu(null);
+                    void active.extract(entry);
+                  }}
+                >
+                  {text().files.extract}
+                </button>
+              )}
               <button
                 type="button"
                 className="library-tool"
@@ -1785,12 +1800,27 @@ export function FilesPage() {
                 onClick={() => {
                   const targetsToDelete = trash;
                   setTrash(null);
+                  // 彻底删除：跳过回收站，删了就找不回来。
+                  void active.remove(targetsToDelete, true);
+                  if (activePane === "left") void right.reload();
+                  else void left.reload();
+                }}
+              >
+                {text().files.deletePermanent}
+              </button>
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => {
+                  const targetsToDelete = trash;
+                  setTrash(null);
                   void active.remove(targetsToDelete);
                   if (activePane === "left") void right.reload();
                   else void left.reload();
                 }}
               >
-                {text().delete}
+                {text().files.deleteRecycle}
               </button>
             </div>
           </div>

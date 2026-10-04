@@ -291,6 +291,14 @@ export type Catalog = {
     cannotDeleteHere: string;
     deletedOne: (name: string) => string;
     deletedMany: (count: number) => string;
+    recycledOne: (name: string) => string;
+    recycledMany: (count: number) => string;
+    deletePermanent: string;
+    deleteRecycle: string;
+    extract: string;
+    extracting: (name: string) => string;
+    extractDone: (files: number, dir: string) => string;
+    extractFailed: (name: string, detail: string) => string;
     previewOpen: string;
     opened: (name: string) => string;
     copyName: (stem: string, n: number, ext: string) => string;
@@ -640,7 +648,7 @@ export const zh: Catalog = {
     deleteTitle: "删除",
     deleteOne: (name) => `删除「${name}」？`,
     deleteMany: (count) => `删除已选的 ${count} 项？`,
-    deleteBody: "会从磁盘删除，文件夹会连同里面的内容一起删除。",
+    deleteBody: "默认放进回收站（网络盘、超过回收站上限的会直接删除）；也可以选彻底删除，那就找不回来了。文件夹会连同里面的内容一起。",
     editTitle: (name) => `编辑 ${name}`,
     cannotCreate: "无法新建",
     cannotEdit: "无法编辑",
@@ -676,6 +684,14 @@ export const zh: Catalog = {
     cannotDeleteHere: "不能删除这个位置。",
     deletedOne: (name) => `已删除「${name}」。`,
     deletedMany: (count) => `已删除 ${count} 项。`,
+    recycledOne: (name) => `已把「${name}」放进回收站。`,
+    recycledMany: (count) => `已把 ${count} 项放进回收站。`,
+    deletePermanent: "彻底删除",
+    deleteRecycle: "移到回收站",
+    extract: "解压",
+    extracting: (name) => `正在解压「${name}」…`,
+    extractDone: (files, dir) => `解压完成：${files} 个文件 → ${dir}`,
+    extractFailed: (name, detail) => `解压「${name}」失败：${detail}`,
     previewOpen: "浏览器预览不能调用系统打开。文本文件请用编辑。",
     opened: (name) => `已打开「${name}」。`,
     copyName: (stem, n, ext) =>
@@ -1026,7 +1042,7 @@ export const en: Catalog = {
     deleteTitle: "Delete",
     deleteOne: (name) => `Delete “${name}”?`,
     deleteMany: (count) => `Delete ${count} selected items?`,
-    deleteBody: "This deletes it from disk. A folder takes its contents with it.",
+    deleteBody: "The default moves it to the recycle bin (network drives and oversized items are deleted outright). You can also delete permanently, which can't be undone. A folder takes its contents with it.",
     editTitle: (name) => `Edit ${name}`,
     cannotCreate: "Couldn't create",
     cannotEdit: "Couldn't edit",
@@ -1062,6 +1078,14 @@ export const en: Catalog = {
     cannotDeleteHere: "This location can't be deleted.",
     deletedOne: (name) => `Deleted “${name}”.`,
     deletedMany: (count) => `Deleted ${count} items.`,
+    recycledOne: (name) => `Moved “${name}” to the recycle bin.`,
+    recycledMany: (count) => `Moved ${count} items to the recycle bin.`,
+    deletePermanent: "Delete permanently",
+    deleteRecycle: "Move to recycle bin",
+    extract: "Extract",
+    extracting: (name) => `Extracting “${name}”…`,
+    extractDone: (files, dir) => `Extracted ${files} files → ${dir}`,
+    extractFailed: (name, detail) => `Couldn't extract “${name}”: ${detail}`,
     previewOpen: "Browser preview can't open files with the system. Edit text files instead.",
     opened: (name) => `Opened “${name}”.`,
     copyName: (stem, n, ext) =>

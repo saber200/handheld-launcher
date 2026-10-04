@@ -180,12 +180,19 @@ fn copy_entry(from: String, dest_dir: String) -> Result<(), FileError> {
     copy_path(&from, &dest).map_err(|err| FileError::io("无法复制", "Couldn't copy", &err))
 }
 
-#[tauri::command]
-pub async fn file_delete(path: String) -> Result<(), FileError> {
-    worker(move || delete_entry(path)).await
+/// 删除结果：告诉前端到底进没进回收站 —— 两种情况的提示文案不一样。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteOutcome {
+    pub recycled: bool,
 }
 
-fn delete_entry(path: String) -> Result<(), FileError> {
+#[tauri::command]
+pub async fn file_delete(path: String, permanent: Option<bool>) -> Result<DeleteOutcome, FileError> {
+    worker(move || delete_entry(path, permanent.unwrap_or(false))).await
+}
+
+fn delete_entry(path: String, permanent: bool) -> Result<DeleteOutcome, FileError> {
     let path = PathBuf::from(path);
     if is_drive_root(&path) || std::fs::canonicalize(&path).is_ok_and(|p| is_drive_root(&p)) {
         return Err(FileError::rule(pick(
@@ -200,12 +207,293 @@ fn delete_entry(path: String) -> Result<(), FileError> {
         ));
     }
     reject_reparse_dir(&path)?;
+    // 默认走回收站：删错了还能捞回来。
+    // 为什么失败不自动退回「直接删」：用户要的是回收站，悄悄彻底删掉比报错更糟。
+    if !permanent {
+        return match recycle_path(&path) {
+            Ok(()) => Ok(DeleteOutcome { recycled: true }),
+            Err(err) => Err(FileError::io(
+                "无法移到回收站",
+                "Couldn't move to the recycle bin",
+                &err,
+            )),
+        };
+    }
     let removed = if path.is_dir() {
         std::fs::remove_dir_all(&path)
     } else {
         std::fs::remove_file(&path)
     };
-    removed.map_err(|err| FileError::io("无法删除", "Couldn't delete", &err))
+    removed.map_err(|err| FileError::io("无法删除", "Couldn't delete", &err))?;
+    Ok(DeleteOutcome { recycled: false })
+}
+
+/// 走 shell 的回收站删除（`FOF_ALLOWUNDO`）。
+///
+/// 为什么不用 `remove_dir_all`：那是永久删除（老实现就是这样，删错了没得救）。
+/// 注意 shell 只保证「能进就进」：网络盘、回收站配额不够、路径超过 MAX_PATH 时
+/// 会失败或直接删掉，所以前端文案只说「放进了回收站」而不是「可以还原」。
+#[cfg(windows)]
+fn recycle_path(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{
+        SHFileOperationW, SHFILEOPSTRUCTW, FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION,
+        FOF_NOERRORUI, FOF_SILENT,
+    };
+
+    // SHFileOperation 要的是「双 0 结尾」的路径列表，少了最后那个 0 会把后面的内存当路径读。
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    wide.push(0);
+    // 静默 + 不弹确认：确认由我们自己的对话框给，不给用户弹两个。
+    let flags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI) as u16;
+    let mut op = SHFILEOPSTRUCTW {
+        hwnd: std::ptr::null_mut(),
+        wFunc: FO_DELETE,
+        pFrom: wide.as_ptr(),
+        pTo: std::ptr::null(),
+        fFlags: flags,
+        fAnyOperationsAborted: 0,
+        hNameMappings: std::ptr::null_mut(),
+        lpszProgressTitle: std::ptr::null(),
+    };
+    let code = unsafe { SHFileOperationW(&mut op) };
+    if code != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("shell code {code}"),
+        ));
+    }
+    if op.fAnyOperationsAborted != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "aborted",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn recycle_path(_path: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no recycle bin here",
+    ))
+}
+
+/// 解压结果：解到哪儿、里面多少个文件（前端提示行要说清楚）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractOutcome {
+    pub dir: String,
+    pub files: u64,
+}
+
+#[tauri::command]
+pub async fn file_extract(archive: String) -> Result<ExtractOutcome, FileError> {
+    worker(move || extract_archive(archive)).await
+}
+
+fn extract_archive(archive: String) -> Result<ExtractOutcome, FileError> {
+    let source = PathBuf::from(&archive);
+    if !source.is_file() {
+        return Err(FileError::new(
+            "missing",
+            pick("找不到这个压缩包", "Couldn't find that archive."),
+        ));
+    }
+    let kind = archive_kind(&source).ok_or_else(|| {
+        FileError::rule(pick(
+            "现在只支持 zip 和 7z 两种压缩包",
+            "Only zip and 7z archives are supported.",
+        ))
+    })?;
+    let parent = source.parent().ok_or_else(|| {
+        FileError::rule(pick(
+            "不能在盘符根目录解压",
+            "Can't extract at a volume root.",
+        ))
+    })?;
+    let dest = fresh_dir(parent, &source)?;
+    std::fs::create_dir_all(&dest).map_err(|err| {
+        FileError::io("无法创建解压目录", "Couldn't create the extract folder", &err)
+    })?;
+    match kind {
+        ArchiveKind::Zip => expand_zip(&source, &dest)?,
+        ArchiveKind::SevenZip => expand_7z(&source, &dest)?,
+    }
+    Ok(ExtractOutcome {
+        dir: dest.display().to_string(),
+        files: count_files(&dest),
+    })
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ArchiveKind {
+    Zip,
+    SevenZip,
+}
+
+/// 按扩展名认压缩包。`tar.gz` 这类暂不支持 —— 认不出来比猜错好。
+fn archive_kind(path: &Path) -> Option<ArchiveKind> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    match ext.as_str() {
+        "zip" => Some(ArchiveKind::Zip),
+        "7z" => Some(ArchiveKind::SevenZip),
+        _ => None,
+    }
+}
+
+/// 解压目录 = 压缩包同名的**新目录**（和资源管理器一个习惯）：这样不会盖住已有文件。
+/// 同名就加 ` (2)`、` (3)`…
+fn fresh_dir(parent: &Path, source: &Path) -> Result<PathBuf, FileError> {
+    let stem = source
+        .file_stem()
+        .map(|value| value.to_string_lossy().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "extracted".to_string());
+    for index in 0..50 {
+        let name = if index == 0 {
+            stem.clone()
+        } else {
+            format!("{stem} ({})", index + 1)
+        };
+        let candidate = parent.join(&name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(FileError::rule(pick(
+        "同名目录太多了，先清理一下再解压",
+        "Too many folders with that name; clean up and retry.",
+    )))
+}
+
+/// 压缩包里的条目名想跑到解压目录外面（绝对路径 / `..` / `C:foo` 这种写法）
+/// —— 恶意压缩包最经典的招数，解压前先挡住。
+fn is_escaping_name(name: &str) -> bool {
+    let normalized = name.replace('\\', "/");
+    if normalized.starts_with('/') {
+        return true;
+    }
+    if normalized.split('/').any(|part| part == "..") {
+        return true;
+    }
+    matches!(normalized.as_bytes(), [letter, b':', ..] if letter.is_ascii_alphabetic())
+}
+
+fn count_files(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                total += 1;
+            }
+        }
+        // 十万个还数不完就别数了：这只是给提示行用的一句话，不值得为它扫一整个目录树。
+        if total > 100_000 {
+            break;
+        }
+    }
+    total
+}
+
+#[cfg(windows)]
+fn expand_zip(archive: &Path, dest: &Path) -> Result<(), FileError> {
+    // zip 交给 PowerShell 的 `Expand-Archive`：底层 .NET 的 `ExtractToDirectory`
+    // 会拒绝「解出来跑到目标目录外面」的条目，自己解析 zip 还得管压缩方式与文件名编码。
+    let script = format!(
+        "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+        escape_ps(archive),
+        escape_ps(dest)
+    );
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|err| FileError::io("无法启动解压程序", "Couldn't start the extractor", &err))?;
+    if status.success() {
+        return Ok(());
+    }
+    Err(FileError::new(
+        "other",
+        pick(
+            &format!(
+                "解压失败（PowerShell 退出码 {:?}）：压缩包可能加密或损坏",
+                status.code()
+            ),
+            &format!(
+                "Extract failed (PowerShell exit {:?}): the archive may be encrypted or damaged",
+                status.code()
+            ),
+        ),
+    ))
+}
+
+/// 7z 用纯 Rust 解（官方包常带 BCJ2 这类过滤器，PowerShell 解不了）。
+#[cfg(windows)]
+fn expand_7z(archive: &Path, dest: &Path) -> Result<(), FileError> {
+    // 先只看条目名（读元数据，不解压）：sevenz-rust2 不保证拒绝写到目标目录外的名字。
+    let listing = sevenz_rust2::Archive::open(archive).map_err(|err| {
+        FileError::new(
+            "other",
+            pick(
+                &format!("读不出这个 7z：{err}"),
+                &format!("Couldn't read this 7z: {err}"),
+            ),
+        )
+    })?;
+    if let Some(bad) = listing
+        .files
+        .iter()
+        .find(|entry| is_escaping_name(&entry.name))
+    {
+        return Err(FileError::rule(pick(
+            &format!("压缩包里的路径指向目录外（{}），已阻止解压", bad.name),
+            &format!(
+                "The archive points outside the folder ({}); extract blocked",
+                bad.name
+            ),
+        )));
+    }
+    // 目标要是绝对路径，且不允许含 `..`（库自己的要求）。
+    let dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
+    sevenz_rust2::decompress_file(archive, &dest).map_err(|err| {
+        FileError::new(
+            "other",
+            pick(
+                &format!("解压失败：{err}"),
+                &format!("Extract failed: {err}"),
+            ),
+        )
+    })
+}
+
+#[cfg(not(windows))]
+fn expand_zip(_archive: &Path, _dest: &Path) -> Result<(), FileError> {
+    Err(FileError::rule(pick(
+        "解压只能在 Windows 上使用",
+        "Extracting only works on Windows.",
+    )))
+}
+
+#[cfg(not(windows))]
+fn expand_7z(_archive: &Path, _dest: &Path) -> Result<(), FileError> {
+    Err(FileError::rule(pick(
+        "解压只能在 Windows 上使用",
+        "Extracting only works on Windows.",
+    )))
+}
+
+#[cfg(windows)]
+fn escape_ps(path: &Path) -> String {
+    path.to_string_lossy().replace('\'', "''")
 }
 
 fn is_drive_root(path: &Path) -> bool {
@@ -1664,10 +1952,12 @@ fn part_path(dest: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        check_name, copy_path, dir_sizes, file_delete, file_move, io_reason, is_drive_root,
-        is_editable_name, is_system_dir, part_path, read_text, relative_dir, rename_many,
-        run_transfer, sibling_name, Conflict, FileError, RenamePair, Runner, TransferProgress,
+        archive_kind, check_name, copy_path, dir_sizes, file_delete, file_move, fresh_dir,
+        io_reason, is_drive_root, is_editable_name, is_escaping_name, is_system_dir, part_path,
+        read_text, relative_dir, rename_many, run_transfer, sibling_name, ArchiveKind, Conflict,
+        FileError, RenamePair, Runner, TransferProgress,
     };
+    use std::path::Path;
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
 
@@ -1789,11 +2079,28 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.txt");
         std::fs::write(&file, "x").unwrap();
-        block_on(file_delete(file.display().to_string())).unwrap();
+        // 测试里走「彻底删除」这条路：回收站是 Windows shell 的功能，macOS 上必然失败，
+        // 这里要验的是删除本身的守卫（盘符根拦住、删完文件不在了）。
+        block_on(file_delete(file.display().to_string(), Some(true))).unwrap();
         assert!(!file.exists());
-        let refusal = block_on(file_delete("C:\\".into())).unwrap_err();
+        let refusal = block_on(file_delete("C:\\".into(), Some(true))).unwrap_err();
         assert!(refusal.message.contains("盘符"), "{refusal:?}");
         assert_eq!(refusal.reason, "rule");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 默认（不传 permanent）走回收站：非 Windows 上拿不到回收站，必须报错而不是偷偷删掉。
+    #[test]
+    fn default_delete_never_silently_becomes_permanent() {
+        if cfg!(windows) {
+            return;
+        }
+        let dir = temp_dir("delete-recycle");
+        let file = dir.join("keep.txt");
+        std::fs::write(&file, "x").unwrap();
+        let refusal = block_on(file_delete(file.display().to_string(), None)).unwrap_err();
+        assert_eq!(refusal.reason, "other", "{refusal:?}");
+        assert!(file.exists(), "报错了就不能把文件删掉");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2015,5 +2322,54 @@ mod tests {
         assert!(rows.is_empty(), "取消后一个都不该算：{rows:?}");
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn only_zip_and_7z_are_archives() {
+        assert!(matches!(
+            archive_kind(Path::new("/tmp/a.zip")),
+            Some(ArchiveKind::Zip)
+        ));
+        assert!(matches!(
+            archive_kind(Path::new("/tmp/a.7Z")),
+            Some(ArchiveKind::SevenZip)
+        ));
+        assert!(archive_kind(Path::new("/tmp/a.rar")).is_none());
+        assert!(archive_kind(Path::new("/tmp/a.tar.gz")).is_none());
+        assert!(archive_kind(Path::new("/tmp/a")).is_none());
+    }
+
+    #[test]
+    fn extract_target_is_a_new_folder_next_to_the_archive() {
+        let root = temp_dir("extract-target");
+        let archive = root.join("pack.zip");
+        std::fs::write(&archive, b"x").unwrap();
+
+        let first = fresh_dir(&root, &archive).unwrap();
+        assert_eq!(first, root.join("pack"));
+        // 同名目录已经在了：不能往里盖，换个名字。
+        std::fs::create_dir_all(&first).unwrap();
+        let second = fresh_dir(&root, &archive).unwrap();
+        assert_eq!(second, root.join("pack (2)"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 恶意压缩包的经典招数：条目名跑出解压目录。这些名字必须在解压前就被挡下。
+    #[test]
+    fn blocks_entry_names_that_escape_the_target() {
+        assert!(is_escaping_name("../evil.exe"));
+        assert!(is_escaping_name("..\\evil.exe"));
+        assert!(is_escaping_name("a/../../evil.exe"));
+        assert!(is_escaping_name("/etc/passwd"));
+        assert!(is_escaping_name("\\\\server\\share\\x"));
+        assert!(is_escaping_name("C:evil.exe"));
+        assert!(is_escaping_name("C:\\Windows\\evil.dll"));
+
+        assert!(!is_escaping_name("pack/readme.txt"));
+        assert!(!is_escaping_name("readme.txt"));
+        assert!(!is_escaping_name("a b/c d.txt"));
+        // 文件名里带点、带连字符都正常。
+        assert!(!is_escaping_name("v1.2.3/setup-x64.exe"));
     }
 }

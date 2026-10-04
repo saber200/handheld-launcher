@@ -133,6 +133,11 @@ function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+export function isArchiveName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.endsWith(".zip") || lower.endsWith(".7z");
+}
+
 export function checkFileName(name: string): string | null {
   const t = text().files;
   const trimmed = name.trim();
@@ -900,7 +905,8 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
   );
 
   const remove = useCallback(
-    async (items: FileEntry[]) => {
+    /** `permanent` = 不经过回收站。默认走回收站：掌机上删错东西太容易了。 */
+    async (items: FileEntry[], permanent = false) => {
       if (items.length === 0) return;
       if (preview) {
         let next = tree;
@@ -923,10 +929,15 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
         return;
       }
       let done = 0;
+      let recycled = false;
       let failure = "";
       for (const entry of items) {
         try {
-          await invoke("file_delete", { path: entry.path });
+          const outcome = await invoke<{ recycled: boolean }>("file_delete", {
+            path: entry.path,
+            permanent,
+          });
+          recycled = outcome?.recycled ?? false;
           done += 1;
         } catch (err) {
           failure = toFileError(err).message;
@@ -939,13 +950,41 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
           ? done > 0
             ? `${t.deletedMany(done)} ${failure}`
             : failure
-          : items.length === 1
-            ? t.deletedOne(items[0].name)
-            : t.deletedMany(items.length),
+          : recycled
+            ? items.length === 1
+              ? t.recycledOne(items[0].name)
+              : t.recycledMany(done)
+            : items.length === 1
+              ? t.deletedOne(items[0].name)
+              : t.deletedMany(items.length),
       );
       await reloadNative(location);
     },
     [location, preview, reloadNative, tree],
+  );
+
+  /** 解压到压缩包旁边的同名新目录（后端决定名字，名字撞了就加序号）。 */
+  const extract = useCallback(
+    async (entry: FileEntry) => {
+      if (preview) {
+        setNote(text().files.previewHint);
+        return;
+      }
+      const t = text().files;
+      setNote(t.extracting(entry.name));
+      try {
+        const outcome = await invoke<{ dir: string; files: number }>("file_extract", {
+          archive: entry.path,
+        });
+        setNote(t.extractDone(outcome.files, outcome.dir));
+        await reloadNative(location);
+      } catch (err) {
+        // 解压失败时后端会留下一个空目录（已经 create_dir_all 了），重载一下让用户看见它。
+        await reloadNative(location);
+        setNote(t.extractFailed(entry.name, toFileError(err).message));
+      }
+    },
+    [location, preview, reloadNative],
   );
 
   const openExternal = useCallback(
@@ -1097,6 +1136,7 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
     writeText,
     openExternal,
     remove,
+    extract,
     rename,
     renameMany,
     properties,
