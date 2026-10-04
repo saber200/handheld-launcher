@@ -158,6 +158,15 @@ button {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  /* 焦点环外扩 7dp（4dp 间隔 + 3dp 环），而抽屉的行是满宽的、滚动体原先又没有内边距 ——
+     环会被 overflow 裁掉（自动巡检发现的，和侧栏、分组 chip 行同一类问题）。
+     左右补 7dp + 负外边距收回：行的位置和宽度一个像素不变，滚动盒宽出的 14dp 落在抽屉
+     自己 24px 的内边距里。
+     上下不配负外边距（盒子会被撑出抽屉 7dp，透明那一条会盖住页脚点击），只在**下面**
+     直接加 7dp 内边距当滚动余量：body 是 flex: 1 的滚动体，内边距只缩内容盒、不往外撑；
+     不加的话 1080p 下电源那一排的环正好贴在底边被切（上面那圈由 .settings-list 的间距兜着）。 */
+  padding: 0 calc(7 * var(--dp)) calc(7 * var(--dp));
+  margin: 0 calc(-7 * var(--dp));
 }
 
 /* 前端浮层/抽屉的样式（.frontend-shell*、.frontend-preview、.frontend-section-title、
@@ -1510,7 +1519,12 @@ img.app-icon {
   gap: 8px;
   min-width: 0;
   overflow-x: auto;
-  padding: 2px;
+  /* 焦点环画在 chip 盒子外面（4dp 间隔 + 3dp 环 = 7dp），滚动容器按内边距盒裁切 ——
+     这里原先只有 2px，首尾 chip 的环会被切掉（用户 2026-10-04 截图反馈）。
+     补一圈 7dp 内边距、再用负外边距收回去：chip 位置不变，只是滚动盒大一圈把环装进去。
+     注意这会把这行的高度从 32 收到 28，K1 那边在 .k1-strip-wrap 的 margin-top 里补了回来。 */
+  padding: calc(7 * var(--dp));
+  margin: calc(-7 * var(--dp));
 }
 
 .group-chip {

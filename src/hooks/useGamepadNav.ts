@@ -274,13 +274,107 @@ export function leaveTextEntry(): boolean {
   return true;
 }
 
+/**
+ * 「每个焦点域里上次停在那一项」—— 只在**候选已经被筛过一层**之后用来二次挑选：
+ * 从侧栏按右回内容区时，chip 行与卡片条都算「当前选中项」，几何上 chip 更近，
+ * 但用户想回去的是刚才那张卡。见 nearestSideways。
+ *
+ * 只记真在某个域里的元素。换页把页面卸载掉后这些节点还留在 Map 里，但它们已经不在
+ * visibleFocusables() 里（offsetParent 为 null），选候选时根本不会出现；用前再查一次 isConnected。
+ */
+const lastInZone = new Map<string, HTMLElement>();
+
+function rememberZone(el: HTMLElement | null | undefined) {
+  if (!el || !el.isConnected) return;
+  const zone = focusZone(el);
+  if (zone) lastInZone.set(zone, el);
+}
+
 function focusWithSfx(el: HTMLElement | null | undefined) {
   if (!el) return;
-  const before = document.activeElement;
+  const before = document.activeElement as HTMLElement | null;
+  rememberZone(before); // 离开的那一项属于它的域
   el.focus();
+  rememberZone(el);
   if (document.activeElement === el && document.activeElement !== before) {
     playSfx("click");
   }
+}
+
+/** 两个盒子在纵向有重叠 = 视觉上算「同一行」。留 1px 容差，免得亚像素舍入把同一行判成两行。 */
+function overlapsVertically(a: DOMRect, b: DOMRect) {
+  return a.bottom > b.top + 1 && a.top < b.bottom - 1;
+}
+
+/** 这个池子是不是「单列」（所有项横向基本重合，比如侧栏）。 */
+function isSingleColumn(pool: HTMLElement[], current: DOMRect) {
+  return pool.every((el) => {
+    const r = el.getBoundingClientRect();
+    return Math.abs(r.left - current.left) < Math.max(r.width, current.width) / 2;
+  });
+}
+
+/**
+ * 横向跨域用的候选挑选（侧栏 ←→ 内容区）。
+ *
+ * 只在 dx 那一侧找，逐级收窄：
+ *   1. 先只留「当前选中项」（`.is-current` / `[aria-selected]`）—— 卡片条正在显示的那张卡、
+ *      侧栏当前页那一行、当前的分组 chip；一个都没有就退回全部候选。
+ *   2. 其中「本域里上次停过的那一项」优先 —— 从侧栏按右回内容区，落回刚才那张卡，
+ *      而不是几何上更近的 chip 行（那样一按右，hero 与信息面板就换成了别的游戏）。
+ *   3. 再按几何：同一行（垂直有重叠）取横向最近的；一行都没有就取垂直中心最近的。
+ */
+function nearestSideways(
+  nodes: HTMLElement[],
+  from: HTMLElement,
+  current: DOMRect,
+  dir: number,
+): HTMLElement | null {
+  const side = nodes.filter((el) => {
+    if (el === from) return false;
+    const r = el.getBoundingClientRect();
+    // 8px 容差：跟上下跨域的 nearest() 保持一致，边框/内边距不至于把邻居挡在外面
+    return dir < 0 ? r.right <= current.left + 8 : r.left >= current.right - 8;
+  });
+  if (side.length === 0) return null;
+
+  // 卡片条的 .is-current 挂在外层 .k1-item 上（按钮是它里面的 .k1-card），
+  // 所以父元素也要认；往上再爬就太宽了（页面级容器也可能是 is-current）。
+  const marked = (el: HTMLElement) =>
+    el.matches('.is-current, [aria-current]:not([aria-current="false"]), [aria-selected="true"]') ||
+    el.parentElement?.matches(".is-current") === true;
+  const chosen = side.filter(marked);
+  const candidates = chosen.length > 0 ? chosen : side;
+
+  // ① 候选里「上次停过的那一项」优先（用户在侧栏按右，想回去的是刚才那张卡，不是最近的 chip）
+  const back = candidates.find((el) => {
+    const zone = focusZone(el);
+    return zone ? lastInZone.get(zone) === el : false;
+  });
+  if (back) return back;
+
+  // ② 否则按几何：同一行（垂直有重叠）先看横向距离，没有同一行就看垂直中心距离
+  const sameRow = candidates.filter((el) => overlapsVertically(el.getBoundingClientRect(), current));
+  const ranked = sameRow.length > 0 ? sameRow : candidates;
+
+  const gap = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    return dir < 0 ? current.left - r.right : r.left - current.right;
+  };
+  const center = current.top + current.height / 2;
+  return (
+    ranked
+      .map((el) => ({ el, r: el.getBoundingClientRect() }))
+      .sort((a, b) => {
+        const g = gap(a.el) - gap(b.el);
+        // 同一行：横向谁近谁赢；跨行：先看垂直中心距离（视线方向最近的），再看横向。
+        if (sameRow.length > 0 && g !== 0) return g;
+        const va = Math.abs(a.r.top + a.r.height / 2 - center);
+        const vb = Math.abs(b.r.top + b.r.height / 2 - center);
+        if (va !== vb) return va - vb;
+        return g;
+      })[0]?.el ?? null
+  );
 }
 
 export function moveDirectionalFocus(dx: number, dy: number) {
@@ -300,12 +394,40 @@ export function moveDirectionalFocus(dx: number, dy: number) {
   const local = pool.indexOf(nodes[index]);
 
   if (dx !== 0) {
-    const next = local + dx;
-    if (next < 0 || next >= pool.length) {
-      if (!trapped && !here) focusWithSfx(pool[(next + pool.length) % pool.length]);
+    // 不在任何域里（焦点落在没包域的东西上）：保持老行为，按 DOM 顺序在池里走。
+    if (!here) {
+      const next = local + dx;
+      if (next < 0 || next >= pool.length) {
+        if (!trapped) focusWithSfx(pool[(next + pool.length) % pool.length]);
+        return;
+      }
+      focusWithSfx(pool[next]);
       return;
     }
-    focusWithSfx(pool[next]);
+
+    const current = nodes[index].getBoundingClientRect();
+    const inside = pool[local + dx];
+    // ① 同域、同一行的邻居：卡片条、chip 行、工具栏、文件网格的同一行都走这条。
+    //    为什么先看「同一行」而不是直接用池里的下一个：池按 DOM 顺序排，侧栏这种单列里
+    //    「右」会往下跳一行（用户实测：在侧栏按右，焦点跑去下一行而不是进内容区）。
+    if (inside && overlapsVertically(inside.getBoundingClientRect(), current)) {
+      focusWithSfx(inside);
+      return;
+    }
+    // ② 这一行到头了 → 跨域：侧栏 ←→ 内容区（左右方向的「出域」）。
+    //    优先「当前选中项」，再优先「本域里上次停过的」，最后按几何（见 nearestSideways）。
+    if (!trapped) {
+      const sideways = nearestSideways(nodes, nodes[index], current, dx);
+      if (sideways) {
+        focusWithSfx(sideways);
+        return;
+      }
+    }
+    // ③ 兜底：多列域（文件网格）保住原来的池顺序行为；单列域（侧栏）按左右就什么都不做 ——
+    //    宁可不动，也不要「按右往下跳一行」。
+    if (inside && !isSingleColumn(pool, current)) {
+      focusWithSfx(inside);
+    }
     return;
   }
 
