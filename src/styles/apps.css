@@ -1,0 +1,287 @@
+/*
+ * 软件库（画板 K2）：标题 + 工具栏 + 分组 chip + 6 列卡片网格 + 底部操作条。
+ *
+ * 为什么单开一个文件：global.css 里那套 `.library-*`（旧网格卡片、胶囊按钮）从 M2 起只剩
+ * 文件页在用（M3 一起收），K2 的形状和 K1 差得远（没有 hero、没有横向卡片条，卡片是
+ * 「包头行 / 图标区 / 名称 / 底部行」四段竖排），所以新页面单独一份，旧文件一个选择器都不动。
+ * 写法与 games.css 一致：几何一律 `calc(N * var(--dp))`，数字取自改造包 §4.1 / §2.2
+ * 与画板 K2 的实测坐标（下面每条都写了实测值，方便以后核对）。
+ */
+.k2-page {
+  position: relative;
+  /* 和 K1 同样的理由：`.page` 是 flex column，横向滚动/网格内容的 min-content 会顶宽内容区 */
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* ── 头部：标题在左、工具栏在右，分组 chip 行在下面 ── */
+/* 画板实测（2× 图按 dp 换算）：标题字形 57..78.5；工具栏 32dp 高落在 52..84 —— 也就是说
+   标题那一行的高度是由工具栏（32）撑的，上内边距 8dp（44+8=52）；
+   chip 行顶 = 86（K1 是 174 —— 那 88dp 是 hero 让出来的，K2 没有 hero）；
+   **K2 的标题下面没有副标题**（实测 78.5..94.5 之间没有任何字），所以这里不画副标题。 */
+.k2-head {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  align-items: end;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--stack-lg);
+  row-gap: 0;
+  padding: calc(8 * var(--dp)) var(--safe) 0;
+}
+
+.k2-head .k2-title {
+  grid-area: 1 / 1;
+}
+
+.k2-head .k2-tools {
+  grid-area: 1 / 2;
+}
+
+.k2-title h2 {
+  margin: 0;
+  font-size: var(--font-h1);
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* chip 行：顶边落在画板 y=86（标题行盒底 83.6 + 2.4） */
+.k2-head .library-group-row {
+  grid-area: 2 / 1 / 3 / -1;
+  margin-top: calc(2 * var(--dp));
+}
+
+/* ── 6 列卡片网格（画板：卡片 152.7×176，间隙 16，第一行顶 134） ── */
+/* 6 列是算出来的不是拍的：内容区 996dp = 6×152.7 + 5×16 ✓（画板实测每张卡 302px/2=151，
+   间隙 35px/2=17.5，四舍五入到 §4.1 的 152.7 / 16）。用 minmax(0, 1fr) 让列宽随内容区走，
+   1080p 上自动等比。 */
+.k2-grid {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  /* 标题块底 114 + 20 = 画板的第一行顶 134。
+     左右是「安全边 24 − 焦点环位 7 = 17」：网格盒子比安全边宽 14dp（左右各 7），
+     再用 7dp 内边距收回去 —— 卡片的实际宽度仍是 996/6 = 152.7 ✓，环却装得进去。 */
+  margin: calc(13 * var(--dp)) calc(17 * var(--dp)) 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--gutter);
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 焦点环画在卡片盒子外面（4dp 外扩 + 3dp 描边 = 7dp），滚动容器按内边距盒裁切 ——
+     和 .rail-items / .group-strip-scroll 一个套路：补一圈 7dp 内边距再用负外边距收回去，
+     卡片的位置一个像素不变，环却装得进去（探针的「环被裁」检查盯着这条）。 */
+  padding: calc(7 * var(--dp));
+}
+
+/* ── 卡片（§4.1 的四段：包头行 20 / 图标区 58 / 名称 / 底部行） ── */
+/* 176 = 16 内边距 ×2 + 20 包头行 + 8 + 58 图标区 + 12 + 名称行 + 底部行 —— 底部行用
+   margin-top:auto 吃掉剩下的空间，所以名称再长也不会把卡片顶高（它是单行省略的）。 */
+.k2-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: calc(176 * var(--dp));
+  min-width: 0;
+  padding: var(--pad-card);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  text-align: left;
+  scroll-margin: calc(12 * var(--dp));
+}
+
+/* 包头行：状态点 + 状态字（画板实测强调点在 156..164 → 8dp 圆点，行顶 150 = 卡顶 + 16） */
+.k2-card-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--dp));
+  height: calc(20 * var(--dp));
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 状态点是规范允许的两类正圆之一（另一个是按键角标） */
+.k2-dot {
+  flex: none;
+  width: calc(8 * var(--dp));
+  height: calc(8 * var(--dp));
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+
+.k2-dot.is-running {
+  background: var(--accent);
+}
+
+/* 图标区：sunken 底 + 圆角 12，高 58（画板实测 179..235 = 56dp，取 §4.1 写的 58） */
+.k2-icon {
+  flex: none;
+  margin-top: calc(8 * var(--dp));
+  height: calc(58 * var(--dp));
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-btn);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.k2-icon-image {
+  width: calc(30 * var(--dp));
+  height: calc(30 * var(--dp));
+  object-fit: contain;
+}
+
+.k2-icon-mark {
+  width: calc(30 * var(--dp));
+  height: calc(30 * var(--dp));
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-size: calc(13 * var(--dp));
+  font-weight: 700;
+}
+
+/* 名称：单行 12dp Semibold（画板实测字形 243.5..254） */
+.k2-card-name {
+  flex: none;
+  margin-top: calc(12 * var(--dp));
+  font-size: calc(12 * var(--dp));
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 底部行：真字段（版本 · 体积），缺的那半边自己消失；两边都没有时页面干脆不渲染这个节点 */
+.k2-card-foot {
+  flex: none;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--stack);
+  min-height: calc(28 * var(--dp));
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.k2-card-facts {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k2-card-size {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.k2-card.is-picked {
+  border-color: var(--accent);
+}
+
+.k2-card:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+  box-shadow: 0 0 var(--focus-glow) var(--focus-glow-color);
+}
+
+/* ── 底部操作条（画板 y=554..602，高 48，横跨内容区安全边 = x 264..1255） ── */
+/* 画板里这条长什么样：左半边一段文字（x 290..590 那一带有字形），右边两颗按钮 ——
+   一颗 accent 填充（约 99×31）、一颗 panel-3（约 110×31）。这里放**真东西**：左边是
+   页面自己的状态行（扫描说明 / 上一步操作结果），右边两颗真按钮（重新扫描 / 添加软件）。
+   margin-top:auto 把它钉在页面底部：卡片多起来时先滚网格，这条不动。
+   为什么不用固定 554dp 定位：画板那张图只有 8 个软件（2 行），条的下方留了 70dp 空白；
+   真机上卡片数不定，钉底比钉坐标稳。 */
+.k2-bar {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  margin: auto var(--safe) calc(var(--safe) * 0.75);
+  min-height: calc(48 * var(--dp));
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.k2-bar-note {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--font-caption);
+  color: var(--ink-3);
+}
+
+.k2-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--stack);
+  height: calc(32 * var(--dp));
+  min-width: calc(96 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-3);
+  color: var(--ink);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+.k2-btn.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.k2-btn.is-primary .icon {
+  width: calc(14 * var(--dp));
+  height: calc(14 * var(--dp));
+}
+
+.k2-btn:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+.k2-btn.is-primary:focus {
+  background: var(--accent-hi);
+}
+
+.k2-btn:disabled {
+  opacity: 0.5;
+}
+
+/* 系统设了「减少动态效果」：网格的进场动画关掉（其余页面同样处理） */
+@media (prefers-reduced-motion: reduce) {
+  .k2-grid > * {
+    animation: none;
+  }
+}
+
+

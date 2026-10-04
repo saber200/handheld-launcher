@@ -387,6 +387,70 @@ const scanTabs = async () => {
       const summary = clipped.length === 0 ? "环都完整" : `新问题 ${fresh.length} 处 / 已知 ${known} 处`;
       console.log(`  【${name}】${summary}${fresh.length ? " " + fresh.map((c) => `${c.元素}←${c.被谁裁}(${c.方向})`).join("、") : ""}`);
       if (fresh.length) problems.push(`${name} 页有 ${fresh.length} 处焦点环被裁`);
+
+      // 软件库 = 画板 K2：6 列卡片网格，卡片是「包头行 / 图标区 / 名称 / 底部行」四段。
+      // 这些数字全来自改造包 §4.1（152.7×176、包头行 20、图标区 58、名称距图标区 12、
+      // 底部行距下缘 16）与画板 K2 的实测（第一行顶 134、间隙 16）。改卡片就别改期望值，
+      // 改了要在这里说明为什么。
+      if (name === "软件库") {
+        const k2 = await page.eval(`
+          const grid = document.querySelector('.k2-grid');
+          const cards = [...document.querySelectorAll('.k2-card')];
+          const bar = document.querySelector('.k2-bar');
+          if (!grid || cards.length === 0) return null;
+          const gs = getComputedStyle(grid);
+          const c = cards[0].getBoundingClientRect();
+          const second = cards[1]?.getBoundingClientRect();
+          const pick = (sel) => cards[0].querySelector(sel)?.getBoundingClientRect() ?? null;
+          const head = pick('.k2-card-head');
+          const icon = pick('.k2-icon');
+          const nameEl = pick('.k2-card-name');
+          const foot = pick('.k2-card-foot');
+          const below = cards[6]?.getBoundingClientRect() ?? null;
+          const rel = (r) => (r ? +(r.top - c.top).toFixed(2) : null);
+          return {
+            cols: gs.gridTemplateColumns.split(' ').length,
+            colGap: parseFloat(gs.columnGap) || 0,
+            cardW: +c.width.toFixed(2),
+            cardH: +c.height.toFixed(2),
+            cardY: +c.top.toFixed(2),
+            rowGap: below ? +(below.top - c.bottom).toFixed(2) : null,
+            headTop: rel(head),
+            headH: head ? +head.height.toFixed(2) : null,
+            iconTop: rel(icon),
+            iconH: icon ? +icon.height.toFixed(2) : null,
+            nameTop: rel(nameEl),
+            footGap: foot ? +(c.bottom - foot.bottom).toFixed(2) : null,
+            barH: bar ? +bar.getBoundingClientRect().height.toFixed(2) : 0,
+            title: (document.querySelector('.k2-head h2')?.textContent || '').trim(),
+            dp: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1,
+          };
+        `);
+        const d = k2 ? k2.dp : 1;
+        if (!k2) {
+          note(false, "软件库是 K2（6 列卡片网格）：找不到 .k2-grid / .k2-card");
+        } else {
+          note(k2.cols === 6, `K2 网格 6 列（实测 ${k2.cols} 列）`);
+          note(Math.abs(k2.cardW - 152.7 * d) < 3, `K2 卡片宽 152.7dp=${(152.7 * d).toFixed(1)}（实测 ${k2.cardW}）`);
+          note(Math.abs(k2.cardH - 176 * d) < 3, `K2 卡片高 176dp=${(176 * d).toFixed(1)}（实测 ${k2.cardH}）`);
+          note(Math.abs(k2.cardY - 134 * d) < 5, `K2 第一行顶 134dp=${(134 * d).toFixed(1)}（实测 ${k2.cardY}）`);
+          note(Math.abs(k2.colGap - 16 * d) < 2 && Math.abs((k2.rowGap ?? 0) - 16 * d) < 2,
+            `K2 卡片间隙 16dp（列 ${k2.colGap} / 行 ${k2.rowGap}）`);
+          note(Math.abs(k2.headTop - 16 * d) < 2 && Math.abs(k2.headH - 20 * d) < 2,
+            `K2 包头行：距卡顶 16dp、高 20dp（实测 ${k2.headTop} / ${k2.headH}）`);
+          note(Math.abs(k2.iconTop - 44 * d) < 3 && Math.abs(k2.iconH - 58 * d) < 2,
+            `K2 图标区：距卡顶 44dp、高 58dp（实测 ${k2.iconTop} / ${k2.iconH}）`);
+          note(k2.nameTop !== null && Math.abs(k2.nameTop - 114 * d) < 4,
+            `K2 名称距卡顶 114dp（实测 ${k2.nameTop}）`);
+          note(Math.abs(k2.footGap - 16 * d) < 2, `K2 底部行距卡下缘 16dp（实测 ${k2.footGap}）`);
+          note(Math.abs(k2.barH - 48 * d) < 3, `K2 底部操作条高 48dp=${(48 * d).toFixed(1)}（实测 ${k2.barH}）`);
+          note(k2.title.length > 0, `K2 头部有标题（${k2.title}）`);
+        }
+      }
+      if (SHOTS) {
+        const p = join(SHOTS, `tab-${name}-${width}x${height}.png`);
+        await page.shot(p);
+      }
     }
   } finally {
     await page.close();

@@ -270,6 +270,9 @@ export type Catalog = {
     minutes: (value: string) => string;
     stateRunning: string;
     stateIdle: string;
+    /** K2（画板）软件库：页面副标题的计数 + 卡片包头行的状态字。 */
+    appCount: (count: number) => string;
+    stateInstalled: string;
   };
   files: {
     folder: string;
@@ -726,6 +729,8 @@ export const zh: Catalog = {
     minutes: (value) => `${value} 分钟`,
     stateRunning: "运行中",
     stateIdle: "未运行",
+    appCount: (count) => `${count} 个软件`,
+    stateInstalled: "已安装",
   },
   files: {
     folder: "文件夹",
@@ -1183,6 +1188,8 @@ export const en: Catalog = {
     minutes: (value) => `${value} min`,
     stateRunning: "Running",
     stateIdle: "Not running",
+    appCount: (count) => `${count} apps`,
+    stateInstalled: "Installed",
   },
   files: {
     folder: "Folder",

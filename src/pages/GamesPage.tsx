@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Ref } from "react";
 import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
-import { LibraryShelf } from "../components/LibraryShelf";
+import { LibraryShelf, type CardOptions } from "../components/LibraryShelf";
 import { MenuIcon, PlayIcon } from "../components/NavIcons";
 import { libraryActions } from "../library/actions";
 import { formatPlaytime, formatPlaytimeAndSize, formatSize } from "../library/format";
@@ -177,8 +177,9 @@ function GameCard({
   /**
    * `"shelf"` = K1 卡片条上的样式（固定 116×146 的盒子，名字压在封面上）；
    * `"picker"`（默认）= 旧网格卡片 —— 两个选择对话框还在用它，别一起改。
+   * 取值直接借用 `CardOptions`，免得三处各写一份联合类型再各自漂移。
    */
-  variant?: "shelf" | "picker";
+  variant?: CardOptions["variant"];
   /** 聚焦卡才露「时长 · 体积」那一行（画板 §3.2）。 */
   focusedMeta?: boolean;
 }) {

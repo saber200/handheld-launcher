@@ -10,6 +10,10 @@ import "./styles/shell.css";
 // 画板 K1（游戏库）的样式：新页面按里程碑逐页迁，旧的 .library-* 还在 global.css 里，
 // 所以必须排在 global.css 之后，同优先级的覆盖才有效（见 styles/games.css 顶部说明）。
 import "./styles/games.css";
+// 画板 K2（软件库）的样式：6 列卡片网格 + 每张卡自己的四段结构，和 K1 的 hero/卡片条差得远，
+// 单开一个文件。同样排在 global.css 之后（软件库换完之后 global.css 里那套 .library-* 就只剩
+// 文件页在用，M3 一起收）。
+import "./styles/apps.css";
 import { watchUiScale } from "./styles/scale";
 
 // 设计画布是 1280×720，--dp 决定 1dp 等于几个物理 px（1080p→1.5、1440p→2.0）。

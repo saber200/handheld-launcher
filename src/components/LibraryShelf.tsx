@@ -10,16 +10,17 @@ import { playSfx } from "../audio/sfx";
 
 type Item = { id: string; name: string };
 
-type CardOptions = {
+export type CardOptions = {
   picked?: boolean;
   onPick?: () => void;
   name?: string;
   /**
    * 这张卡画在哪儿：`"shelf"` = K1 的横向卡片条（只有聚焦的那张放大、露第二行），
+   * `"grid"` = K2 软件库的页面网格（画板 §4.1 的四段卡片），
    * `"picker"` = 「添加卡片 / 从扫描添加」对话框里的网格 —— 那个沿用旧卡片样式，
-   * 不然对话框里会跟着卡片条的尺寸一起变形。
+   * 不然对话框里会跟着页面卡的尺寸一起变形。
    */
-  variant?: "shelf" | "picker";
+  variant?: "shelf" | "grid" | "picker";
   /** 这张卡是不是当前聚焦的那张（画板：只有聚焦卡露「时长 · 体积」第二行）。 */
   focused?: boolean;
 };
@@ -87,6 +88,12 @@ type Props<T extends Item> = {
    * 软件库要到 M2 才换 K2，在它换掉之前这条老路径**一行都不动**。
    */
   layout?: "grid" | "shelf";
+  /**
+   * 皮肤。`"k2"` = 画板 K2 的软件库（6 列卡片网格 + 底部操作条）。视觉与 K1 同源
+   * （同一套令牌、同样的头部结构），但内容区形状完全不同，所以页面侧单独给一份
+   * `apps.css`；不传就按 `layout` 走（shelf → K1，其余 → 旧样式，等 M3 收）。
+   */
+  skin?: "k2";
   /** 卡片条上方的页面标题（画板里是 23dp 粗体）。不传就没有标题行。 */
   heading?: string;
   /**
@@ -122,6 +129,7 @@ export function LibraryShelf<T extends Item>({
   onScan,
   scanning = false,
   layout = "grid",
+  skin,
   heading,
   renderHero,
   renderInfo,
@@ -130,6 +138,8 @@ export function LibraryShelf<T extends Item>({
 }: Props<T>) {
   const library = useLibraryGroups(kind);
   const shelf = layout === "shelf";
+  // K2 = 画板那份软件库：头部与 K1 同构，内容区换成 6 列卡片网格 + 底部操作条。
+  const k2 = skin === "k2";
   const stripRef = useRef<HTMLElement>(null);
   // 卡片条里「当前聚焦」的是哪一张：hero 换图、信息面板、操作按钮都跟着它走。
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -405,10 +415,10 @@ export function LibraryShelf<T extends Item>({
   };
 
   const chipClass = (active: boolean) =>
-    ["group-chip", shelf ? "k1-chip" : "", active ? "is-current" : ""].filter(Boolean).join(" ");
+    ["group-chip", shelf || k2 ? "k1-chip" : "", active ? "is-current" : ""].filter(Boolean).join(" ");
 
   return (
-    <main className={shelf ? "page library-page k1-page" : "page library-page"}>
+    <main className={shelf ? "page library-page k1-page" : k2 ? "page library-page k2-page" : "page library-page"}>
       {/* K1 的顶部大图铺满内容区、卡片条压在图上（画板就是这样），图本身由页面给：
           宽图 → 封面 → 程序化占位这条回退链在页面侧，这里只管换图时的交叉淡入。 */}
       {shelf && renderHero && (
@@ -418,11 +428,17 @@ export function LibraryShelf<T extends Item>({
           <span className="k1-hero-shade" />
         </div>
       )}
-      <div className={shelf ? "library-head k1-head" : "library-head"}>
+      <div className={shelf ? "library-head k1-head" : k2 ? "library-head k2-head" : "library-head"}>
         {shelf && (
           <div className="k1-title">
             <h2>{heading}</h2>
             <p className="k1-sub">{shelfSummary}</p>
+          </div>
+        )}
+        {/* K2 的标题下面没有副标题（画板实测 78.5..94.5 之间没有字），状态行在底部操作条里 */}
+        {k2 && heading && (
+          <div className="k2-title">
+            <h2>{heading}</h2>
           </div>
         )}
         <div className="library-group-row" data-focus-zone="library-groups" aria-live="polite">
@@ -442,7 +458,7 @@ export function LibraryShelf<T extends Item>({
               }}
             >
               {text().library.all}
-              {shelf && <span className="k1-chip-count tnum">{chipCount("all")}</span>}
+              {(shelf || k2) && <span className="k1-chip-count tnum">{chipCount("all")}</span>}
             </button>
             {library.groups.map((group) => (
               <button
@@ -459,14 +475,14 @@ export function LibraryShelf<T extends Item>({
                 }}
               >
                 {group.name}
-                {shelf && <span className="k1-chip-count tnum">{chipCount(group.id)}</span>}
+                {(shelf || k2) && <span className="k1-chip-count tnum">{chipCount(group.id)}</span>}
               </button>
             ))}
           </div>
           <span className="group-switch-side">RT</span>
         </div>
         </div>
-        <div className={shelf ? "library-tools k1-tools" : "library-tools"} data-focus-zone="library-tools">
+        <div className={shelf || k2 ? "library-tools k1-tools" : "library-tools"} data-focus-zone="library-tools">
           <button
             ref={createRef}
             type="button"
@@ -524,7 +540,7 @@ export function LibraryShelf<T extends Item>({
             </button>
           )}
         </div>
-        {!shelf && <p className="preview-note">{cardStatus}</p>}
+        {!shelf && !k2 && <p className="preview-note">{cardStatus}</p>}
       </div>
       {shelf ? (
         <div className="k1-strip-wrap">
@@ -567,17 +583,42 @@ export function LibraryShelf<T extends Item>({
       ) : visible.length === 0 ? null : (
         <section
           key={library.activeId}
-          className="library-grid motion-stagger"
+          className={k2 ? "k2-grid motion-stagger" : "library-grid motion-stagger"}
           data-focus-zone="library-grid"
           aria-label={label}
         >
           {visible.map((item, index) =>
             renderCard(item, index === 0 ? firstRef : undefined, {
-              variant: "picker",
+              variant: k2 ? "grid" : "picker",
               name: library.names[item.id] || item.name,
             }),
           )}
         </section>
+      )}
+      {/* K2 的底部操作条（画板 y=554..602）：左边页面自己的状态行，右边两颗真按钮。
+          画板里这条右边还有两颗按钮（一颗 accent 填充 + 一颗 panel-3），这里放的是
+          「重新扫描 / 添加软件」—— 两个能力都是现成的，只是把入口从工具栏挪到这里。 */}
+      {k2 && (
+        <div className="k2-bar" data-focus-zone="library-actions">
+          <p className="k2-bar-note">{cardStatus}</p>
+          <button
+            type="button"
+            className="k2-btn is-primary"
+            data-focusable
+            disabled={scanning}
+            onClick={onScan}
+          >
+            {text().library.rescan}
+          </button>
+          <button
+            type="button"
+            className="k2-btn"
+            data-focusable
+            onClick={() => setFileTarget({ mode: "add" })}
+          >
+            {kind === "games" ? text().library.addGame : text().library.addApp}
+          </button>
+        </div>
       )}
       {/* 信息面板 + 操作区：内容全在页面侧（游戏库才知道来源/路径/运行状态），
           这里只保证「聚焦项一变它就跟着变」。 */}
