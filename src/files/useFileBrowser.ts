@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { playSfx } from "../audio/sfx";
 import { currentLocale, text, useI18n } from "../i18n";
 
@@ -45,6 +45,14 @@ export type FileProperties = {
 
 /** Rust 侧把失败拆成「机器码 + 人话」，前端按码给不同的建议（见 files.rs::FileError）。 */
 export type FileErrorInfo = { reason: string; message: string };
+
+/**
+ * 文件夹在列表里显示的大小。文件夹的大小只能走一遍盘（后端 `file_dir_sizes`），
+ * 所以是**异步补上来**的：`complete: false` 时 `bytes` 是下限（界面加「≥」）。
+ */
+export type DirSize = { bytes: number; complete: boolean };
+
+export type DirSizeRow = DirSize & { path: string };
 
 export type Crumb = { label: string; path: string | null };
 
@@ -390,17 +398,25 @@ export function crumbsFor(location: string | null): Crumb[] {
   return out;
 }
 
-function sortRows(rows: FileEntry[], key: SortKey, dir: SortDir): FileEntry[] {
+function sortRows(
+  rows: FileEntry[],
+  key: SortKey,
+  dir: SortDir,
+  sizes: Record<string, DirSize>,
+): FileEntry[] {
   const flip = dir === "asc" ? 1 : -1;
   const extensionOf = (name: string) => {
     const dot = name.lastIndexOf(".");
     return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
   };
+  // 文件夹的大小是异步补上来的（还没算出来就是 0）；按大小排时就用它，
+  // 数字分批到位的顺序就是排序自己慢慢稳定的过程，不用额外刷新。
+  const weight = (entry: FileEntry) => (entry.kind === "dir" ? sizes[entry.path]?.bytes ?? 0 : entry.bytes);
   return [...rows].sort((a, b) => {
     // 目录永远排在前面：按时间找刚拷进来的游戏时，文件夹混在文件中间更难认。
     if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
     let order = 0;
-    if (key === "size") order = a.bytes - b.bytes;
+    if (key === "size") order = weight(a) - weight(b);
     else if (key === "time") order = a.modified - b.modified;
     else if (key === "type") order = extensionOf(a.name).localeCompare(extensionOf(b.name), currentLocale());
     if (order === 0) order = a.name.localeCompare(b.name, currentLocale());
@@ -446,6 +462,36 @@ function listingIsFresh(key: string, location: string | null): boolean {
   return Date.now() - last.at < LISTING_FRESH_MS;
 }
 
+// 文件夹大小是走盘算出来的：同一次会话里同一个目录别重复算（掌机上那几秒是实打实的），
+// 来回翻两个目录时尤其明显。但拷完东西大小就变了，所以给个 TTL，过期重算。
+// 按**路径**存（不按栏位）：左右两栏看同一个目录时共用一份结果。
+const DIR_SIZE_TTL_MS = 60_000;
+
+const sessionDirSizes = new Map<string, DirSize & { at: number }>();
+
+// 分开「已经知道的」和「要算的」：已知的直接填界面，缺的才往后端要。
+function freshDirSizes(paths: string[]): { known: Record<string, DirSize>; missing: string[] } {
+  const known: Record<string, DirSize> = {};
+  const missing: string[] = [];
+  const now = Date.now();
+  for (const path of paths) {
+    const hit = sessionDirSizes.get(path);
+    if (hit && now - hit.at < DIR_SIZE_TTL_MS) {
+      known[path] = { bytes: hit.bytes, complete: hit.complete };
+    } else {
+      missing.push(path);
+    }
+  }
+  return { known, missing };
+}
+
+function rememberDirSizes(rows: DirSizeRow[]) {
+  const at = Date.now();
+  for (const row of rows) {
+    sessionDirSizes.set(row.path, { bytes: row.bytes, complete: row.complete, at });
+  }
+}
+
 const SORT_KEY = "handheld-launcher.files.sort";
 const SORT_DIR = "handheld-launcher.files.sortDir";
 
@@ -478,11 +524,25 @@ function fileError(reason: string, message: string): FileErrorInfo {
   return { reason, message };
 }
 
-export type UseFileBrowserOptions = { cacheKey?: string };
+export type UseFileBrowserOptions = {
+  cacheKey?: string;
+  /**
+   * 要不要算文件夹大小（默认算）。选程序的那个对话框里满屏都是文件夹，而它只关心 .exe，
+   * 走盘算大小纯属白干 —— 那边传 false。
+   */
+  measureDirSizes?: boolean;
+  /**
+   * 这一栏要**换目录**了，在 `setLocation` 之前同步调一次。页面用它把「选中的东西」清掉、
+   * 退出选择模式 —— 不能等 effect：新目录的第一行会自动拿到焦点，那时要是还在选择模式，
+   * 就会顺手把第一行选上，用户看到的是一个莫名其妙的勾。
+   */
+  onNavigate?: () => void;
+};
 
 
 export function useFileBrowser(options: UseFileBrowserOptions = {}) {
   const cacheKey = options.cacheKey ?? "main";
+  const measure = options.measureDirSizes !== false;
   const { locale } = useI18n();
   const preview = !inTauri();
   const [location, setLocation] = useState<string | null>(() =>
@@ -497,6 +557,15 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
   const [pendingFocus, setPendingFocus] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>(() => loadSort().key);
   const [sortDir, setSortDir] = useState<SortDir>(() => loadSort().dir);
+  // `nativeEntries` 是**哪个目录**的内容。换目录后要等新的一批读回来，中间这段时间里
+  // 列表上还是上一级的行：算大小、落焦点都得认这个，不能认 `location`。
+  const [rowsFor, setRowsFor] = useState<string | null>(() =>
+    preview ? null : lastListing(cacheKey)?.location ?? null,
+  );
+  const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>({});
+  // `jump` 是 `[]` 依赖的回调，拿不到最新的 props：回调过一层 ref（老代码里手柄回调也这么办）。
+  const navigateRef = useRef(options.onNavigate);
+  navigateRef.current = options.onNavigate;
 
   useEffect(() => {
     if (preview) setTree(previewTree());
@@ -511,8 +580,10 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
             : await invoke<FileEntry[]>("file_list", { path });
         rememberRows(cacheKey, path, rows);
         setNativeEntries(rows);
+        setRowsFor(path);
       } catch (err) {
         setNativeEntries([]);
+        setRowsFor(path);
         const message = toFileError(err).message;
         setNote((current) => (current ? `${current}\n${message}` : message));
       }
@@ -533,10 +604,12 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
         if (!cancel) {
           rememberRows(cacheKey, location, rows);
           setNativeEntries(rows);
+          setRowsFor(location);
         }
       } catch (err) {
         if (!cancel) {
           setNativeEntries([]);
+          setRowsFor(location);
           setNote(toFileError(err).message);
         }
       }
@@ -547,8 +620,53 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
   }, [cacheKey, location, preview]);
 
   const rows = preview ? listPreview(tree, location) : nativeEntries;
-  const entries = useMemo(() => sortRows(rows, sortKey, sortDir), [rows, sortKey, sortDir]);
+  const entries = useMemo(
+    () => sortRows(rows, sortKey, sortDir, dirSizes),
+    [rows, sortKey, sortDir, dirSizes],
+  );
   const crumbs = useMemo(() => crumbsFor(location), [location, locale]);
+
+  /**
+   * 「这一栏现在显示的是哪一批行」的指纹（目录 + 每行的路径）。
+   * FilesPage 靠它知道新目录的内容**真的到了**，才动焦点：换目录那一瞬间列表上还是上一级的行，
+   * 那时候把焦点落到「第一行」等于落在旧行上，等新行到位那行就被删了 —— 焦点掉回 body，
+   * 手柄下一次按方向键就跑到页面最上面那个按钮（显示模式）去了。
+   */
+  const rowsToken = useMemo(
+    () => `${rowsFor ?? ""}\u0000${rows.map((row) => row.path).join("\n")}`,
+    [rows, rowsFor],
+  );
+
+  // 文件夹大小：进目录后后台算，算好一批填一批。走盘是秒级的活，绝不能挡在「进目录」前面；
+  // 换目录时把后端那个活儿也停掉，别让它接着走上一级的盘。
+  useEffect(() => {
+    if (!measure || preview || rowsFor !== location || location == null) return;
+    const dirs = nativeEntries.filter((entry) => entry.kind === "dir").map((entry) => entry.path);
+    if (dirs.length === 0) return;
+    const { known, missing } = freshDirSizes(dirs);
+    if (Object.keys(known).length > 0) setDirSizes((current) => ({ ...current, ...known }));
+    if (missing.length === 0) return;
+    const id = jobId("sizes");
+    let stopped = false;
+    void (async () => {
+      try {
+        const found = await invoke<DirSizeRow[]>("file_dir_sizes", { id, parent: location });
+        if (stopped) return;
+        rememberDirSizes(found);
+        setDirSizes((current) => {
+          const next = { ...current };
+          for (const row of found) next[row.path] = { bytes: row.bytes, complete: row.complete };
+          return next;
+        });
+      } catch {
+        // 算不出大小只是列表上少个数字：这不是用户点出来的操作，不弹提示打扰他。
+      }
+    })();
+    return () => {
+      stopped = true;
+      void invoke("file_cancel", { id }).catch(() => undefined);
+    };
+  }, [location, nativeEntries, preview, rowsFor, measure]);
 
   const chooseSort = useCallback(
     (key: SortKey) => {
@@ -562,6 +680,9 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
   );
 
   const jump = useCallback((path: string | null, focusName = "") => {
+    // 先告诉页面「要换目录了」：清选中、退出选择模式。必须在 `setLocation` 之前同步调，
+    // 理由见 `UseFileBrowserOptions.onNavigate`。
+    navigateRef.current?.();
     setLocation(path);
     setNote("");
     setPendingFocus(focusName);
@@ -577,7 +698,8 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
 
   const up = useCallback(() => {
     if (location == null) return false;
-    jump(parentPath(location));
+    // 返回上一级时把落点定成「刚出来的那个文件夹」：不然每次返回都从第一行重新往下按。
+    jump(parentPath(location), baseName(location));
     return true;
   }, [jump, location]);
 
@@ -935,9 +1057,21 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
     if (!preview) await reloadNative(location);
   }, [location, preview, reloadNative]);
 
+  // 预览模式（浏览器里跑）没有后端走盘，但内存树自己就知道大小，直接用它的。
+  const sizes = useMemo(() => {
+    if (!preview) return dirSizes;
+    const out: Record<string, DirSize> = {};
+    for (const row of rows) {
+      if (row.kind === "dir") out[row.path] = { bytes: row.bytes, complete: true };
+    }
+    return out;
+  }, [dirSizes, preview, rows]);
+
   return {
     preview,
     location,
+    rowsToken,
+    dirSizes: sizes,
     title: baseName(location),
     pathLabel: location ?? text().files.choosePlace,
     crumbs,

@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import { text } from "../i18n";
-import type { FileEntry, useFileBrowser } from "./useFileBrowser";
+import type { DirSize, FileEntry, useFileBrowser } from "./useFileBrowser";
 
 export type FileLayout = "list" | "grid";
 
@@ -16,6 +16,8 @@ type Props = {
   dual: boolean;
   layout: FileLayout;
   picked: string[];
+  /** 文件夹大小（按路径索引；还没算出来的不在里面）。 */
+  sizes: Record<string, DirSize>;
   selectMode: boolean;
   firstRef: RefObject<HTMLButtonElement | null>;
   listRef: RefObject<HTMLDivElement | null>;
@@ -35,9 +37,15 @@ export function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-export function formatSize(entry: FileEntry) {
-  if (entry.kind === "dir") return text().files.folder;
-  return formatBytes(entry.bytes);
+export function formatSize(entry: FileEntry, dir?: DirSize) {
+  if (entry.kind !== "dir") return formatBytes(entry.bytes);
+  // 文件夹的大小要走一遍盘，是**后台补上来**的（见 useFileBrowser 的 dirSizes）：
+  // 还没算出来就先写着「文件夹」，算不完的标「≥」（和属性面板一个口径，不装成准数）。
+  if (!dir) return text().files.folder;
+  if (!dir.complete) {
+    return dir.bytes > 0 ? text().files.sizeAtLeast(formatBytes(dir.bytes)) : text().files.folder;
+  }
+  return formatBytes(dir.bytes);
 }
 
 /** 时间戳（毫秒）→ 本机习惯的显示。取不到时间就返回「未知」。 */
@@ -58,6 +66,7 @@ export function FilePane({
   dual,
   layout,
   picked,
+  sizes,
   selectMode,
   firstRef,
   listRef,
@@ -122,6 +131,7 @@ export function FilePane({
               index={index}
               layout={layout}
               picked={picked.includes(entry.path)}
+              size={sizes[entry.path]}
               selectMode={selectMode}
               firstRef={firstRef}
               onFocusRow={onFocusRow}
@@ -143,6 +153,7 @@ type RowProps = {
   index: number;
   layout: FileLayout;
   picked: boolean;
+  size?: DirSize;
   selectMode: boolean;
   firstRef: RefObject<HTMLButtonElement | null>;
   onFocusRow: (index: number) => void;
@@ -158,6 +169,7 @@ function FileRow({
   index,
   layout,
   picked,
+  size,
   selectMode,
   firstRef,
   onFocusRow,
@@ -236,7 +248,7 @@ function FileRow({
           {entry.kind === "dir" ? text().files.dirMark : text().files.fileMark}
         </span>
         <span className={grid ? "library-name" : "file-name"}>{entry.name}</span>
-        {!grid && <span className="file-size">{formatSize(entry)}</span>}
+        {!grid && <span className="file-size">{formatSize(entry, size)}</span>}
       </button>
     </div>
   );

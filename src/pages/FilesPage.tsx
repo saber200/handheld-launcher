@@ -110,8 +110,6 @@ function batchPlan(form: BatchForm): { from: string; to: string; name: string }[
 }
 
 export function FilesPage() {
-  const left = useFileBrowser({ cacheKey: "left" });
-  const right = useFileBrowser({ cacheKey: "right" });
   const [dual, setDual] = useState(loadDual);
   const [activePane, setActivePane] = useState<PaneId>("left");
   const [layout, setLayout] = useState<FileLayout>(loadLayout);
@@ -145,6 +143,22 @@ export function FilesPage() {
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const saveRef = useRef<HTMLButtonElement>(null);
   const trashCancelRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * 丢掉这一栏的选中，并退出选择模式。两处在用：换目录（`onNavigate`）、用户按「取消全选」。
+   *
+   * 换目录**必须在导航那一刻**清掉，不能等 effect：新目录的第一行会自动拿到焦点，
+   * 那时要是还在选择模式，第一行就会被顺手选上（用户看到的是莫名其妙的勾）。
+   * 退出选择模式同样必须：留在模式里 A 只会切换选中，用户会以为文件打不开了。
+   */
+  const dropSelection = useCallback((pane: PaneId) => {
+    setPicked((current) => (current[pane].length === 0 ? current : { ...current, [pane]: [] }));
+    anchorRef.current[pane] = -1;
+    setSelectMode(false);
+  }, []);
+
+  const left = useFileBrowser({ cacheKey: "left", onNavigate: () => dropSelection("left") });
+  const right = useFileBrowser({ cacheKey: "right", onNavigate: () => dropSelection("right") });
 
   const browsers: Record<PaneId, ReturnType<typeof useFileBrowser>> = { left, right };
   const active = browsers[activePane];
@@ -587,11 +601,14 @@ export function FilesPage() {
   useEffect(() => {
     setPicked((current) => (current.left.length === 0 ? current : { ...current, left: [] }));
     anchorRef.current.left = -1;
+    // 兜底：正常换目录时 onNavigate 已经清过了，这里是为了别的路径也能收干净。
+    setSelectMode(false);
   }, [left.location]);
 
   useEffect(() => {
     setPicked((current) => (current.right.length === 0 ? current : { ...current, right: [] }));
     anchorRef.current.right = -1;
+    setSelectMode(false);
   }, [right.location]);
 
   useEffect(() => {
@@ -608,6 +625,12 @@ export function FilesPage() {
   // 换目录 / 改名 / 新建之后，把焦点放到该放的那一行上。
   // 依赖只写「会改变焦点位置」的那几项（别把整个 active 对象放进来：它每次渲染都是新的，
   // 会导致每次渲染都跑一遍，把正在按排序按钮的焦点抢走）。
+  //
+  // `active.rowsToken` 是这份依赖里最容易被漏掉、也最要命的一项：换目录后新的一批文件是
+  // **异步**回来的。只盯着 `location` 的话，effect 会在「还是上一级的行」时就跑完，焦点落在
+  // 一行马上要被删掉的旧行上；等新行到位，那行被删 → 焦点掉回 body → 手柄下一次按方向键
+  // 就从页面第一个按钮（最上面的显示模式）重新开始，用户得一路按下来。
+  // 加上指纹后，行真的换了才会再跑一次，把焦点安顿到新目录的第一行。
   useEffect(() => {
     if (dialogOpen) return;
     const pending = active.pendingFocus;
@@ -623,6 +646,7 @@ export function FilesPage() {
     const current = document.activeElement as HTMLElement | null;
     // 焦点已经在这一栏里、或者在任何焦点池（工具栏 / 排序 / 面包屑）上，就别抢：
     // 用户正按着排序按钮，焦点被拉走会被当成「按键没反应」。
+    // （列表重读把焦点删掉时 activeElement 会变回 body，body 不在任何池里，照样会走到下面。）
     if (current?.closest("[data-focus-zone]")) return;
     // 优先落进列表第一行（换目录后接着用方向键最顺）；空文件夹才退到面包屑。
     const firstRow = listOf(activePane).current?.querySelector<HTMLElement>(
@@ -634,7 +658,7 @@ export function FilesPage() {
     }
     const pane = document.querySelector<HTMLElement>(`[data-pane="${activePane}"]`);
     pane?.querySelector<HTMLElement>("[data-focusable]:not([disabled])")?.focus();
-  }, [activePane, dialogOpen, dual, layout, active.location, active.pendingFocus]);
+  }, [activePane, dialogOpen, dual, layout, active.location, active.pendingFocus, active.rowsToken]);
 
   useEffect(() => {
     if (naming) nameRef.current?.focus();
@@ -875,16 +899,17 @@ export function FilesPage() {
             {text().files.paste}
             {active.clip ? ` (${active.clip.items.length})` : ""}
           </button>
+          {/* 「全选 / 取消全选」是一颗按钮：已经选了东西就是取消（清空 + 退出选择模式），
+              什么都没选才是全选。标签和动作必须说同一件事 —— 以前 Y 菜单里写着「取消全选」、
+              按下去却是全选，用户会以为自己把整个目录选中了。 */}
           <button
             type="button"
             className="library-tool"
             data-focusable
             disabled={entries.length === 0}
-            onClick={() => selectAll(activePane)}
+            onClick={() => (pickedNow.length > 0 ? dropSelection(activePane) : selectAll(activePane))}
           >
-            {entries.length > 0 && entries.every((entry) => pickedNow.includes(entry.path))
-              ? text().files.clearSelection
-              : text().files.selectAll}
+            {pickedNow.length > 0 ? text().files.clearSelection : text().files.selectAll}
           </button>
           <button
             type="button"
@@ -920,6 +945,7 @@ export function FilesPage() {
           dual={dual}
           layout={layout}
           picked={picked.left}
+          sizes={left.dirSizes}
           selectMode={selectMode}
           firstRef={leftFirst}
           listRef={leftList}
@@ -943,6 +969,7 @@ export function FilesPage() {
             dual={dual}
             layout={layout}
             picked={picked.right}
+            sizes={right.dirSizes}
             selectMode={selectMode}
             firstRef={rightFirst}
             listRef={rightList}
@@ -1144,6 +1171,7 @@ export function FilesPage() {
               >
                 {text().files.properties}
               </button>
+              {/* 两个动作分开写死：全选永远全选，取消永远取消。 */}
               <button
                 type="button"
                 className="library-tool"
@@ -1153,8 +1181,21 @@ export function FilesPage() {
                   setMenu(null);
                 }}
               >
-                {targets.length > 1 ? text().files.clearSelection : text().files.selectAll}
+                {text().files.selectAll}
               </button>
+              {pickedNow.length > 0 && (
+                <button
+                  type="button"
+                  className="library-tool"
+                  data-focusable
+                  onClick={() => {
+                    dropSelection(activePane);
+                    setMenu(null);
+                  }}
+                >
+                  {text().files.clearSelection}
+                </button>
+              )}
             </div>
           </div>
         </div>

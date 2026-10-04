@@ -66,6 +66,7 @@
     "allow-file-rename",
     "allow-file-rename-many",
     "allow-file-properties",
+    "allow-file-dir-sizes",
     "allow-file-search",
     "allow-file-transfer",
     "allow-file-cancel"

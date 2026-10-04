@@ -745,12 +745,16 @@ pub struct FileProperties {
     pub protected: bool,
 }
 
-fn dir_bytes(path: &Path) -> (u64, bool) {
-    let started = std::time::Instant::now();
+/// 走盘算大小的预算。属性面板给一个文件夹 3 秒；文件列表一屏几十个文件夹**共用**同一个
+/// 截止时间（见 `dir_sizes`）—— 掌机上不能因为某个几万文件的目录让「进目录」一直转。
+const DIR_SIZE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// 走一遍目录算总大小。`deadline` 是共用截止时间：超了就返回下限（`false`）。
+fn dir_bytes_until(path: &Path, deadline: std::time::Instant) -> (u64, bool) {
     let mut stack = vec![path.to_path_buf()];
     let mut total = 0u64;
     while let Some(dir) = stack.pop() {
-        if started.elapsed() > std::time::Duration::from_secs(3) {
+        if std::time::Instant::now() >= deadline {
             return (total, false);
         }
         let Ok(read) = std::fs::read_dir(&dir) else {
@@ -765,6 +769,11 @@ fn dir_bytes(path: &Path) -> (u64, bool) {
         }
     }
     (total, true)
+}
+
+/// 属性面板用：单个文件夹，自己一份预算。
+fn dir_bytes(path: &Path) -> (u64, bool) {
+    dir_bytes_until(path, std::time::Instant::now() + DIR_SIZE_BUDGET)
 }
 
 fn is_hidden(path: &Path, meta: &std::fs::Metadata) -> bool {
@@ -863,6 +872,61 @@ fn inspect(path: &Path) -> Result<FileProperties, FileError> {
         write_reason,
         protected: is_protected(path),
     })
+}
+
+/// 文件列表里「文件夹多大」。文件夹的大小只能走一遍盘才知道，所以是**异步补上来**的：
+/// `complete: false` 表示预算用完没走完（`bytes` 是下限，前端加「≥」）；`bytes = 0` 且没走完
+/// 表示压根没轮到算（前端先不显示数字）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirSize {
+    pub path: String,
+    pub bytes: u64,
+    pub complete: bool,
+}
+
+/// 算一屏文件夹的大小。走 worker 线程、可取消（前端换目录时 `file_cancel`），
+/// 所以列目录本身永远是瞬时的，大小是一个个补上来的。
+#[tauri::command]
+pub async fn file_dir_sizes(id: String, parent: String) -> Result<Vec<DirSize>, FileError> {
+    let token = job_start(&id);
+    let found = worker(move || dir_sizes(Path::new(&parent), &token)).await;
+    job_finish(&id);
+    found
+}
+
+/// 只算**直接子文件夹**，而且不跟进链接（junction 可能指回自己，也可能让同一份数据被算两遍）。
+/// 所有子文件夹共用一份预算：一屏里前几个很大的目录不会把后面全拖成「没算」。
+fn dir_sizes(parent: &Path, token: &Arc<AtomicBool>) -> Result<Vec<DirSize>, FileError> {
+    if !parent.is_dir() {
+        return Ok(Vec::new());
+    }
+    let read = std::fs::read_dir(parent)
+        .map_err(|err| FileError::io("无法读取文件夹", "Couldn't read the folder", &err))?;
+    let dirs: Vec<PathBuf> = read
+        .flatten()
+        .map(|item| item.path())
+        .filter(|path| path.is_dir() && !is_reparse(path))
+        .collect();
+    let deadline = std::time::Instant::now() + DIR_SIZE_BUDGET;
+    let mut out = Vec::with_capacity(dirs.len());
+    for dir in dirs {
+        // 取消 = 前端已经换目录了：剩下的没必要再走盘。
+        if token.load(Ordering::Relaxed) {
+            break;
+        }
+        let (bytes, complete) = if std::time::Instant::now() < deadline {
+            dir_bytes_until(&dir, deadline)
+        } else {
+            (0, false)
+        };
+        out.push(DirSize {
+            path: dir.display().to_string(),
+            bytes,
+            complete,
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -1600,9 +1664,9 @@ fn part_path(dest: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        check_name, copy_path, file_delete, file_move, io_reason, is_drive_root, is_editable_name,
-        is_system_dir, part_path, read_text, relative_dir, rename_many, run_transfer, sibling_name,
-        Conflict, FileError, RenamePair, Runner, TransferProgress,
+        check_name, copy_path, dir_sizes, file_delete, file_move, io_reason, is_drive_root,
+        is_editable_name, is_system_dir, part_path, read_text, relative_dir, rename_many,
+        run_transfer, sibling_name, Conflict, FileError, RenamePair, Runner, TransferProgress,
     };
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
@@ -1911,5 +1975,45 @@ mod tests {
             ),
             "存档/2024"
         );
+    }
+
+    /// 「文件夹显示多大」：只算直接子文件夹、子目录里的文件也要算进去，普通文件不出现。
+    #[test]
+    fn dir_sizes_counts_direct_subfolders_only() {
+        let root = temp_dir("dir-sizes");
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        std::fs::write(root.join("a").join("x.bin"), vec![7u8; 4096]).unwrap();
+        std::fs::create_dir_all(root.join("b").join("deep")).unwrap();
+        std::fs::write(root.join("b").join("deep").join("y.bin"), vec![7u8; 1024]).unwrap();
+        std::fs::write(root.join("note.txt"), b"hi").unwrap();
+
+        let token = Arc::new(AtomicBool::new(false));
+        let rows = dir_sizes(&root, &token).unwrap();
+        assert_eq!(rows.len(), 2, "只有文件夹算大小：{rows:?}");
+        assert!(rows.iter().all(|row| row.complete));
+        let size_of = |name: &str| {
+            rows.iter()
+                .find(|row| row.path.ends_with(name))
+                .map(|row| row.bytes)
+                .unwrap_or_default()
+        };
+        assert_eq!(size_of("a"), 4096);
+        assert_eq!(size_of("b"), 1024, "子目录里的文件也要算进去");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 取消标记一置上，剩下的文件夹就不再走盘（换目录时前端就是这么叫停的）。
+    #[test]
+    fn dir_sizes_stops_when_cancelled() {
+        let root = temp_dir("dir-sizes-cancel");
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        std::fs::create_dir_all(root.join("b")).unwrap();
+
+        let token = Arc::new(AtomicBool::new(true));
+        let rows = dir_sizes(&root, &token).unwrap();
+        assert!(rows.is_empty(), "取消后一个都不该算：{rows:?}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -16,7 +16,8 @@ function canLaunch(entry: FileEntry, preview: boolean) {
 }
 
 export function FilePicker({ title, onClose, onPick }: Props) {
-  const files = useFileBrowser();
+  // 这里只挑 .exe：别为满屏文件夹白走一遍盘算大小。
+  const files = useFileBrowser({ measureDirSizes: false });
   const listRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;

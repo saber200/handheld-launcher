@@ -179,6 +179,7 @@ pub fn run() {
             files::file_rename,
             files::file_rename_many,
             files::file_properties,
+            files::file_dir_sizes,
             files::file_search,
             files::file_transfer,
             files::file_cancel

@@ -69,6 +69,11 @@ description = "Read size, dates, attributes and writability."
 commands.allow = ["file_properties"]
 
 [[permission]]
+identifier = "allow-file-dir-sizes"
+description = "Measure the subfolders of a folder (cancellable, time budgeted)."
+commands.allow = ["file_dir_sizes"]
+
+[[permission]]
 identifier = "allow-file-search"
 description = "Search a folder tree by name."
 commands.allow = ["file_search"]

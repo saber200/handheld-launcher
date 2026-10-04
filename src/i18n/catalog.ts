@@ -200,6 +200,7 @@ export type Catalog = {
   };
   files: {
     folder: string;
+    sizeAtLeast: (size: string) => string;
     file: string;
     drives: string;
     back: string;
@@ -562,6 +563,7 @@ export const zh: Catalog = {
   },
   files: {
     folder: "文件夹",
+    sizeAtLeast: (size) => `≥ ${size}`,
     file: "文件",
     drives: "盘",
     back: "返回",
@@ -925,6 +927,7 @@ export const en: Catalog = {
   },
   files: {
     folder: "Folder",
+    sizeAtLeast: (size) => `≥ ${size}`,
     file: "File",
     drives: "Disk",
     back: "Back",
