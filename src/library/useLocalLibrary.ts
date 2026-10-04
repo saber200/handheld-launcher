@@ -378,12 +378,19 @@ function formatError(err: unknown): string {
   return text().library.failed;
 }
 
+/**
+ * 扫描结果缓存的键。**`v2` 是 2026-10-04 加的**：那一版给扫描结果加了「体积 / 时长 / 版本」
+ * 三个字段，而 localStorage 里存的还是老结构（没有这三个字段）—— 不改键的话，升级后
+ * 界面会一直用老缓存、卡片和面板上的新数据永远是空的（用户会当成坏了），要他自己点
+ * 「重新扫描」才恢复。加个版本号让老缓存直接作废，升级后第一次进库自然重扫一次。
+ * 以后**改扫描结果的结构就把它 +1**。
+ */
 function scanCacheKey(command: string) {
-  return `handheld-launcher.scan.${command}`;
+  return `handheld-launcher.scan.v2.${command}`;
 }
 
 function scanStampKey(command: string) {
-  return `handheld-launcher.scan.${command}.checked`;
+  return `handheld-launcher.scan.v2.${command}.checked`;
 }
 
 /// How long a finished scan counts as "already followed up". Covers and icons

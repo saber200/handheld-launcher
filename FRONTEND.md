@@ -33,6 +33,7 @@ M0 定的顺序里的第一页：游戏库换成画板 K1 的横向卡片条。*
 - **localconfig 为什么要单独解析**：`scan.rs` 里那个 `vdf_pairs` 是**扁平**的（只认 key/value、不看 `{}`），而 localconfig 里 `apps` 下面每个 appid 一个块、多个 appid 都有 `Playtime` —— 扁平解析得到一串无主的 Playtime。`playtimes_from_localconfig` 是一台认 `{` `}` 的小状态机，只认「`apps` 的子块里的 Playtime」这一种形状（少认几层，Steam 换层级也不会整个失效）；4 个单测在本机跑（纯函数），读文件/读注册表那几行是 `#[cfg(windows)]`，只能靠 CI 编。
 - **K1 上怎么摆**：只有**聚焦卡**露第二行「时长 · 体积」（`CardOptions.focused` 由 `LibraryShelf` 传下来）；卡片上加 `has-facts` 时才把 `.library-name` 抬到 `bottom: 24dp`、第二行贴底 —— 名称是 `-webkit-line-clamp` 的多行块，直接塞进文档流会让聚焦/未聚焦两态封面高度不一致。信息面板只是多两行 dt/dd（占用空间 / 总时长），面板高度因此 138 → 168dp（画板四格那种紧凑排法我们没照抄）。
 - **`scripts/probe-ui.mjs` 的两条新断言**：聚焦卡第二行必须在卡内且不压住名称；信息面板的 dt/dd 必须成对。改卡片底部这一块之后跑它，比肉眼可靠。
+- **扫描结果存在 localStorage，键里带 schema 版本（`handheld-launcher.scan.v2.<命令>`）**：加了字段就得把这个版本号 +1，否则升级后老缓存没有新字段、界面上那几格永远空着，用户会当成坏了（`useLocalLibrary.ts` 的 `scanCacheKey` 上写着这条）。
 
 ## 未发布：界面大改 M1 修正（2026-10-04，用户截图反馈）
 
