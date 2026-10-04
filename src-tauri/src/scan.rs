@@ -235,12 +235,52 @@ fn path_under(path: &str, dir: &str) -> bool {
     !path.is_empty() && !dir.is_empty() && (path == dir || path.starts_with(&format!("{dir}\\")))
 }
 
-fn protocol_url(id: &str) -> Option<String> {
-    if let Some(appid) = id.strip_prefix("steam:") {
-        if !appid.is_empty() && appid.chars().all(|c| c.is_ascii_digit()) {
-            return Some(format!("steam://rungameid/{appid}"));
+/// `steam:730` → `Some("730")`。不是 Steam 或 appid 不是纯数字 → `None`
+/// （appid 会拼进命令行，非数字一律不收）。
+/// 只被 `protocol_url` / Windows 那半边用，本机编译时同样按「只在测试里用」处理。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn steam_appid(id: &str) -> Option<&str> {
+    let appid = id.strip_prefix("steam:")?;
+    (!appid.is_empty() && appid.chars().all(|c| c.is_ascii_digit())).then_some(appid)
+}
+
+/// Steam 静默启动的开关：`-silent` 让客户端不弹主窗口（待在托盘），`-applaunch <appid>` 直接起游戏。
+///
+/// 为什么不再直接用 `steam://rungameid/<appid>`：那是把 URL 交给 shell 处理，Steam 没在跑时会
+/// 先把主窗口（没登录时还有登录框）弹到前台 —— 掌机上就是「点了游戏先跳出 Steam」。
+/// 抽成纯函数是为了本机（macOS）也能断言：Windows 那半边编不了，删掉 `-silent` 没人看得出来。
+/// 只有 Windows 那半边会调它，本机编译时按「只在测试里用」处理，不去污染 clippy 输出。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn steam_silent_args(appid: &str) -> [String; 3] {
+    ["-silent".to_string(), "-applaunch".to_string(), appid.to_string()]
+}
+
+/// 从候选里挑第一个真实存在的 `steam.exe`。注册表可能写目录（`SteamPath` / `InstallPath`），
+/// 也可能直接写 exe（`SteamExe`），所以目录要自己补上 `steam.exe`，文件名也再验一遍 ——
+/// 挑到别的 exe 的后果是静默启动悄悄退化成弹窗。纯函数，本机能测。
+/// （签名里写全 `std::path::PathBuf`：`PathBuf` 的 import 在 Windows 那个 cfg 里，本机看不到它。）
+#[cfg_attr(not(windows), allow(dead_code))]
+fn pick_steam_exe(candidates: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    for candidate in candidates {
+        let path = if candidate.is_dir() {
+            candidate.join("steam.exe")
+        } else {
+            candidate.clone()
+        };
+        let named_right = path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("steam.exe"));
+        if named_right && path.is_file() {
+            return Some(path);
         }
-        return None;
+    }
+    None
+}
+
+fn protocol_url(id: &str) -> Option<String> {
+    if id.starts_with("steam:") {
+        // 无效的 steam id 就是「没有可用的协议地址」，调用方会据此报错。
+        return steam_appid(id).map(|appid| format!("steam://rungameid/{appid}"));
     }
     if let Some(app) = id.strip_prefix("epic:") {
         let safe = !app.is_empty()
@@ -750,9 +790,66 @@ mod windows {
         }
     }
 
+    /// steam.exe 可能在哪儿：注册表里 `SteamExe` 直接是 exe，`SteamPath` / `InstallPath` 是目录；
+    /// 最后两个默认安装位置是「注册表被清理过但 Steam 确实装在默认路径」时的兜底（都得先过
+    /// `pick_steam_exe` 的存在性检查，写错路径不会误伤）。
+    fn steam_exe_hints() -> Vec<PathBuf> {
+        let mut hints = Vec::new();
+        push_reg_path(
+            HKEY_CURRENT_USER,
+            r"Software\Valve\Steam",
+            "SteamExe",
+            &mut hints,
+        );
+        push_reg_path(
+            HKEY_CURRENT_USER,
+            r"Software\Valve\Steam",
+            "SteamPath",
+            &mut hints,
+        );
+        push_reg_path(
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Valve\Steam",
+            "InstallPath",
+            &mut hints,
+        );
+        push_reg_path(
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Valve\Steam",
+            "InstallPath",
+            &mut hints,
+        );
+        hints.push(PathBuf::from(r"C:\Program Files (x86)\Steam"));
+        hints.push(PathBuf::from(r"C:\Program Files\Steam"));
+        hints
+    }
+
+    /// `steam.exe -silent -applaunch <appid>`。
+    ///
+    /// 边界（真机上要按这个口径验）：`-silent` 只对「Steam 启动那一刻」有效。客户端已经开着
+    /// 主窗口时，这次调用等于给它发一条 applaunch，它的窗口该开着还开着 —— 我们**不强行最小化**，
+    /// 因为那时弹出来的可能是登录框或更新提示，把它藏起来比多一个窗口更让人摸不着头脑。
+    fn applaunch_silently(exe: &Path, appid: &str) -> Result<(), String> {
+        std::process::Command::new(exe)
+            .args(steam_silent_args(appid))
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
     pub fn launch(id: &str, launch_path: &str, install_path: &str) -> Result<(), String> {
         if id.starts_with("steam:") {
-            let url = protocol_url(id).ok_or_else(|| pick("无效的 Steam 游戏", "That Steam game isn't valid."))?;
+            let invalid = || pick("无效的 Steam 游戏", "That Steam game isn't valid.");
+            let appid = steam_appid(id).ok_or_else(invalid)?;
+            // 先试静默启动；找不到客户端或起不来才退回协议地址 ——
+            // 宁可弹一次 Steam 窗口，也不能点了没反应。
+            if let Some(exe) = super::pick_steam_exe(&steam_exe_hints()) {
+                if applaunch_silently(&exe, appid).is_ok() {
+                    return Ok(());
+                }
+            }
+            let url = protocol_url(id).ok_or_else(invalid)?;
             return shell_open(&url);
         }
         if let Some(url) = protocol_url(id) {
@@ -1280,6 +1377,47 @@ mod tests {
         );
         assert_eq!(protocol_url("epic:{GUID}"), None);
         assert_eq!(protocol_url("app:hklm:Steam"), None);
+    }
+
+    /// Steam 游戏走 `steam.exe -silent -applaunch`（不弹客户端窗口）。这条断言防的是有人
+    /// 顺手把 `-silent` 删回「直接丢 steam://rungameid」—— 那种改动在 macOS 上编得过、看不出来。
+    #[test]
+    fn steam_games_launch_silently() {
+        assert_eq!(
+            steam_silent_args("730"),
+            ["-silent".to_string(), "-applaunch".to_string(), "730".to_string()]
+        );
+        assert_eq!(steam_appid("steam:730"), Some("730"));
+        assert_eq!(steam_appid("steam:"), None);
+        assert_eq!(steam_appid("steam:12a"), None);
+        assert_eq!(steam_appid("epic:Fortnite"), None);
+    }
+
+    /// 候选里挑 steam.exe：目录要补上 `steam.exe`、名字不对 / 不存在的一律跳过。
+    /// 挑错的后果是静默启动悄悄退化成弹窗，所以这条在本机（macOS）就要盯住。
+    #[test]
+    fn picks_only_a_real_steam_exe() {
+        let dir = std::env::temp_dir().join(format!("hl-steam-exe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("steam.exe");
+        std::fs::write(&fake, b"MZ").unwrap();
+        let other = dir.join("other.exe");
+        std::fs::write(&other, b"MZ").unwrap();
+
+        assert_eq!(
+            pick_steam_exe(std::slice::from_ref(&dir)),
+            Some(fake.clone()),
+            "目录候选要补 steam.exe"
+        );
+        assert_eq!(pick_steam_exe(&[other]), None, "名字不对不能当成 steam.exe");
+        assert_eq!(
+            pick_steam_exe(&[std::path::PathBuf::from("Z:\\no-such-steam")]),
+            None
+        );
+        assert_eq!(pick_steam_exe(&[]), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
