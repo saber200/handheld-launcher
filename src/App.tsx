@@ -11,6 +11,7 @@ import { BootSplash } from "./components/BootSplash";
 import { GamepadKeyboard } from "./components/GamepadKeyboard";
 import { closeGamepadKeyboard, gamepadKeyboardOpen, moveDirectionalFocus, steerFocus, useGamepadNav } from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
+import { useFileJobs } from "./files/useFileJobs";
 import { libraryActions } from "./library/actions";
 import { NAV, NAV_ROUTES, type TabId } from "./types";
 import { BatteryIcon, GamepadIcon, LockIcon, NavIcon, SearchIcon } from "./components/NavIcons";
@@ -27,6 +28,44 @@ import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
  * 最近启动记录、存储容量、续航读数、以及把 OptiScaler / 运行库 / 前端的安装进度收成一个
  * 任务模型。这一版**只放入口和一句实话**：摆一排假卡片、按下去没反应，比明说"排期中"更糟。
  */
+/**
+ * 侧栏「文件」入口上的进度环（改造包 §4.2）。
+ *
+ * 为什么只改侧栏这一处：用户切去游戏库看一眼的时候，恰恰是最需要知道「还在搬」的时刻 ——
+ * 而这一版的任务进度只画在文件页里，切走就看不见。侧栏是**每一页都在**的那块地方。
+ *
+ * 多任务时显示的是总体进度（字节加权；算不出字节就按条数），和任务中心一个口径。
+ */
+function RailProgress() {
+  const jobs = useFileJobs().filter((job) => job.phase === "scan" || job.phase === "run");
+  if (jobs.length === 0) return null;
+  const totalBytes = jobs.reduce((sum, job) => sum + Math.max(job.totalBytes, 0), 0);
+  const doneBytes = jobs.reduce((sum, job) => sum + Math.min(job.bytes, job.totalBytes), 0);
+  const totalItems = jobs.reduce((sum, job) => sum + Math.max(job.itemTotal, 1), 0);
+  const doneItems = jobs.reduce((sum, job) => sum + job.itemsDone, 0);
+  const ratio =
+    totalBytes > 0 ? doneBytes / totalBytes : totalItems > 0 ? doneItems / totalItems : 0;
+  const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  const radius = 7;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <span className="nav-progress" role="status" aria-label={`${percent}%`}>
+      <svg className="nav-progress-ring" viewBox="0 0 18 18" aria-hidden>
+        <circle className="nav-progress-track" cx="9" cy="9" r={radius} />
+        <circle
+          className="nav-progress-fill"
+          cx="9"
+          cy="9"
+          r={radius}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - ratio)}
+        />
+      </svg>
+      <span className="nav-progress-text tnum">{percent > 99 ? "✓" : percent}</span>
+    </span>
+  );
+}
+
 function ScheduledPage({ kind }: { kind: "home" | "downloads" }) {
   const m = text().scheduled;
   return (
@@ -365,6 +404,8 @@ export default function App() {
                 >
                   <NavIcon id={item.id} />
                   <span className="nav-label">{label}</span>
+                  {/* 侧栏唯一为任务层加的东西：文件入口上的进度环（改造包 §4.2）。 */}
+                  {item.id === "files" && <RailProgress />}
                   {locked && (
                     <span className="nav-lock" aria-hidden>
                       <LockIcon />

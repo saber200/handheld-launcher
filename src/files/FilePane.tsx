@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import { text } from "../i18n";
 import { FileIcon, FolderIcon } from "../components/NavIcons";
+import { THUMB_LIST, isImageName, useThumb } from "./thumbs";
 import type { DirSize, FileEntry, SortKey, useFileBrowser } from "./useFileBrowser";
 
 export type FileLayout = "list" | "grid";
@@ -214,6 +215,24 @@ function FileRow({
 }: RowProps) {
   const grid = layout === "grid";
   const glyph = entry.kind === "dir" ? <FolderIcon /> : <FileIcon />;
+  // 图片行显示真缩略图（改造包 §3.1 的 32×32 块）。只对图片要，别的类型问也白问；
+  // 失败/还没好就退回图标 —— 文件列表永远不该等一张图。
+  const thumb = useThumb(
+    entry.kind === "file" && isImageName(entry.name) ? entry.path : null,
+    THUMB_LIST,
+  );
+  const face = thumb.src ? (
+    <img className={grid ? "k7-tile-thumb" : "k7-row-thumb"} src={thumb.src} alt="" />
+  ) : (
+    <span
+      className={
+        grid ? (entry.kind === "dir" ? "k7-tile-face is-dir" : "k7-tile-face") : "k7-row-icon"
+      }
+      aria-hidden
+    >
+      {glyph}
+    </span>
+  );
   return (
     <div className={grid ? "k7-tile-wrap" : "k7-row-wrap"}>
       {/* 勾选框只在选择模式里出现：画板 K7 的行是「图标 + 名称 + 大小 + 时间」四列，
@@ -274,17 +293,13 @@ function FileRow({
       >
         {grid ? (
           <>
-            <span className={entry.kind === "dir" ? "k7-tile-face is-dir" : "k7-tile-face"} aria-hidden>
-              {glyph}
-            </span>
+            {face}
             <span className="k7-tile-name">{entry.name}</span>
           </>
         ) : (
           <>
             <span className="k7-row-main">
-              <span className="k7-row-icon" aria-hidden>
-                {glyph}
-              </span>
+              {face}
               <span className="k7-row-name">{entry.name}</span>
             </span>
             <span className="k7-row-size tnum">{formatSize(entry, size)}</span>

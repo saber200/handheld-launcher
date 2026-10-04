@@ -17,6 +17,9 @@ import "./styles/apps.css";
 // 画板 K7（文件页）的样式：面包屑行 + 位置栏 + 文件表 + 底部操作条。旧 `.file-*` 现在只剩
 // 「选择程序」对话框（FilePicker）在用，所以这一份也是整页独立的。同样排在 global.css 之后。
 import "./styles/files.css";
+// 文件管理增强（任务入口 / 四步向导 / 预览面板 / 任务中心 / 重命名对照）的样式。
+// 与 files.css 分开：那一份是「通用文件管理器」的 K7 形状，这一份是任务层新增的 ft-*。
+import "./styles/filestasks.css";
 // 画板 K4（工具箱）的样式：主卡 + 四张卡。旧 `.toolbox-*` **不能删** —— 独立前端程序
 // （src/frontend/）也在用其中几个类，它 import 的是同一份 global.css。
 import "./styles/toolbox.css";

@@ -25,10 +25,15 @@ serde_json = { workspace = true }
 tauri-plugin-single-instance = "2"
 # 与独立前端（frontend/src-tauri）共用的内核：目前只有日志。
 fh-core = { path = "../crates/fh-core" }
+# 图片解码：封面缓存（src/media.rs）与文件页缩略图（files.rs 的 file_thumb）共用。
+# 从 `[target.'cfg(windows)'.dependencies]` 挪上来的原因：`file_thumb` 是跨平台实现，
+# 留在 Windows 分区里本机（macOS）就编不到，等于「本地永远验不了这段代码」。
+# webp 是 2026-10-05 加的：掌机上传的截图与部分模拟器封面是 webp，
+# 前端回退到占位图虽然不崩，但一眼就能看出是坏的。
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "gif", "bmp", "webp"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "gif", "bmp"] }
 ureq = "2"
 # OptiScaler 官方 Release 只发 .7z（含 BCJ2 过滤器），Expand-Archive 解不了。
 sevenz-rust2 = "0.21"

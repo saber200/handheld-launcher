@@ -38,11 +38,24 @@ const listeners = new Set<() => void>();
 let snapshot: Job[] = [];
 let started = false;
 
-/** 结束的任务多留一会儿：页面要拿它显示「已完成 / 已跳过几项」，然后自己忘掉。 */
+/**
+ * 结束的任务的**记录**（任务中心用）。
+ *
+ * 为什么和上面那份分开：文件页底部那条进度只该显示「正在跑的」，8 秒后自动忘掉；
+ * 而任务中心要能回答「刚才那趟搬完了没 / 跳过了几个」，所以留着记录，直到用户点
+ * 「清空记录」。两份都放在模块级，理由和上面一样 —— 切页不丢。
+ */
+export type JobRecord = Job & { endedAt: number };
+const HISTORY_MAX = 20;
+let history: JobRecord[] = [];
+let historySnapshot: JobRecord[] = [];
+
+/** 结束的任务多留一会儿：文件页要拿它显示「已完成 / 已跳过几项」，然后自己忘掉。 */
 const KEEP_DONE_MS = 8000;
 
 function emit() {
   snapshot = [...jobs.values()].sort((a, b) => a.at - b.at);
+  historySnapshot = [...history].sort((a, b) => b.endedAt - a.endedAt);
   listeners.forEach((listener) => listener());
 }
 
@@ -66,9 +79,14 @@ function start() {
     if (payload.phase !== "run") rate = 0;
     const remaining = payload.totalBytes - payload.bytes;
     const eta = rate > 0 && remaining > 0 ? remaining / rate : 0;
-    jobs.set(payload.id, { ...payload, at: Date.now(), rate, eta });
+    const job: Job = { ...payload, at: Date.now(), rate, eta };
+    jobs.set(payload.id, job);
     if (payload.phase !== "scan" && payload.phase !== "run") {
       const phase = payload.phase;
+      history = [{ ...job, endedAt: Date.now() }, ...history.filter((row) => row.id !== payload.id)].slice(
+        0,
+        HISTORY_MAX,
+      );
       window.setTimeout(() => {
         // 只有还是同一个收尾状态才清：中间又跑了新的一轮就别动。
         if (jobs.get(payload.id)?.phase === phase) forgetJob(payload.id);
@@ -92,6 +110,16 @@ export function forgetJob(id: string) {
   if (jobs.delete(id)) emit();
 }
 
+/** 任务中心的「清空记录」：只清历史，正在跑的照旧。 */
+export function clearJobHistory() {
+  history = [];
+  emit();
+}
+
 export function useFileJobs(): Job[] {
   return useSyncExternalStore(subscribe, () => snapshot);
+}
+
+export function useJobHistory(): JobRecord[] {
+  return useSyncExternalStore(subscribe, () => historySnapshot);
 }

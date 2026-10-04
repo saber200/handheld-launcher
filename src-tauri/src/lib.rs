@@ -179,6 +179,7 @@ pub fn run() {
             files::file_read_text,
             files::file_write_text,
             files::file_icon,
+            files::file_thumb,
             files::file_open,
             // 文件管理器深度优化（FUTURE.md 功能 12）：改名 / 批量改名 / 属性 /
             // 搜索 / 带进度的传输。

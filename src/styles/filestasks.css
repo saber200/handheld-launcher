@@ -1,0 +1,1171 @@
+/*
+ * 文件管理增强（改造包）的样式：任务入口 / 四步向导 / 预览面板 / 任务中心 /
+ * 重命名对照 / 总量摘要。类名统一 `ft-`（files tasks），与旧页面的 `k7-` / `file-` 分开。
+ *
+ * 写法与 files.css 一致：几何一律 `calc(N * var(--dp))`，圆角只用令牌六档，
+ * 颜色只用 tokens.css 的变量 —— 审计脚本（scripts/audit-ui.mjs）会拦手写值与胶囊圆角。
+ */
+
+/* ── 通用小件 ── */
+.ft-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(34 * var(--dp));
+  padding: 0 calc(14 * var(--dp));
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ft-btn.is-primary {
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  color: var(--on-accent);
+}
+
+.ft-btn.is-danger {
+  border-color: var(--line);
+  color: var(--danger);
+}
+
+.ft-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ft-btn:focus,
+.ft-card:focus,
+.ft-source:focus,
+.ft-chip:focus,
+.ft-check:focus,
+.ft-value:focus {
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(var(--focus-offset) / 2);
+}
+
+.ft-section-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--stack);
+}
+
+.ft-section-head h2,
+.ft-wizard-head h2 {
+  margin: 0;
+  font-size: var(--font-h1);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ft-section-sub,
+.ft-field-hint,
+.ft-note-body,
+.ft-preview-auto {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.ft-group-title {
+  margin: 0;
+  font-size: var(--font-h3);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.ft-error {
+  margin: 0;
+  padding: var(--stack) var(--pad-card);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: var(--font-caption);
+}
+
+/* ── 任务入口网格（画板 F1：4 列 × 2 行，卡片 237×108） ── */
+.ft-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gutter);
+  overflow: hidden;
+}
+
+.ft-grid-cards {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(calc(96 * var(--dp)), calc(108 * var(--dp)));
+  gap: var(--gutter);
+  overflow: auto;
+  /* 焦点环外扩 4 + 描边 3 = 7dp：不留出来会被滚动容器裁掉 */
+  padding: calc(7 * var(--dp));
+  margin: calc(-7 * var(--dp));
+}
+
+.ft-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--dp));
+  padding: var(--pad-card);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ft-card::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: var(--pad-card);
+  inset-block-start: 0;
+  width: calc(28 * var(--dp));
+  height: calc(2 * var(--dp));
+  border-end-start-radius: var(--radius-tag);
+  border-end-end-radius: var(--radius-tag);
+  background: var(--accent);
+}
+
+.ft-card.is-accent-2::before {
+  background: var(--accent-2);
+}
+
+.ft-card.is-violet::before {
+  background: var(--platform-gog);
+}
+
+.ft-card.is-warning::before {
+  background: var(--warning);
+}
+
+.ft-card.is-off {
+  opacity: 0.55;
+}
+
+.ft-card-title {
+  font-size: var(--font-h3);
+  font-weight: 700;
+}
+
+.ft-card-desc {
+  flex: 1;
+  font-size: var(--font-caption);
+  color: var(--ink-3);
+  line-height: var(--line-ratio);
+}
+
+.ft-card-meta {
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+  text-transform: none;
+}
+
+/* ── 四步向导（画板 F1：步骤条 y=94、左侧结果卡、右侧目标与执行卡） ── */
+.ft-wizard {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-lg);
+  overflow: hidden;
+}
+
+.ft-wizard-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--stack);
+}
+
+.ft-steps {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--gutter);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ft-step {
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.ft-step.is-current {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.ft-step.is-done {
+  color: var(--ink-2);
+}
+
+.ft-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(22 * var(--dp));
+  height: calc(22 * var(--dp));
+  /* 正圆只允许状态圆点（≤9dp）与按键角标；这里是**步骤圆环**（画板 §7 直径 22），
+     用 calc 一半的圆角而不是 50%，审计脚本按令牌档位放行不了，所以显式允许 50%。 */
+  border-radius: 50%;
+  border: calc(2 * var(--dp)) solid var(--line);
+  font-size: var(--font-micro);
+  font-weight: 700;
+}
+
+.ft-step.is-current .ft-step-dot {
+  border-color: var(--accent);
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+.ft-step.is-done .ft-step-dot {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.ft-wizard-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--gutter);
+  overflow: auto;
+  padding: calc(7 * var(--dp));
+  margin: calc(-7 * var(--dp));
+}
+
+.ft-wizard-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--stack);
+}
+
+.ft-source-list,
+.ft-fields,
+.ft-result,
+.ft-run,
+.ft-summary-wrap {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  overflow: auto;
+}
+
+.ft-source {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(2 * var(--dp));
+  padding: var(--stack) var(--row-pad-x);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--sunken);
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ft-source.is-current {
+  border: calc(2 * var(--dp)) solid var(--accent);
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+.ft-source-label {
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+.ft-source-path {
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+  overflow-wrap: anywhere;
+}
+
+.ft-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--stack);
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.ft-card-head h3 {
+  margin: 0;
+  font-size: var(--font-h3);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ft-buckets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 分组行：高 44、圆角 8、sunken 底（画板 §7） */
+.ft-bucket {
+  display: grid;
+  grid-template-columns: calc(6 * var(--dp)) minmax(0, 2fr) minmax(0, 2fr) auto auto;
+  align-items: center;
+  gap: var(--stack);
+  min-height: calc(44 * var(--dp));
+  padding: 0 var(--row-pad-x);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-size: var(--font-caption);
+  color: var(--ink-2);
+}
+
+.ft-bucket-dot {
+  width: calc(6 * var(--dp));
+  height: calc(6 * var(--dp));
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ft-bucket.is-accent-2 .ft-bucket-dot {
+  background: var(--accent-2);
+}
+
+.ft-bucket.is-violet .ft-bucket-dot {
+  background: var(--platform-gog);
+}
+
+.ft-bucket.is-warning .ft-bucket-dot {
+  background: var(--warning);
+}
+
+.ft-bucket-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ft-bucket-emu,
+.ft-bucket-size {
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+.ft-bucket-count {
+  font-size: var(--font-caption);
+  color: var(--ink-3);
+}
+
+.ft-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--dp));
+}
+
+.ft-field-label {
+  margin: 0;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+/* 值框：高 40、圆角 8、sunken 底；焦点时 accent 2dp 描边 */
+.ft-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--stack);
+  min-height: calc(40 * var(--dp));
+  padding: 0 var(--row-pad-x);
+  border-radius: var(--radius-sm);
+  border: calc(2 * var(--dp)) solid transparent;
+  background: var(--sunken);
+  color: var(--ink);
+  font-size: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ft-value.is-empty .ft-value-text {
+  color: var(--ink-4);
+}
+
+.ft-value-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-value-action {
+  flex: none;
+  font-size: var(--font-micro);
+  color: var(--accent);
+}
+
+.ft-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--stack);
+}
+
+/* 选择 chip：高 32、圆角 8；选中 accent-deep 底 + accent 2dp 描边 */
+.ft-chip {
+  min-height: calc(32 * var(--dp));
+  padding: 0 var(--row-pad-x);
+  border-radius: var(--radius-sm);
+  border: calc(2 * var(--dp)) solid var(--line);
+  background: var(--sunken);
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ft-chip.is-on {
+  border-color: var(--accent);
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+.ft-checks {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ft-check {
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  width: 100%;
+  padding: calc(6 * var(--dp)) var(--row-pad-x);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 复选框 22×22 圆角 6（画板 §7） */
+.ft-check-box {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(22 * var(--dp));
+  height: calc(22 * var(--dp));
+  border-radius: var(--radius-tag);
+  border: calc(2 * var(--dp)) solid var(--line);
+  font-size: var(--font-micro);
+}
+
+.ft-check.on .ft-check-box {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ft-check-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-check-hint {
+  flex: none;
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+/* ── 总量摘要（增强 8）：accent 2dp 描边，四格数字 ── */
+.ft-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  padding: var(--pad-card);
+  border-radius: var(--radius-panel);
+  border: calc(2 * var(--dp)) solid var(--accent);
+  background: var(--panel);
+}
+
+.ft-summary-title {
+  margin: 0;
+  font-size: var(--font-h3);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ft-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--stack);
+}
+
+.ft-summary-cell {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  padding: var(--stack);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+}
+
+.ft-summary-label {
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+.ft-summary-value {
+  font-size: var(--font-h3);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ft-summary-notes {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  margin: 0;
+  padding-inline-start: var(--pad-card);
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+.ft-summary-notes li.is-warning {
+  color: var(--warning);
+}
+
+.ft-run {
+  gap: var(--stack-lg);
+}
+
+.ft-run h3 {
+  margin: 0;
+  font-size: var(--font-h2);
+  color: var(--ink);
+}
+
+/* ── 快速预览面板（画板 F2：宽 424，16:9 舞台 + 键值行 + 三个动作） ── */
+.ft-preview {
+  flex: none;
+  width: calc(424 * var(--dp));
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  padding: var(--pad-card);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  overflow: auto;
+}
+
+.ft-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--stack);
+}
+
+.ft-preview-head h2 {
+  margin: 0;
+  font-size: var(--font-h3);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ft-preview-empty {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.ft-preview-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-card);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.ft-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.ft-preview-placeholder {
+  display: inline-flex;
+  color: var(--ink-4);
+}
+
+.ft-preview-tag {
+  position: absolute;
+  inset-block-start: var(--stack);
+  inset-inline-start: var(--stack);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--stack);
+  padding: 0 calc(8 * var(--dp));
+  min-height: calc(22 * var(--dp));
+  border-radius: var(--radius-tag);
+  background: rgba(11, 18, 32, 0.72);
+  color: var(--ink-2);
+  font-size: var(--font-micro);
+}
+
+.ft-preview-note {
+  color: var(--ink-4);
+  font-style: normal;
+}
+
+.ft-preview-name {
+  margin: 0;
+  font-size: var(--font-h3);
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-preview-facts {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  margin: 0;
+}
+
+.ft-preview-facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--stack);
+  min-height: calc(20 * var(--dp));
+  font-size: var(--font-caption);
+}
+
+.ft-preview-facts dt {
+  flex: none;
+  color: var(--ink-4);
+}
+
+.ft-preview-facts dd {
+  margin: 0;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-preview-path {
+  direction: rtl;
+  text-align: left;
+}
+
+.ft-preview-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--dp));
+  padding-block-start: var(--stack);
+  border-block-start: 1px solid var(--line-soft);
+  overflow: auto;
+}
+
+.ft-preview-label {
+  margin: 0;
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+.ft-preview-text {
+  margin: 0;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: var(--font-caption);
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ft-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-caption);
+  color: var(--ink-2);
+}
+
+.ft-preview-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--stack);
+}
+
+.ft-preview-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-preview-actions {
+  display: flex;
+  gap: var(--stack);
+}
+
+/* ── 任务中心（画板 F3） ── */
+.ft-jobs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gutter);
+  overflow: hidden;
+}
+
+.ft-jobs-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  overflow: auto;
+  padding: calc(7 * var(--dp));
+  margin: calc(-7 * var(--dp));
+}
+
+/* 进行中卡片：圆角 16、accent 2dp 描边（画板 F3 的 996×132） */
+.ft-job-card {
+  display: flex;
+  align-items: center;
+  gap: var(--pad-card);
+  min-height: calc(96 * var(--dp));
+  padding: var(--pad-card);
+  border-radius: var(--radius-panel);
+  border: calc(2 * var(--dp)) solid var(--accent);
+  background: var(--panel);
+}
+
+.ft-job-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(56 * var(--dp));
+  height: calc(56 * var(--dp));
+  border-radius: var(--radius-btn);
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+  font-size: var(--font-h1);
+}
+
+.ft-job-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+}
+
+.ft-job-name {
+  margin: 0;
+  font-size: var(--font-h3);
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-job-track {
+  height: calc(10 * var(--dp));
+  border-radius: var(--radius-tag);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.ft-job-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+}
+
+.ft-job-meta {
+  margin: 0;
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+.ft-job-actions {
+  flex: none;
+  display: flex;
+  gap: var(--stack);
+}
+
+/* 已完成 / 已取消的行（画板 F3：高 60、步进 68） */
+.ft-job-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 2fr) auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--stack);
+  min-height: calc(60 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-card);
+  background: var(--panel-2);
+  font-size: var(--font-caption);
+  color: var(--ink-2);
+}
+
+.ft-job-mark {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.ft-job-mark.is-muted {
+  color: var(--ink-4);
+}
+
+.ft-job-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-job-row-meta,
+.ft-job-row-state {
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+/* 已取消的任务留一条灰进度条：进度停在哪儿一眼能看到（验收清单里的一条） */
+.ft-job-row-track {
+  height: calc(6 * var(--dp));
+  border-radius: var(--radius-tag);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.ft-job-row-fill {
+  display: block;
+  height: 100%;
+  background: var(--ink-4);
+}
+
+.ft-note {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--stack);
+  padding: var(--pad-card);
+  border-radius: var(--radius-card);
+  background: var(--sunken);
+}
+
+.ft-note-mark {
+  color: var(--accent);
+}
+
+.ft-note-title {
+  margin: 0;
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.ft-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--stack);
+}
+
+.ft-empty-title {
+  margin: 0;
+  font-size: var(--font-h3);
+  color: var(--ink-2);
+}
+
+.ft-empty-body {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+/* ── 选文件夹对话框（向导的「目标位置」） ── */
+.ft-picker-panel {
+  width: calc(560 * var(--dp));
+}
+
+.ft-picker-list {
+  max-height: calc(320 * var(--dp));
+  overflow: auto;
+}
+
+/* ── 文件页上新增的那几件（沿用 k7- 前缀，和 files.css 一套） ── */
+
+/* 浏览 / 任务 / 任务中心：页头最左边那三片 chip */
+.k7-view {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+}
+
+.k7-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6 * var(--dp));
+  min-height: calc(30 * var(--dp));
+  padding: 0 var(--row-pad-x);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.k7-view-btn.is-current {
+  border-color: var(--accent);
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+.k7-view-btn:focus {
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(var(--focus-offset) / 2);
+}
+
+/* 任务中心 / 任务网格占满 k7-body（左边那栏「位置」在任务视图里不显示） */
+.k7-task-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 任务视图里页头只留视图开关：面包屑与浏览工具在这儿没有意义，
+   而且它们进了 [data-focusable] 会让手柄在任务页里摸到一堆用不上的按钮。
+   （display:none 的元素 offsetParent 为 null，手柄导航本来就会跳过它们。） */
+.k7-head.is-task .k7-crumbs,
+.k7-head.is-task .k7-tools {
+  display: none;
+}
+
+/* 预览打开时：文件表 + 预览面板并排（画板 F2 的 556 + 424） */
+.k7-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--gutter);
+}
+
+.k7-split > .k7-pane {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 文件行里的 32×32 缩略图（画板 F2 的文件行） */
+.k7-row-thumb,
+.k7-tile-thumb {
+  flex: none;
+  width: calc(32 * var(--dp));
+  height: calc(32 * var(--dp));
+  border-radius: var(--radius-tag);
+  object-fit: cover;
+  background: var(--sunken);
+}
+
+.k7-tile-thumb {
+  width: calc(48 * var(--dp));
+  height: calc(48 * var(--dp));
+  border-radius: var(--radius-sm);
+}
+
+/* 侧栏「文件」入口上的进度环（画板 F3：「这是唯一需要改侧栏的地方」） */
+.nav-progress {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
+}
+
+.nav-progress-ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+
+.nav-progress-track {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 3;
+}
+
+.nav-progress-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.nav-progress-text {
+  font-size: var(--font-micro);
+  font-weight: 700;
+  color: var(--accent-hi);
+}
+
+/* ── 批量重命名对照表（画板 F4） ── */
+.k7-renames {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  overflow: hidden;
+}
+
+.k7-rename-head {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--stack);
+  min-height: calc(40 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+/* 表格固定高度（6 行可见），超出靠滚动；底部那两张卡固定位置不被挤下去 */
+.k7-rename-list {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(252 * var(--dp));
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  overflow: auto;
+  padding: calc(7 * var(--dp));
+  margin: calc(-7 * var(--dp));
+}
+
+.k7-rename-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--stack);
+  min-height: calc(34 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-caption);
+}
+
+.k7-rename-from {
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k7-rename-row.is-same .k7-rename-from {
+  color: var(--ink-4);
+}
+
+.k7-rename-to {
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k7-rename-row.is-conflict {
+  border: calc(2 * var(--dp)) solid var(--warning);
+  color: var(--warning);
+}
+
+.k7-rename-state {
+  flex: none;
+  font-size: var(--font-micro);
+  color: var(--ink-4);
+}
+
+.k7-rename-row.is-conflict .k7-rename-state {
+  color: var(--warning);
+}
+
+.k7-rename-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  padding: var(--pad-card);
+  border-radius: var(--radius-panel);
+  background: var(--panel-2);
+}
+
+.k7-rename-foot.is-conflict {
+  border: calc(2 * var(--dp)) solid var(--warning);
+}
+
+.k7-rename-foot h3 {
+  margin: 0;
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.k7-apply-all {
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  font-size: var(--font-caption);
+  color: var(--ink-2);
+}

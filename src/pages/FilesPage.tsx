@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { playSfx } from "../audio/sfx";
 import { setFileActions } from "../files/actions";
 import { FileCrumbs, FilePane, formatBytes, formatTime, type FileLayout } from "../files/FilePane";
@@ -25,6 +26,13 @@ import {
   type TransferItem,
 } from "../files/useFileBrowser";
 import { forgetJob, useFileJobs } from "../files/useFileJobs";
+import { cancelJob, JobsPanel } from "../files/JobsPanel";
+import { ConfirmSummary } from "../files/ConfirmSummary";
+import { PreviewPanel } from "../files/PreviewPanel";
+import { TaskGrid } from "../files/TaskGrid";
+import { TaskWizard } from "../files/TaskWizard";
+import { taskCtx, externalDrives } from "../files/tasks/env";
+import type { TaskCtx, TaskDef, TaskRuntime } from "../files/tasks/types";
 import { text } from "../i18n";
 
 type PaneId = "left" | "right";
@@ -34,6 +42,12 @@ type BatchMode = "original" | "number" | "replace";
 
 /** 「显示隐藏文件」记在这儿：下次打开文件页还是上次的选择。 */
 const SHOW_HIDDEN_KEY = "files-show-hidden";
+
+/** 预览面板开不开也记住（画板 F2 的「预览 开」开关）。 */
+const PREVIEW_KEY = "handheld-launcher.files.preview";
+
+/** 浏览 / 任务 / 任务中心：三个视图共用一条页面。 */
+type FileView = "browse" | "tasks" | "jobs";
 
 /** 剩余时间写成 `0:45` / `12:07`：只有数字和冒号，不用翻译。 */
 function formatEta(seconds: number): string {
@@ -147,6 +161,23 @@ export function FilesPage() {
   const [layout, setLayout] = useState<FileLayout>(loadLayout);
   const [picked, setPicked] = useState<Record<PaneId, string[]>>({ left: [], right: [] });
   const [selectMode, setSelectMode] = useState(false);
+  // 画板 K7 之上的三个视图与预览开关（文件管理增强）。默认留在浏览器 ——
+  // 老用户打开文件页的第一反应还是「我要找文件」，不该被塞进任务向导。
+  const [view, setView] = useState<FileView>("browse");
+  const [task, setTask] = useState<TaskDef | null>(null);
+  const [ctx, setCtx] = useState<TaskCtx | null>(null);
+  const [runtime, setRuntime] = useState<TaskRuntime | null>(null);
+  const [preview, setPreview] = useState(() => {
+    try {
+      return localStorage.getItem(PREVIEW_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  // 预览跟着**焦点**走，不是跟着选中走：焦点一动就换预览是这件事的全部意义。
+  const [focusEntry, setFocusEntry] = useState<FileEntry | null>(null);
+  /** 向导的 B 键由它接走（向导每次渲染把自己最新的 `back` 放进来）。 */
+  const wizardBack = useRef<() => boolean>(() => false);
   // 排序：画板 K7 的头部只有一颗「排序」按钮，四个排序键收在它展开的那一行里。
   const [sortOpen, setSortOpen] = useState(false);
 
@@ -157,6 +188,8 @@ export function FilesPage() {
   const [trash, setTrash] = useState<FileEntry[] | null>(null);
   const [rename, setRename] = useState<{ entry: FileEntry; draft: string; pane: PaneId } | null>(null);
   const [batch, setBatch] = useState<BatchForm | null>(null);
+  /** 批量改名遇到重名时怎么办（画板 F4 的三枚 chip）。默认「跳过」—— 最保守的那个。 */
+  const [batchConflict, setBatchConflict] = useState<"skip" | "number" | "replace">("skip");
   const [props, setProps] = useState<PropsState | null>(null);
   const [search, setSearch] = useState<SearchForm | null>(null);
   // 位置有两个落点：单栏时是左边的常驻一栏（画板 K7），双栏时那栏没地方放，仍旧走弹窗。
@@ -164,6 +197,31 @@ export function FilesPage() {
   const [placesDialog, setPlacesDialog] = useState<PlacesState | null>(null);
   const [places, setPlaces] = useState<PlacesState>({ rows: [], busy: true, error: "" });
   const [conflict, setConflict] = useState<ConflictState | null>(null);
+  /**
+   * 「对后续所有冲突使用此选择」（改造包 §5.2，增强 7）。
+   *
+   * 合并一个 200 项的文件夹时逐个确认是灾难：勾上这个之后，后面的同名冲突直接按同一策略处理，
+   * 不再弹层。存 ref 不存 state：它是**一次性开关**，变了不需要重渲染。
+   * 「本次会话」的有效期：页面不卸载就一直有效（切页会卸载 —— 那时清空更安全）。
+   */
+  const [conflictApplyAll, setConflictApplyAll] = useState(false);
+  const conflictPolicy = useRef<Conflict | null>(null);
+  /**
+   * 大批量操作前的确认（改造包 §5.3，增强 8）。
+   *
+   * 小批量（< 10 个文件且 < 100 MB）**不问**：问一次反而烦。删除不走这里 ——
+   * 它有自己的确认层（`trash`），而且不管多小都要问。
+   */
+  const [confirm, setConfirm] = useState<{
+    items: TransferItem[];
+    mode: "copy" | "move";
+    destDir: string;
+    pane: PaneId;
+    count: number;
+    bytes: number;
+    /** 目标里已经有多少个同名（0 就是「不需要」那一格）。 */
+    collisions: number;
+  } | null>(null);
   const [formError, setFormError] = useState("");
 
   const leftList = useRef<HTMLDivElement | null>(null);
@@ -248,6 +306,31 @@ export function FilesPage() {
 
   const jobs = useFileJobs();
   const running = jobs.filter((job) => job.phase === "scan" || job.phase === "run");
+
+  // 任务层要的「已知目录 / 游戏库 / 外部盘」：进页面读一次，之后由 `tasks/env` 自己缓存 10 秒。
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const ready = await taskCtx();
+        if (!alive) return;
+        setCtx(ready);
+        // 外部盘列表是给卡片置灰用的（没插 U 盘时「U 盘」那张要灰掉并说明原因）。
+        setRuntime({ external: await externalDrives(ready) });
+      } catch {
+        /* 读不到就保持 null：卡片先按可用渲染，真有问题会在向导里如实说出来 */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** 任务跑完（目录变了）之后两栏都重读一遍。 */
+  const reloadBoth = useCallback(() => {
+    void left.reload();
+    void right.reload();
+  }, [left, right]);
 
   /**
    * 左栏「位置」（画板 K7 的常驻左栏）：进页面取一次，切回单栏时再取一次。
@@ -370,6 +453,22 @@ export function FilesPage() {
   }
 
   /**
+   * 这批操作算不算「大批量」（改造包 §5.3）：≥ 10 项，或者 ≥ 100 MB。
+   *
+   * 大小只能靠**当前目录里那一行**的字节数估：文件夹在列表里没有大小（要走盘），
+   * 所以它是按 0 算的 —— 摘要上那一格因此是**下限**，不是谎话。
+   */
+  function bigBatch(items: TransferItem[], pane: PaneId): { bytes: number } | null {
+    const rows = paneRef.current[pane];
+    const bytes = items.reduce(
+      (sum, item) => sum + (rows.find((row) => row.path === item.path)?.bytes ?? 0),
+      0,
+    );
+    if (items.length >= 10 || bytes >= 100 * 1024 * 1024) return { bytes };
+    return null;
+  }
+
+  /**
    * 目标里已经有同名的吗？有就先问（覆盖 / 跳过 / 保留两者），没有就直接搬。
    * 后端也会再判一次，这里只是**先问清楚**，别等拷了一半才发现要覆盖。
    */
@@ -389,7 +488,18 @@ export function FilesPage() {
     const names = new Set(rows.map((row) => row.name.toLowerCase()));
     const collisions = items.filter((item) => names.has(item.name.toLowerCase())).length;
     if (collisions > 0) {
+      // 上一次勾了「对后续所有冲突使用此选择」：按那个策略直接办，不再弹层。
+      if (conflictPolicy.current) {
+        await runTransfer(items, mode, destDir, pane, conflictPolicy.current);
+        return;
+      }
+      // 冲突层本身就是一次确认（它把「有几项同名、怎么办」说清楚了），不再叠一层摘要。
       setConflict({ items, mode, destDir, pane, count: collisions });
+      return;
+    }
+    const big = bigBatch(items, pane);
+    if (big) {
+      setConfirm({ items, mode, destDir, pane, count: items.length, bytes: big.bytes, collisions: 0 });
       return;
     }
     await runTransfer(items, mode, destDir, pane, "keep");
@@ -407,8 +517,18 @@ export function FilesPage() {
       destDir === browser.location ? browser.entries : browsers[pane === "left" ? "right" : "left"].entries;
     const names = new Set(rows.map((row) => row.name.toLowerCase()));
     const collisions = items.filter((item) => names.has(item.name.toLowerCase())).length;
+    const mode = browser.clip?.mode ?? "copy";
     if (collisions > 0) {
-      setConflict({ items, mode: browser.clip?.mode ?? "copy", destDir, pane, count: collisions });
+      if (conflictPolicy.current) {
+        await runTransfer(items, mode, destDir, pane, conflictPolicy.current);
+        return;
+      }
+      setConflict({ items, mode, destDir, pane, count: collisions });
+      return;
+    }
+    const big = bigBatch(items, pane);
+    if (big) {
+      setConfirm({ items, mode, destDir, pane, count: items.length, bytes: big.bytes, collisions: 0 });
       return;
     }
     const id = await browser.paste("keep");
@@ -466,6 +586,18 @@ export function FilesPage() {
   }
 
   function back(): boolean {
+    // 任务向导开着的时候，B 归它（上一步 / 取消 / 退出向导）—— 它是页面自己的一层，
+    // 排在所有对话框之前：向导里那几张弹层（选文件夹）由向导自己先接。
+    if (view === "tasks" && task) return wizardBack.current();
+    // 任务中心：B 回到浏览视图（这里没有「上一层文件夹」可言）。
+    if (view === "jobs") {
+      setView("browse");
+      return true;
+    }
+    if (confirm) {
+      setConfirm(null);
+      return true;
+    }
     if (conflict) {
       setConflict(null);
       return true;
@@ -580,12 +712,20 @@ export function FilesPage() {
 
   async function submitBatch() {
     if (!batch) return;
-    const plan = batchPlan(batch);
+    // 走 `batchRunPairs`（对照表算出来的最终计划），不重新跑一遍 `batchPlan`：
+    // 那样「自动编号 / 跳过 / 覆盖」这三枚 chip 就白点了。
+    const plan = batchRunPairs;
     if (plan.length === 0) {
       setFormError(text().files.batchEmpty);
       return;
     }
     try {
+      // 「覆盖」：先把同名的旧文件删掉（改名本身不覆盖，目标已存在会直接失败）。
+      // 删除放最前面、一个个来，任何一个删不掉就整批停下 —— 免得改了一半。
+      for (const row of plan) {
+        if (!row.victim) continue;
+        await invoke("file_delete", { path: row.victim, permanent: false });
+      }
       const report = await active.renameMany(plan.map(({ from, to }) => ({ from, to })));
       setBatch(null);
       setFormError("");
@@ -702,6 +842,8 @@ export function FilesPage() {
     anchorRef.current.left = -1;
     // 兜底：正常换目录时 onNavigate 已经清过了，这里是为了别的路径也能收干净。
     setSelectMode(false);
+    // 预览里可能是上一级的文件（已经不在这一批行里了），先清掉。
+    setFocusEntry(null);
   }, [left.location]);
 
   useEffect(() => {
@@ -715,7 +857,14 @@ export function FilesPage() {
       (node): node is HTMLDivElement => node !== null,
     );
     const onFocus = (event: FocusEvent) => {
-      (event.target as HTMLElement | null)?.scrollIntoView({ block: "nearest" });
+      const node = event.target as HTMLElement | null;
+      node?.scrollIntoView({ block: "nearest" });
+      // 预览要跟着**焦点**走：行上有 `data-file-index`，用它反查是哪一条。
+      // 不复用 `onFocusRow`：那个回调只在多选模式里干活（见 focusRowFor）。
+      const index = Number(node?.dataset.fileIndex ?? "-1");
+      if (index < 0) return;
+      const pane: PaneId = node?.closest("[data-pane='right']") ? "right" : "left";
+      setFocusEntry(paneRef.current[pane][index] ?? null);
     };
     roots.forEach((root) => root.addEventListener("focusin", onFocus));
     return () => roots.forEach((root) => root.removeEventListener("focusin", onFocus));
@@ -837,7 +986,70 @@ export function FilesPage() {
             ? text().files.previewHint
             : text().files.browseHint);
 
-  const batchPairs = batch ? batchPlan(batch) : [];
+  /**
+   * 批量改名的**对照表**（画板 F4）：每一行「原名 → 新名 + 状态」。
+   *
+   * 冲突有两种：新名撞上目录里已有的东西，或者两条计划改成了同一个名字。
+   * 判断必须在前端做 —— 后端的 `file_rename_many` 只负责安全落地，它拒了就整批停下，
+   * 用户看到的是「失败」，而看不出来是**哪一行**跟谁撞了。
+   */
+  const batchRows = useMemo(() => {
+    if (!batch) return [];
+    const pairs = batchPlan(batch);
+    // 自己占着的名字先腾出来：否则「这次不改名」的行会被自己判成冲突。
+    const taken = new Set(entries.map((row) => row.name.toLowerCase()));
+    for (const item of batch.items) taken.delete(item.name.toLowerCase());
+    const rows: {
+      from: string;
+      name: string;
+      to: string;
+      clash: boolean;
+      resolved: string;
+    }[] = [];
+    for (const pair of pairs) {
+      const lower = pair.to.toLowerCase();
+      const clash = taken.has(lower) || pair.to === pair.name;
+      let resolved = pair.to;
+      if (clash) {
+        // 「自动编号」：`掌机_3.png` → `掌机_3 (2).png`，一直试到不撞为止。
+        const [stem, ext] = splitName(pair.to);
+        for (let index = 2; index < 100; index += 1) {
+          const candidate = `${stem} (${index})${ext}`;
+          if (!taken.has(candidate.toLowerCase())) {
+            resolved = candidate;
+            break;
+          }
+        }
+      }
+      taken.add(resolved.toLowerCase());
+      rows.push({ from: pair.from, name: pair.name, to: pair.to, clash, resolved });
+    }
+    return rows;
+  }, [batch, entries]);
+
+  const batchClash = batchRows.filter((row) => row.clash);
+  /** 按当前策略算出真正要发出去的那些对。 */
+  const batchRunPairs = batchRows
+    .filter((row) => row.to !== row.name)
+    .flatMap((row) => {
+      // 没冲突的行照改。
+      if (!row.clash) return [{ from: row.from, to: row.to, victim: "" }];
+      // 有冲突的按策略：跳过就不发出去；自动编号用不撞的名字；覆盖先删同名的旧文件。
+      if (batchConflict === "skip") return [];
+      return [
+        {
+          from: row.from,
+          to: batchConflict === "number" ? row.resolved : row.to,
+          // 「覆盖」要先把同名的旧文件删掉：`std::fs::rename` 在目标已存在时会直接失败，
+          // 不删就永远改不过去。这一步是**不可逆**的，卡片上写明了。
+          victim:
+            batchConflict === "replace"
+              ? (entries.find((entry) => entry.name.toLowerCase() === row.to.toLowerCase())?.path ??
+                "")
+              : "",
+        },
+      ];
+    });
   const targets = menu ? targetsFor(menu, activePane) : [];
 
   /**
@@ -908,12 +1120,40 @@ export function FilesPage() {
       {/* 头部（画板 K7）：面包屑在左，搜索 / 排序在右，一行 30dp。
           额外那几颗 30dp 小按钮是既有能力（视图切换 / 隐藏文件 / 软键盘 / 返回上级）——
           画板这一行只有两颗大按钮，但能力不能丢，收成同高的小按钮排在搜索左边。 */}
-      <div className="k7-head">
-        {!dual ? (
-          <FileCrumbs browser={active} zone={activePane === "left" ? "files-list" : "files-target"} />
-        ) : (
-          <span className="k7-crumbs" />
-        )}
+      <div className={view === "browse" ? "k7-head" : "k7-head is-task"}>
+        {/* 视图开关（文件管理增强）：浏览 / 任务 / 任务中心。任务中心带角标显示还有几个在跑 ——
+            掌机上「切回文件页看进度」这一步本身就是这次要消掉的痛点。 */}
+        <div className="k7-view" data-focus-zone="files-view">
+          {(
+            [
+              ["browse", text().tasks.tabBrowse, 0],
+              ["tasks", text().tasks.tabTasks, 0],
+              ["jobs", text().tasks.tabJobs, running.length],
+            ] as [FileView, string, number][]
+          ).map(([id, label, badge]) => (
+            <button
+              key={id}
+              type="button"
+              className={view === id ? "k7-view-btn is-current" : "k7-view-btn"}
+              data-focusable
+              aria-pressed={view === id}
+              onClick={() => {
+                playSfx("tab");
+                setView(id);
+                setTask(null);
+              }}
+            >
+              {label}
+              {badge > 0 && <span className="tnum">{badge}</span>}
+            </button>
+          ))}
+        </div>
+        {view === "browse" &&
+          (!dual ? (
+            <FileCrumbs browser={active} zone={activePane === "left" ? "files-list" : "files-target"} />
+          ) : (
+            <span className="k7-crumbs" />
+          ))}
         <div className="k7-tools" data-focus-zone="files-tools">
           <button
             type="button"
@@ -979,6 +1219,40 @@ export function FilesPage() {
             </svg>
           </button>
 
+          {/* 预览开关（画板 F2 右上那颗「预览 开」）。放在这儿而不是页头最左：
+              它是浏览视图的显示选项，和「网格 / 双栏」是同一类东西。 */}
+          <button
+            type="button"
+            className={preview ? "k7-tool is-current" : "k7-tool"}
+            data-focusable
+            disabled={dual}
+            aria-pressed={preview}
+            aria-label={text().tasks.previewToggle}
+            title={dual ? text().tasks.previewToggle : undefined}
+            onClick={() => {
+              const next = !preview;
+              setPreview(next);
+              try {
+                localStorage.setItem(PREVIEW_KEY, next ? "1" : "0");
+              } catch {
+                /* private mode */
+              }
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden>
+              <rect
+                x="1.5"
+                y="3"
+                width="10"
+                height="12"
+                rx="1.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              />
+              <rect x="13" y="3" width="3.5" height="12" rx="1.2" fill="currentColor" />
+            </svg>
+          </button>
           <button
             type="button"
             className={showHidden ? "k7-tool is-current" : "k7-tool"}
@@ -1061,6 +1335,46 @@ export function FilesPage() {
           ))}
         </div>
       )}
+      {/* 任务视图（文件管理增强）：和浏览视图共用页头与提示条，只有中间这块换掉。
+          左栏「位置」在这里没有意义，所以整个 k7-body 都换成任务区。 */}
+      {view === "tasks" && (
+        <div className="k7-body">
+          <div className="k7-task-view">
+            {task ? (
+              ctx ? (
+                <TaskWizard
+                  task={task}
+                  ctx={ctx}
+                  backRef={wizardBack}
+                  onClose={() => setTask(null)}
+                  onFinished={reloadBoth}
+                />
+              ) : (
+                <p className="ft-note-body">{text().tasks.scanning}</p>
+              )
+            ) : (
+              <TaskGrid
+                runtime={runtime}
+                onOpen={(next) => {
+                  // 「最近传输」不走向导，直接跳到任务中心。
+                  if (next.jump === "jobs") setView("jobs");
+                  else setTask(next);
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === "jobs" && (
+        <div className="k7-body">
+          <div className="k7-task-view">
+            <JobsPanel onCancel={cancelJob} />
+          </div>
+        </div>
+      )}
+
+      {view === "browse" && (
       <div className="k7-body">
         {/* 左栏「位置」：单栏时的常驻一栏（画板实测 200×554，顶边与表头同起于 98） */}
         {!dual && (
@@ -1093,7 +1407,9 @@ export function FilesPage() {
           </aside>
         )}
         <div className="k7-main">
-          <div className={dual ? "k7-panes" : "k7-main-single"}>
+          {/* 单栏 + 预览打开时：文件表与预览面板并排（画板 F2 的 556 + 424）。
+              双栏时不显示预览 —— 两栏本来就吃满宽度，再挤一列预览每栏只剩 300dp。 */}
+          <div className={dual ? "k7-panes" : preview ? "k7-split" : "k7-main-single"}>
           <FilePane
             browser={left}
             pane="left"
@@ -1142,6 +1458,14 @@ export function FilesPage() {
               }}
               onDragStart={(entry) => onDragStart(entry, "right")}
               onDrop={(folder) => onDrop(folder, "right")}
+            />
+          )}
+          {!dual && preview && (
+            <PreviewPanel
+              entry={focusEntry}
+              size={focusEntry ? left.dirSizes[focusEntry.path] : undefined}
+              onOpen={(entry) => void openEntry(entry, activePane)}
+              onDelete={(entry) => setTrash([entry])}
             />
           )}
           </div>
@@ -1283,6 +1607,7 @@ export function FilesPage() {
           </div>
         </div>
       </div>
+      )}
 
       {menu && (
         <div className="group-dialog focus-trap open">
@@ -1641,27 +1966,79 @@ export function FilesPage() {
               </div>
             )}
             <p className="file-batch-preview-title">{text().files.batchPreview}</p>
-            <ul className="file-batch-preview">
-              {batch.items.slice(0, 8).map((item) => {
-                const pair = batchPairs.find((entry) => entry.from === item.path);
-                return (
-                  <li key={item.path}>
-                    <span className="file-batch-from">{item.name}</span>
-                    <span aria-hidden>→</span>
-                    <span className={pair ? "file-batch-to" : "file-batch-to is-same"}>
-                      {pair ? pair.to : text().files.batchUnchanged}
+            {/* 对照表（画板 F4）：表头 40、行高 34、**固定高度靠滚动**；
+                底部那张卡固定在下方，行数再多也不会把「执行」挤出可视区。 */}
+            <div className="k7-renames">
+              <div className="k7-rename-head">
+                <span>{text().tasks.renameColumnFrom}</span>
+                <span>{text().tasks.renameColumnTo}</span>
+                <span>{text().tasks.renameColumnState}</span>
+              </div>
+              <ul className="k7-rename-list">
+                {batchRows.map((row) => (
+                  <li
+                    key={row.from}
+                    className={`k7-rename-row${row.clash ? " is-conflict" : row.to === row.name ? " is-same" : ""}`}
+                  >
+                    <span className="k7-rename-from">{row.name}</span>
+                    <span className="k7-rename-to">{row.to}</span>
+                    <span className="k7-rename-state">
+                      {row.clash
+                        ? text().tasks.renameConflictChip
+                        : row.to === row.name
+                          ? text().tasks.renameUnchanged
+                          : text().tasks.renameOk}
                     </span>
                   </li>
-                );
-              })}
-            </ul>
-            {batch.items.length > 8 && (
-              <p className="group-empty">{text().files.batchMore(batch.items.length - 8)}</p>
+                ))}
+              </ul>
+            </div>
+            {batchClash.length > 0 ? (
+              <div className="k7-rename-foot is-conflict">
+                <h3>{text().tasks.renameConflictCard(batchClash[0].to)}</h3>
+                <p className="ft-field-hint">
+                  {text().tasks.renameCount(batchRunPairs.length, batchClash.length)}
+                </p>
+                <div className="ft-chips">
+                  {(
+                    [
+                      ["skip", text().tasks.conflictSkip],
+                      ["number", text().tasks.conflictKeep],
+                      ["replace", text().tasks.conflictReplace],
+                    ] as ["skip" | "number" | "replace", string][]
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={batchConflict === value ? "ft-chip is-on" : "ft-chip"}
+                      data-focusable
+                      aria-pressed={batchConflict === value}
+                      onClick={() => setBatchConflict(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="ft-field-hint">
+                  {batchConflict === "replace"
+                    ? text().tasks.optDeleteWarning
+                    : text().tasks.renameApplyAllHint}
+                </p>
+              </div>
+            ) : (
+              <div className="k7-rename-foot">
+                <h3>{text().tasks.renameCount(batchRunPairs.length, 0)}</h3>
+              </div>
             )}
             <p className="group-empty">{formError || text().files.batchKeyboard}</p>
             <div className="library-tools">
-              <button type="submit" className="library-tool" data-focusable disabled={batchPairs.length === 0}>
-                {text().files.batchRun}
+              <button
+                type="submit"
+                className="library-tool"
+                data-focusable
+                disabled={batchRunPairs.length === 0}
+              >
+                {text().tasks.renameRun}
               </button>
               <button
                 type="button"
@@ -1895,6 +2272,47 @@ export function FilesPage() {
         </div>
       )}
 
+      {confirm && (
+        <div className="group-dialog focus-trap open">
+          <button
+            type="button"
+            className="drawer-scrim"
+            aria-label={text().close}
+            tabIndex={-1}
+            onClick={() => setConfirm(null)}
+          />
+          <div className="group-dialog-panel group-create-panel file-conflict" role="dialog" aria-label={text().tasks.confirmTitle}>
+            <ConfirmSummary
+              showConflict={false}
+              summary={{
+                count: confirm.count,
+                totalBytes: confirm.bytes,
+                etaSec: confirm.bytes / (45 * 1024 * 1024),
+                conflictPolicy: "keepBoth",
+                notes: [text().tasks.sumEstimate],
+              }}
+            />
+            <div className="library-tools file-menu-actions">
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => {
+                  const pending = confirm;
+                  setConfirm(null);
+                  void runTransfer(pending.items, pending.mode, pending.destDir, pending.pane, "keep");
+                }}
+              >
+                {text().tasks.start}
+              </button>
+              <button type="button" className="library-tool" data-focusable onClick={() => setConfirm(null)}>
+                {text().cancel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {conflict && (
         <div className="group-dialog focus-trap open">
           <button
@@ -1916,6 +2334,9 @@ export function FilesPage() {
                   data-focusable
                   onClick={() => {
                     const pending = conflict;
+                    // 勾了「对后续所有冲突使用此选择」就把它记下来：后面的同名冲突
+                    // 直接按这个策略办，不再弹层（改造包 §5.2）。
+                    if (conflictApplyAll) conflictPolicy.current = policy;
                     setConflict(null);
                     void runTransfer(pending.items, pending.mode, pending.destDir, pending.pane, policy);
                   }}
@@ -1931,6 +2352,16 @@ export function FilesPage() {
                 {text().cancel}
               </button>
             </div>
+            <label className="k7-apply-all">
+              <input
+                type="checkbox"
+                checked={conflictApplyAll}
+                data-focusable
+                onChange={(event) => setConflictApplyAll(event.target.checked)}
+              />
+              {text().tasks.renameApplyAll}
+            </label>
+            <p className="ft-field-hint">{text().tasks.renameApplyAllHint}</p>
           </div>
         </div>
       )}

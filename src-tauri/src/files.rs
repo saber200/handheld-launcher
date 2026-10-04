@@ -283,17 +283,33 @@ fn recycle_path(_path: &Path) -> std::io::Result<()> {
     ))
 }
 
+/// 压缩包里的一个条目（预览用）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveEntry {
+    pub name: String,
+    pub bytes: u64,
+    pub dir: bool,
+}
+
 /// 解压结果：解到哪儿、里面多少个文件（前端提示行要说清楚）。
+///
+/// `entries` 只有「只看内容」（`list_only`）时才有值：预览面板要列压缩包里的前 20 项，
+/// 而为了看内容真去解压一遍是不可接受的副作用。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractOutcome {
     pub dir: String,
     pub files: u64,
+    pub entries: Vec<ArchiveEntry>,
 }
 
 #[tauri::command]
-pub async fn file_extract(archive: String) -> Result<ExtractOutcome, FileError> {
-    worker(move || extract_archive(archive)).await
+pub async fn file_extract(
+    archive: String,
+    list_only: Option<bool>,
+) -> Result<ExtractOutcome, FileError> {
+    worker(move || extract_archive(archive, list_only.unwrap_or(false))).await
 }
 
 /// 打开 Windows 的触摸键盘。
@@ -339,7 +355,7 @@ fn show_keyboard_now() -> Result<(), FileError> {
     )))
 }
 
-fn extract_archive(archive: String) -> Result<ExtractOutcome, FileError> {
+fn extract_archive(archive: String, list_only: bool) -> Result<ExtractOutcome, FileError> {
     let source = PathBuf::from(&archive);
     if !source.is_file() {
         return Err(FileError::new(
@@ -353,6 +369,16 @@ fn extract_archive(archive: String) -> Result<ExtractOutcome, FileError> {
             "Only zip and 7z archives are supported.",
         ))
     })?;
+    if list_only {
+        // 只看内容：**不**建目录、**不**解压。预览面板每移动一次焦点都会问一遍，
+        // 真解压的话用户只是在浏览文件，磁盘上却多出一堆目录。
+        let entries = list_archive(&source, kind)?;
+        return Ok(ExtractOutcome {
+            dir: String::new(),
+            files: entries.len() as u64,
+            entries,
+        });
+    }
     let parent = source.parent().ok_or_else(|| {
         FileError::rule(pick(
             "不能在盘符根目录解压",
@@ -370,7 +396,107 @@ fn extract_archive(archive: String) -> Result<ExtractOutcome, FileError> {
     Ok(ExtractOutcome {
         dir: dest.display().to_string(),
         files: count_files(&dest),
+        entries: Vec::new(),
     })
+}
+
+/// 列出压缩包里的条目（不解压）。
+#[cfg(windows)]
+fn list_archive(path: &Path, kind: ArchiveKind) -> Result<Vec<ArchiveEntry>, FileError> {
+    match kind {
+        ArchiveKind::Zip => list_zip(path),
+        ArchiveKind::SevenZip => {
+            let archive = sevenz_rust2::Archive::open(path).map_err(|err| {
+                FileError::new(
+                    "other",
+                    pick(
+                        &format!("读不出这个 7z：{err}"),
+                        &format!("Couldn't read this 7z: {err}"),
+                    ),
+                )
+            })?;
+            Ok(archive
+                .files
+                .iter()
+                .take(200)
+                .map(|entry| ArchiveEntry {
+                    name: entry.name.clone(),
+                    bytes: entry.size,
+                    dir: entry.is_directory,
+                })
+                .collect())
+        }
+    }
+}
+
+/// 读 zip 的中央目录。
+///
+/// 为什么借 PowerShell + .NET 而不是自己解析 zip：`Expand-Archive` 只解压、不给列表，
+/// 而手写 zip 解析要处理压缩方式与文件名编码（cp936 的中文名很常见），不值得为一个
+/// 预览功能重新实现一遍。用 `ConvertTo-Json` 而不是拼文本：条目名里带分隔符、
+/// 空格、中文都不会把解析搞乱（拼 `名字<TAB>大小` 那种做法一定会翻车）。
+#[cfg(windows)]
+fn list_zip(path: &Path) -> Result<Vec<ArchiveEntry>, FileError> {
+    let script = format!(
+        "$ErrorActionPreference='Stop'; \
+         Add-Type -AssemblyName System.IO.Compression.FileSystem; \
+         $z=[System.IO.Compression.ZipFile]::OpenRead('{}'); \
+         $z.Entries | Select-Object -First 200 FullName,Length | ConvertTo-Json -Compress; \
+         $z.Dispose()",
+        escape_ps(path)
+    );
+    let out = hidden_command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map_err(|err| {
+            FileError::io("无法启动解压程序", "Couldn't start the extractor", &err)
+        })?;
+    if !out.status.success() {
+        return Err(FileError::new(
+            "other",
+            pick(
+                "读不出这个压缩包的内容（可能加密或损坏）",
+                "Couldn't list this archive (it may be encrypted or damaged)",
+            ),
+        ));
+    }
+    parse_zip_listing(&String::from_utf8_lossy(&out.stdout))
+}
+
+#[cfg(not(windows))]
+fn list_archive(_path: &Path, _kind: ArchiveKind) -> Result<Vec<ArchiveEntry>, FileError> {
+    Err(FileError::rule(pick(
+        "列压缩包内容只能在 Windows 上使用",
+        "Listing archive contents only works on Windows.",
+    )))
+}
+
+/// 解析 `ConvertTo-Json` 的输出。
+///
+/// 两点要扛住：只有**一个**条目时 .NET 给的是对象而不是数组；条目名里可能有斜杠。
+/// 单独的纯函数是为了能在本机（macOS）测 —— 那段 PowerShell 本机跑不了，
+/// 所以非 Windows 构建里它只被测试用到（`allow(dead_code)` 就是为这个）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_zip_listing(raw: &str) -> Result<Vec<ArchiveEntry>, FileError> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let value: serde_json::Value = serde_json::from_str(text)
+        .map_err(|err| FileError::raw(format!("解析压缩包目录失败：{err}")))?;
+    let rows = match value {
+        serde_json::Value::Array(rows) => rows,
+        other => vec![other],
+    };
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let name = row.get("FullName")?.as_str()?.replace('\\', "/");
+            let bytes = row.get("Length").and_then(|len| len.as_u64()).unwrap_or(0);
+            let dir = name.ends_with('/');
+            Some(ArchiveEntry { name, bytes, dir })
+        })
+        .collect())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2139,13 +2265,178 @@ fn part_path(dest: &Path) -> PathBuf {
     }
 }
 
+// ── 缩略图 ──────────────────────────────────────────────────────────────
+// 改造包（文件管理增强）§6 允许新增的**唯一**一个命令：预览面板与文件行的缩略图都要
+// 图片本身，而现有 `file_icon` 只回答「这是哪一类图标」，渲染不出内容。
+//
+// 三条硬约束直接写死在这里：
+//   1. 源文件 > 32 MB 不读 —— 掌机的内存要留给游戏；
+//   2. 先读文件头拿尺寸，任一边 > 8000 就拒绝 —— 解码这种图要几百 MB，会把掌机拖死，
+//      设计稿要求这时「回退到占位图标」而不是崩；
+//   3. 系统目录不读（`C:\Windows` 之类）—— 复用属性面板那份白名单，同一套理由。
+//
+// 结果按 `路径 + 修改时间 + 目标边长` 缓存：列表里焦点一走动，同一张图会被反复问十几次。
+/// 源文件上限。超过直接拒绝，好过「转圈十秒然后 OOM」。
+const THUMB_MAX_SRC: u64 = 32 * 1024 * 1024;
+/// 解码前的尺寸上限（任一边）。
+const THUMB_MAX_EDGE: u32 = 8000;
+/// 缓存上限：200 项 / 64 MB。到顶就丢最先进来的那个 —— 这里的访问模式是「焦点在列表里
+/// 上下走」，FIFO 与 LRU 的命中率差不多，代码却少一半。
+const THUMB_CACHE_ITEMS: usize = 200;
+const THUMB_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+type ThumbCache = (HashMap<String, String>, std::collections::VecDeque<String>, usize);
+
+fn thumbs() -> &'static Mutex<ThumbCache> {
+    static CACHE: OnceLock<Mutex<ThumbCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new((HashMap::new(), std::collections::VecDeque::new(), 0)))
+}
+
+fn thumb_get(key: &str) -> Option<String> {
+    let cache = thumbs().lock().unwrap_or_else(|poison| poison.into_inner());
+    cache.0.get(key).cloned()
+}
+
+fn thumb_put(key: String, value: String) {
+    let mut cache = thumbs().lock().unwrap_or_else(|poison| poison.into_inner());
+    let (map, order, bytes) = &mut *cache;
+    if map.contains_key(&key) {
+        return;
+    }
+    *bytes += value.len();
+    map.insert(key.clone(), value);
+    order.push_back(key);
+    while order.len() > THUMB_CACHE_ITEMS || *bytes > THUMB_CACHE_BYTES {
+        let Some(oldest) = order.pop_front() else {
+            break;
+        };
+        if let Some(dropped) = map.remove(&oldest) {
+            *bytes = bytes.saturating_sub(dropped.len());
+        }
+    }
+}
+
+/// PNG 字节 → base64。
+///
+/// 为什么手写而不加 `base64` crate：全仓只有这一处要它，四十行不到；而多一个依赖就要多过
+/// 一次 CI 的 `--locked` 校验与依赖缓存，不划算。
+fn base64(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let packed = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[(packed >> 18) as usize & 63] as char);
+        out.push(TABLE[(packed >> 12) as usize & 63] as char);
+        // 补位用 `=`，且只有最后一组会走到 else 分支 —— 少写一个 `=` 前端就解不出来。
+        if chunk.len() > 1 {
+            out.push(TABLE[(packed >> 6) as usize & 63] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[packed as usize & 63] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+/// 读图片缩略图，返回 base64 编码的 PNG（前端拼成 `data:image/png;base64,...`）。
+///
+/// 为什么不返回 `Vec<u8>`：Tauri 的 `Response`（原始字节）不是 `Serialize`，
+/// 和 `Result` 凑不到一起；返回字节数组则会被序列化成几万个数字的 JSON —— 更慢更占内存。
+#[tauri::command]
+pub async fn file_thumb(path: String, max_edge: u32) -> Result<String, FileError> {
+    worker(move || thumb_image(&path, max_edge)).await
+}
+
+fn thumb_image(path: &str, max_edge: u32) -> Result<String, FileError> {
+    let file = Path::new(path);
+    if is_protected(file) {
+        return Err(FileError::rule(pick(
+            "系统目录里的图片不生成预览",
+            "Previews aren't generated for system folders",
+        )));
+    }
+    let meta = std::fs::metadata(file)
+        .map_err(|err| FileError::io("无法读取这个文件", "Couldn't read the file", &err))?;
+    if !meta.is_file() {
+        return Err(FileError::rule(pick("只能预览文件", "Only files can be previewed")));
+    }
+    if meta.len() > THUMB_MAX_SRC {
+        return Err(FileError::rule(pick(
+            &format!("图片超过 {} MB，不生成预览", THUMB_MAX_SRC / 1024 / 1024),
+            &format!(
+                "Images over {} MB aren't previewed",
+                THUMB_MAX_SRC / 1024 / 1024
+            ),
+        )));
+    }
+    // 列表要 96dp、预览要 480dp（改造包 §6）。夹一下范围：调用方给 0 或者给一百万都别出事。
+    let edge = max_edge.clamp(16, 480);
+    let key = format!("{path}\u{1}{}\u{1}{edge}", modified_ms(&meta));
+    if let Some(hit) = thumb_get(&key) {
+        return Ok(hit);
+    }
+
+    let bytes = std::fs::read(file)
+        .map_err(|err| FileError::io("无法读取这个文件", "Couldn't read the file", &err))?;
+    // 第一遍只读文件头拿尺寸：`into_dimensions` 不解像素。
+    let size = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|err| FileError::raw(format!("无法识别图片格式：{err}")))?
+        .into_dimensions()
+        .map_err(|_| {
+            FileError::rule(pick(
+                "这个文件不是能识别的图片格式",
+                "This file isn't a supported image format",
+            ))
+        })?;
+    if size.0 > THUMB_MAX_EDGE || size.1 > THUMB_MAX_EDGE {
+        return Err(FileError::rule(pick(
+            &format!("图片太大（{}×{}），不生成预览", size.0, size.1),
+            &format!("Image too large ({}×{}), no preview", size.0, size.1),
+        )));
+    }
+    // 第二遍才真的解码。缓冲区已经在内存里，这一遍是纯 CPU；GIF 取第一帧
+    // （`load_from_memory` 的既有行为，设计稿也只要求第一帧）。
+    let decoded = image::load_from_memory(&bytes).map_err(|err| {
+        FileError::rule(pick(
+            &format!("这张图片解不开：{err}"),
+            &format!("Couldn't decode this image: {err}"),
+        ))
+    })?;
+    // `thumbnail` 等比缩到边长不超过 edge：不拉伸、不裁切，和预览面板的 contain 一致。
+    let small = decoded.thumbnail(edge, edge);
+    let mut png = Vec::new();
+    small
+        .write_to(
+            &mut std::io::Cursor::new(&mut png),
+            image::ImageFormat::Png,
+        )
+        .map_err(|err| {
+            FileError::raw(format!(
+                "{}: {err}",
+                pick("无法生成缩略图", "Couldn't build the thumbnail")
+            ))
+        })?;
+    let encoded = base64(&png);
+    thumb_put(key, encoded.clone());
+    Ok(encoded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_kind, check_name, copy_path, dir_sizes, file_delete, file_move, fresh_dir, fresh_file,
-        io_reason, is_drive_root, is_editable_name, is_escaping_name, is_system_dir, part_path,
-        read_text, relative_dir, rename_many, run_transfer, sibling_name, ArchiveKind, Conflict,
-        FileError, RenamePair, Runner, TransferProgress,
+        archive_kind, base64, check_name, copy_path, dir_sizes, file_delete, file_move, fresh_dir,
+        fresh_file, io_reason, is_drive_root, is_editable_name, is_escaping_name, is_system_dir,
+        part_path, parse_zip_listing, read_text, relative_dir, rename_many, run_transfer, sibling_name,
+        thumb_image, ArchiveKind, Conflict, FileError, RenamePair, Runner, TransferProgress,
+        THUMB_MAX_EDGE,
     };
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
@@ -2575,5 +2866,75 @@ mod tests {
         assert!(!is_escaping_name("a b/c d.txt"));
         // 文件名里带点、带连字符都正常。
         assert!(!is_escaping_name("v1.2.3/setup-x64.exe"));
+    }
+
+    /// `ConvertTo-Json` 的两种形状都要能解析：一个条目时是对象、多个条目时是数组。
+    /// 这段解析是本机唯一测不到的部分（PowerShell 只能在 Windows 上跑），
+    /// 所以把纯逻辑单独拎出来测。
+    #[test]
+    fn parses_single_and_multi_entry_zip_listings() {
+        let single = r#"{"FullName":"data/config.ini","Length":812}"#;
+        let one = parse_zip_listing(single).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].name, "data/config.ini");
+        assert_eq!(one[0].bytes, 812);
+        assert!(!one[0].dir);
+
+        let many = r#"[{"FullName":"a/","Length":0},{"FullName":"a\\b.nsp","Length":1048576}]"#;
+        let rows = parse_zip_listing(many).unwrap();
+        assert_eq!(rows.len(), 2);
+        // 目录条目按结尾的斜杠判定；反斜杠也要归一成斜杠，前端好切分。
+        assert!(rows[0].dir);
+        assert_eq!(rows[1].name, "a/b.nsp");
+        assert_eq!(rows[1].bytes, 1_048_576);
+
+        // 空输出（压缩包里什么都没有）不是错误。
+        assert!(parse_zip_listing("  ").unwrap().is_empty());
+        // 不是 JSON 就得报错，不能悄悄当成空列表 —— 那会显示成「包是空的」，是假话。
+        assert!(parse_zip_listing("<html>oops").is_err());
+    }
+
+    /// 手搓的 base64 编码器：拿 RFC 4648 的标准向量对一遍。
+    /// 为什么值得写这条：它是唯一一处「自己实现而不是引依赖」的编码逻辑，
+    /// 少写一个 `=` 或者搬错 6 bit，前端拿到的就是一张解不开的图，而 Rust 侧不会有任何报错。
+    #[test]
+    fn base64_matches_rfc4648_vectors() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foob"), "Zm9vYg==");
+        assert_eq!(base64(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        // 0x00 与 0xFF 是表里两端，最容易写反下标。
+        assert_eq!(base64(&[0x00]), "AA==");
+        assert_eq!(base64(&[0xff, 0xff, 0xff]), "////");
+    }
+
+    /// 缩略图：正常图片要能读出一张 PNG；超大图与非图片必须是「有原因的拒绝」，
+    /// 而不是 panic 或者一张坏图（设计稿 §8 明确要求这两种情况退回占位图标）。
+    #[test]
+    fn thumb_encodes_png_and_rejects_the_two_bad_cases() {
+        let dir = temp_dir("thumb");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let img = image::RgbImage::from_fn(64, 32, |x, y| image::Rgb([x as u8, y as u8, 40]));
+        let good = dir.join("cover.png");
+        img.save(&good).unwrap();
+        let encoded = thumb_image(&good.to_string_lossy(), 96).unwrap();
+        // 任何 PNG 的 base64 都以 "iVBORw0KGgo" 开头（\x89PNG\r\n\x1a\n 的编码）。
+        assert!(encoded.starts_with("iVBORw0KGgo"), "不是 PNG：{encoded:.24}");
+
+        // 8001 宽：只读文件头就该被挡住，不进去解码。
+        let huge = dir.join("huge.png");
+        image::RgbImage::new(THUMB_MAX_EDGE + 1, 1).save(&huge).unwrap();
+        let err = thumb_image(&huge.to_string_lossy(), 96).unwrap_err();
+        assert_eq!(err.reason, "rule");
+
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, b"not an image").unwrap();
+        assert_eq!(thumb_image(&text.to_string_lossy(), 96).unwrap_err().reason, "rule");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

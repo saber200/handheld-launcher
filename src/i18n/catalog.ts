@@ -482,6 +482,186 @@ export type Catalog = {
     conflictKeep: string;
     previewCross: string;
   };
+  /**
+   * 文件管理增强（改造包 §2–§5）：任务入口 / 四步向导 / 预览面板 / 任务中心 /
+   * 重命名对照 / 冲突应用到全部 / 总量摘要。
+   *
+   * 为什么单开一节而不是塞进 `files`：`files` 已经 160 多个字段（通用文件管理器的家底），
+   * 再往里堆任务层会让「哪句话是哪一层的」彻底看不出来。
+   */
+  tasks: {
+    /* ── 入口层 ── */
+    tabBrowse: string;
+    tabTasks: string;
+    tabJobs: string;
+    gridBody: string;
+    runningCount: (count: number) => string;
+    cardUnavailable: (reason: string) => string;
+    cardOpen: (title: string) => string;
+    cards: {
+      importRom: { title: string; desc: string; meta: string };
+      installMod: { title: string; desc: string; meta: string };
+      backupSaves: { title: string; desc: string; meta: string };
+      restoreSaves: { title: string; desc: string; meta: string };
+      exportShots: { title: string; desc: string; meta: string };
+      cleanup: { title: string; desc: string; meta: string };
+      usb: { title: string; desc: string; meta: string };
+      recentJobs: { title: string; desc: string; meta: string };
+    };
+    /* ── 四步向导 ── */
+    stepNames: string[];
+    scanning: string;
+    next: string;
+    back: string;
+    close: string;
+    start: string;
+    again: string;
+    sourceBody: string;
+    sourceMissing: string;
+    resultTitle: string;
+    resultMeta: (count: number, size: string) => string;
+    resultEmpty: string;
+    resultTruncated: (count: number) => string;
+    unknownBucket: string;
+    unknownHint: string;
+    targetTitle: string;
+    targetMissing: string;
+    targetPick: string;
+    targetHave: (count: number) => string;
+    targetNew: string;
+    conflictTitle: string;
+    conflictSkip: string;
+    conflictReplace: string;
+    conflictKeep: string;
+    summaryTitle: string;
+    sumCount: string;
+    sumBytes: string;
+    sumEta: string;
+    sumConflict: string;
+    sumNone: string;
+    sumEstimate: string;
+    etaSec: string;
+    etaMin: string;
+    etaHour: string;
+    runTitle: string;
+    runBody: string;
+    runCancel: string;
+    runCancelling: string;
+    runProgress: (done: number, total: number) => string;
+    doneTitle: (count: number) => string;
+    doneSkipped: (count: number) => string;
+    doneFailed: (count: number) => string;
+    cancelledTitle: string;
+    rollbackNone: string;
+    rollbackOk: (count: number) => string;
+    rollbackFail: (count: number) => string;
+    failTitle: string;
+    /* ── 各任务的字段与选项 ── */
+    optAction: string;
+    optTarget: string;
+    optGame: string;
+    optGameAuto: string;
+    optStripped: string;
+    optBackupName: string;
+    optChecks: string;
+    optRelease: (size: string) => string;
+    optNothing: string;
+    optEjectHint: string;
+    optDevice: string;
+    optPickDevice: string;
+    optNoDevice: string;
+    optDeleteWarning: string;
+    optBakNote: string;
+    /** 「替换」模式下被覆盖的旧文件回滚不了 —— 摘要在开始前就得说清楚。 */
+    replaceNoRollback: string;
+    optShotsNone: string;
+    optSaveCount: (count: number) => string;
+    /* ── 来源目录的名字（来源列表与「恢复存档」都用它） ── */
+    srcDownloads: string;
+    srcDesktop: string;
+    srcDocuments: string;
+    srcPictures: string;
+    srcCaptures: string;
+    srcRoms: string;
+    srcBackups: string;
+    srcShots: string;
+    srcDevice: (name: string) => string;
+    /* ── 处理截图的三种动作 ── */
+    shotsExport: string;
+    shotsArchive: string;
+    shotsDelete: string;
+    /* ── 清理空间的分类 ── */
+    cleanInstallers: string;
+    cleanInstallersHint: string;
+    cleanDupShots: string;
+    cleanDupShotsHint: string;
+    cleanLogs: string;
+    cleanLogsHint: string;
+    cleanCaches: string;
+    cleanCachesHint: string;
+    /* ── U 盘 ── */
+    usbToDevice: string;
+    usbFromDevice: string;
+    usbToDeviceHint: string;
+    usbFromDeviceHint: string;
+    /* ── 预览面板（F2） ── */
+    previewTitle: string;
+    previewAuto: string;
+    previewToggle: string;
+    previewOff: string;
+    previewText: string;
+    previewArchive: string;
+    previewArchiveMore: (count: number) => string;
+    previewRom: string;
+    previewGame: string;
+    previewDir: string;
+    previewDirCount: (count: number, size: string) => string;
+    previewLoading: string;
+    previewTooBig: string;
+    previewFailed: string;
+    previewEmpty: string;
+    previewOpen: string;
+    previewDelete: string;
+    previewKey: string;
+    previewType: string;
+    previewLocation: string;
+    /* ── 任务中心（F3） ── */
+    jobsTitle: string;
+    jobsBody: (running: number, done: number) => string;
+    jobsRunning: string;
+    jobsRecent: string;
+    jobsClear: string;
+    jobsEmpty: string;
+    jobsEmptyBody: string;
+    jobsPause: string;
+    jobsPauseHint: string;
+    jobsResume: string;
+    jobsCancel: string;
+    jobsCancelled: string;
+    jobsFailed: string;
+    jobsSkipped: (count: number) => string;
+    jobsNote: string;
+    jobsNoteBody: string;
+    jobsSourceTo: (from: string, to: string) => string;
+    jobsPercent: (percent: number, done: string, total: string, rate: string, eta: string) => string;
+    /* ── 重命名对照与冲突（F4） ── */
+    renamePreviewTitle: string;
+    renamePreviewHint: string;
+    renameColumnFrom: string;
+    renameColumnTo: string;
+    renameColumnState: string;
+    renameConflictChip: string;
+    renameUnchanged: string;
+    renameOk: string;
+    renameConflictCard: (name: string) => string;
+    renameApplyAll: string;
+    renameApplyAllHint: string;
+    renameRun: string;
+    renameCount: (changed: number, conflict: number) => string;
+    confirmTitle: string;
+    confirmDeleteBody: string;
+    confirmDeleteMany: (count: number, size: string) => string;
+  };
 };
 
 export const zh: Catalog = {
@@ -968,6 +1148,170 @@ export const zh: Catalog = {
     conflictKeep: "保留两者（新的自动改名）",
     previewCross: "浏览器预览里左右两栏是两棵独立的树，跨栏复制请用打包后的程序试。",
   },
+  tasks: {
+    tabBrowse: "浏览",
+    tabTasks: "任务",
+    tabJobs: "任务中心",
+    gridBody: "按目标选，不用先知道路径",
+    runningCount: (count) => `${count} 个进行中`,
+    cardUnavailable: (reason) => `暂时用不了：${reason}`,
+    cardOpen: (title) => `开始「${title}」`,
+    cards: {
+      importRom: { title: "导入 ROM", desc: "自动识别平台并归位", meta: "switch · ps2 · psp · 3ds · 复古" },
+      installMod: { title: "安装 Mod / 工具", desc: "解压到游戏目录，自动去掉多余的一层", meta: "zip · 7z" },
+      backupSaves: { title: "备份游戏存档", desc: "打包到数据盘，换机 / 升级前先做一次", meta: "文档 · APPDATA · 模拟器" },
+      restoreSaves: { title: "恢复存档", desc: "覆盖前自动留一份 .bak", meta: "来自备份目录" },
+      exportShots: { title: "处理截图", desc: "导出到 U 盘 / 删除 / 压缩归档", meta: "图片 · Game Bar" },
+      cleanup: { title: "清理空间", desc: "按体积列出能删的东西", meta: "缓存 · 旧安装包 · 日志" },
+      usb: { title: "U 盘", desc: "往里传文件，或从里面导入", meta: "需要插着设备" },
+      recentJobs: { title: "最近传输", desc: "看后台任务跑到哪了", meta: "任务中心" },
+    },
+    stepNames: ["选择来源", "识别平台", "确认目标", "执行"],
+    scanning: "正在扫描…",
+    next: "下一步",
+    back: "上一步",
+    close: "取消",
+    start: "开始执行",
+    again: "再做一次",
+    sourceBody: "选一个要处理的文件夹",
+    sourceMissing: "这个任务还没有可用的来源目录",
+    resultTitle: "识别结果",
+    resultMeta: (count, size) => `${count} 个文件 · ${size}`,
+    resultEmpty: "这个文件夹里没有能处理的文件",
+    resultTruncated: (count) => `只取前 ${count} 个`,
+    unknownBucket: "无法识别",
+    unknownHint: "需要你手动指定目标（不指定就不搬）",
+    targetTitle: "目标位置",
+    targetMissing: "还没指定",
+    targetPick: "选择文件夹",
+    targetHave: (count) => `已存在 ${count} 个文件`,
+    targetNew: "不存在，执行时自动创建",
+    conflictTitle: "同名文件",
+    conflictSkip: "跳过",
+    conflictReplace: "替换",
+    conflictKeep: "保留两者",
+    summaryTitle: "即将执行",
+    sumCount: "文件总数",
+    sumBytes: "总大小",
+    sumEta: "预计耗时",
+    sumConflict: "同名处理",
+    sumNone: "不需要",
+    sumEstimate: "耗时按 45 MB/s 估算，实际看存储卡速度",
+    etaSec: "约 {n} 秒",
+    etaMin: "约 {m} 分 {s} 秒",
+    etaHour: "约 {n} 小时",
+    runTitle: "执行中",
+    runBody: "执行中可以随时取消",
+    runCancel: "取消",
+    runCancelling: "正在取消…",
+    runProgress: (done, total) => `${done} / ${total}`,
+    doneTitle: (count) => `已完成 · ${count} 项`,
+    doneSkipped: (count) => `其中 ${count} 个因重名被跳过`,
+    doneFailed: (count) => `${count} 项失败`,
+    cancelledTitle: "已取消",
+    rollbackNone: "还没有文件被移动，什么都没变",
+    rollbackOk: (count) => `已把 ${count} 个文件搬回原处`,
+    rollbackFail: (count) => `${count} 个文件没能搬回去，请手动确认一下`,
+    failTitle: "没能完成",
+    optAction: "要做的事",
+    optTarget: "装到哪个游戏",
+    optGame: "目标游戏目录",
+    optGameAuto: "按压缩包名字自动挑",
+    optStripped: "压缩包里只有一层目录，会自动去掉",
+    optBackupName: "备份名字",
+    optChecks: "要清理的项目",
+    optRelease: (size) => `预计可释放 ${size}`,
+    optNothing: "没有可清理的项目",
+    optEjectHint: "安全弹出需要新命令，本版先不做，请用系统的弹出。",
+    optDevice: "设备",
+    optPickDevice: "选择设备",
+    optNoDevice: "没检测到设备",
+    optDeleteWarning: "删除不进回收站，删了就没了",
+    optBakNote: "覆盖前会把现有存档改名加 .bak",
+    replaceNoRollback: "「替换」模式下被覆盖的旧文件恢复不了，取消也不会还回来",
+    optShotsNone: "这个截图目录是空的",
+    optSaveCount: (count) => `找到 ${count} 处存档`,
+    srcDownloads: "下载文件夹",
+    srcDesktop: "桌面",
+    srcDocuments: "文档",
+    srcPictures: "图片",
+    srcCaptures: "Game Bar 录像",
+    srcRoms: "模拟器 ROM 目录",
+    srcBackups: "存档备份目录",
+    srcShots: "截图目录",
+    srcDevice: (name) => `设备 ${name}`,
+    shotsExport: "导出到 U 盘",
+    shotsArchive: "压缩归档",
+    shotsDelete: "批量删除",
+    cleanInstallers: "旧安装包",
+    cleanInstallersHint: "下载夹里 30 天前的 exe / msi / zip",
+    cleanDupShots: "疑似重复截图",
+    cleanDupShotsHint: "同尺寸同格式，留下最早的那张",
+    cleanLogs: "日志文件",
+    cleanLogsHint: "启动器与游戏的日志",
+    cleanCaches: "着色器缓存",
+    cleanCachesHint: "Steam 与模拟器的 shader cache（删了会重新编译，不影响存档）",
+    usbToDevice: "传到 U 盘",
+    usbToDeviceHint: "复制过去，本机上的原样留着",
+    usbFromDevice: "从 U 盘导入",
+    usbFromDeviceHint: "复制到下载夹",
+    previewTitle: "预览",
+    previewAuto: "随焦点自动更新",
+    previewToggle: "预览",
+    previewOff: "关",
+    previewText: "文本前 20 行",
+    previewArchive: "压缩包内容",
+    previewArchiveMore: (count) => `还有 ${count} 项未列出`,
+    previewRom: "ROM",
+    previewGame: "游戏目录",
+    previewDir: "文件夹",
+    previewDirCount: (count, size) => `${count} 个子项 · ${size}`,
+    previewLoading: "正在生成预览…",
+    previewTooBig: "这张图太大，不生成预览",
+    previewFailed: "这个文件预览不了",
+    previewEmpty: "把焦点移到文件上就能看到预览",
+    previewOpen: "打开",
+    previewDelete: "删除",
+    previewKey: "尺寸",
+    previewType: "格式",
+    previewLocation: "所在位置",
+    jobsTitle: "任务",
+    jobsBody: (running, done) => `${running} 个进行中 · ${done} 个已完成 · 后台继续`,
+    jobsRunning: "进行中",
+    jobsRecent: "最近完成",
+    jobsClear: "清空记录",
+    jobsEmpty: "现在没有任务",
+    jobsEmptyBody: "从文件页的「任务」里挑一个开始吧",
+    jobsPause: "暂停",
+    jobsPauseHint: "暂停要改后端传输循环，本版还没做",
+    jobsResume: "继续",
+    jobsCancel: "取消",
+    jobsCancelled: "已取消",
+    jobsFailed: "失败",
+    jobsSkipped: (count) => `跳过 ${count} 项`,
+    jobsNote: "任务在后台继续",
+    jobsNoteBody: "切换页面不会中断。侧栏「文件」入口会显示进度环；长任务建议保持接通电源。",
+    jobsSourceTo: (from, to) => `${from} → ${to}`,
+    jobsPercent: (percent, done, total, rate, eta) =>
+      `${percent}% · ${done} / ${total}${rate ? ` · ${rate}` : ""}${eta ? ` · 剩余 ${eta}` : ""}`,
+    renamePreviewTitle: "预览对照",
+    renamePreviewHint: "确认前请检查冲突项",
+    renameColumnFrom: "原文件名",
+    renameColumnTo: "新文件名",
+    renameColumnState: "状态",
+    renameConflictChip: "重名",
+    renameUnchanged: "未变化",
+    renameOk: "可执行",
+    renameConflictCard: (name) => `1 处重名：${name} 已经存在`,
+    renameApplyAll: "对后续所有冲突使用此选择",
+    renameApplyAllHint: "勾上之后后续重名不再逐条问",
+    renameRun: "执行重命名",
+    renameCount: (changed, conflict) =>
+      `冲突 ${conflict} 处 · 其余 ${changed} 项可执行`,
+    confirmTitle: "确认一下",
+    confirmDeleteBody: "删除不进回收站，删了就没了",
+    confirmDeleteMany: (count, size) => `要删除 ${count} 项 · ${size}`,
+  },
 };
 
 export const en: Catalog = {
@@ -1452,5 +1796,168 @@ export const en: Catalog = {
     conflictSkip: "Skip (keep the old one, don't move these)",
     conflictKeep: "Keep both (rename the new ones)",
     previewCross: "In the browser preview the two panes have separate trees; try cross-pane copy in the packaged app.",
+  },
+  tasks: {
+    tabBrowse: "Browse",
+    tabTasks: "Tasks",
+    tabJobs: "Transfers",
+    gridBody: "Pick a goal — no need to know the path first",
+    runningCount: (count) => `${count} running`,
+    cardUnavailable: (reason) => `Not available: ${reason}`,
+    cardOpen: (title) => `Start “${title}”`,
+    cards: {
+      importRom: { title: "Import ROMs", desc: "Detects the platform and files them away", meta: "switch · ps2 · psp · 3ds · retro" },
+      installMod: { title: "Install a mod / tool", desc: "Unpacks into the game folder, drops the extra level", meta: "zip · 7z" },
+      backupSaves: { title: "Back up saves", desc: "Packs them onto the data drive before an upgrade", meta: "Documents · APPDATA · emulators" },
+      restoreSaves: { title: "Restore saves", desc: "Keeps a .bak copy of what it replaces", meta: "from the backup folder" },
+      exportShots: { title: "Handle screenshots", desc: "Send to USB / delete / archive", meta: "Pictures · Game Bar" },
+      cleanup: { title: "Free up space", desc: "Lists what can go, biggest first", meta: "caches · old installers · logs" },
+      usb: { title: "USB drive", desc: "Move files onto it, or import from it", meta: "needs a device plugged in" },
+      recentJobs: { title: "Recent transfers", desc: "See how the background jobs are doing", meta: "Transfers" },
+    },
+    stepNames: ["Pick a source", "Detect", "Confirm", "Run"],
+    scanning: "Scanning…",
+    next: "Next",
+    back: "Back",
+    close: "Cancel",
+    start: "Start",
+    again: "Do it again",
+    sourceBody: "Pick the folder to work on",
+    sourceMissing: "This task has no source folder available",
+    resultTitle: "Scan result",
+    resultMeta: (count, size) => `${count} files · ${size}`,
+    resultEmpty: "Nothing in this folder can be handled",
+    resultTruncated: (count) => `only the first ${count}`,
+    unknownBucket: "Unrecognised",
+    unknownHint: "Pick a target yourself (unset means it won't be moved)",
+    targetTitle: "Destination",
+    targetMissing: "not set",
+    targetPick: "Choose folder",
+    targetHave: (count) => `${count} files already there`,
+    targetNew: "Doesn't exist yet — created when you run it",
+    conflictTitle: "Same-name files",
+    conflictSkip: "Skip",
+    conflictReplace: "Replace",
+    conflictKeep: "Keep both",
+    summaryTitle: "About to run",
+    sumCount: "Files",
+    sumBytes: "Total size",
+    sumEta: "Estimated time",
+    sumConflict: "Same-name handling",
+    sumNone: "Not needed",
+    sumEstimate: "Time assumes 45 MB/s — real speed depends on the card",
+    etaSec: "about {n}s",
+    etaMin: "about {m}m {s}s",
+    etaHour: "about {n}h",
+    runTitle: "Running",
+    runBody: "You can cancel at any time",
+    runCancel: "Cancel",
+    runCancelling: "Cancelling…",
+    runProgress: (done, total) => `${done} / ${total}`,
+    doneTitle: (count) => `Done · ${count} items`,
+    doneSkipped: (count) => `${count} skipped because of name clashes`,
+    doneFailed: (count) => `${count} failed`,
+    cancelledTitle: "Cancelled",
+    rollbackNone: "Nothing had been moved yet, so nothing changed",
+    rollbackOk: (count) => `Moved ${count} files back where they were`,
+    rollbackFail: (count) => `${count} files couldn't be moved back — please check`,
+    failTitle: "Couldn't finish",
+    optAction: "What to do",
+    optTarget: "Which game",
+    optGame: "Target game folder",
+    optGameAuto: "Chosen from the archive name",
+    optStripped: "The archive has a single top folder, so it's dropped",
+    optBackupName: "Backup name",
+    optChecks: "Items to clean",
+    optRelease: (size) => `${size} would be freed`,
+    optNothing: "Nothing to clean up",
+    optEjectHint: "Safe eject needs a new command; use the system one for now.",
+    optDevice: "Device",
+    optPickDevice: "Choose device",
+    optNoDevice: "No device detected",
+    optDeleteWarning: "Deleting skips the Recycle Bin — it's gone for good",
+    optBakNote: "Existing saves are renamed with a .bak suffix first",
+    replaceNoRollback: "In Replace mode the old files are gone for good — cancelling won't bring them back",
+    optShotsNone: "This screenshot folder is empty",
+    optSaveCount: (count) => `${count} save folders found`,
+    srcDownloads: "Downloads",
+    srcDesktop: "Desktop",
+    srcDocuments: "Documents",
+    srcPictures: "Pictures",
+    srcCaptures: "Game Bar captures",
+    srcRoms: "Emulator ROMs",
+    srcBackups: "Save backups",
+    srcShots: "Screenshots",
+    srcDevice: (name) => `Device ${name}`,
+    shotsExport: "Send to USB",
+    shotsArchive: "Zip them up",
+    shotsDelete: "Delete them",
+    cleanInstallers: "Old installers",
+    cleanInstallersHint: "exe / msi / zip older than 30 days in Downloads",
+    cleanDupShots: "Likely duplicate shots",
+    cleanDupShotsHint: "Same size and format; the oldest one is kept",
+    cleanLogs: "Log files",
+    cleanLogsHint: "Launcher and game logs",
+    cleanCaches: "Shader caches",
+    cleanCachesHint: "Steam and emulator shader caches (they get rebuilt; saves untouched)",
+    usbToDevice: "Copy to USB",
+    usbToDeviceHint: "Copies over, the originals stay put",
+    usbFromDevice: "Import from USB",
+    usbFromDeviceHint: "Copies into Downloads",
+    previewTitle: "Preview",
+    previewAuto: "Follows the focus",
+    previewToggle: "Preview",
+    previewOff: "off",
+    previewText: "First 20 lines",
+    previewArchive: "Archive contents",
+    previewArchiveMore: (count) => `${count} more not listed`,
+    previewRom: "ROM",
+    previewGame: "Game folder",
+    previewDir: "Folder",
+    previewDirCount: (count, size) => `${count} items · ${size}`,
+    previewLoading: "Building preview…",
+    previewTooBig: "This image is too large to preview",
+    previewFailed: "Can't preview this file",
+    previewEmpty: "Move the focus onto a file to preview it",
+    previewOpen: "Open",
+    previewDelete: "Delete",
+    previewKey: "Size",
+    previewType: "Format",
+    previewLocation: "Location",
+    jobsTitle: "Transfers",
+    jobsBody: (running, done) => `${running} running · ${done} finished · keeps going in the background`,
+    jobsRunning: "Running",
+    jobsRecent: "Recently finished",
+    jobsClear: "Clear history",
+    jobsEmpty: "No transfers right now",
+    jobsEmptyBody: "Start one from the Tasks tab on the Files page",
+    jobsPause: "Pause",
+    jobsPauseHint: "Pausing needs a change in the transfer loop, not in this build",
+    jobsResume: "Resume",
+    jobsCancel: "Cancel",
+    jobsCancelled: "Cancelled",
+    jobsFailed: "Failed",
+    jobsSkipped: (count) => `${count} skipped`,
+    jobsNote: "Transfers keep running in the background",
+    jobsNoteBody: "Switching pages doesn't stop them. The Files entry in the sidebar shows a progress ring; keep the handheld plugged in for long ones.",
+    jobsSourceTo: (from, to) => `${from} → ${to}`,
+    jobsPercent: (percent, done, total, rate, eta) =>
+      `${percent}% · ${done} / ${total}${rate ? ` · ${rate}` : ""}${eta ? ` · ${eta} left` : ""}`,
+    renamePreviewTitle: "Preview",
+    renamePreviewHint: "Check the clashes before confirming",
+    renameColumnFrom: "Current name",
+    renameColumnTo: "New name",
+    renameColumnState: "State",
+    renameConflictChip: "clash",
+    renameUnchanged: "unchanged",
+    renameOk: "ready",
+    renameConflictCard: (name) => `1 clash: ${name} already exists`,
+    renameApplyAll: "Use this choice for all clashes",
+    renameApplyAllHint: "Stops asking once ticked",
+    renameRun: "Rename",
+    renameCount: (changed, conflict) => `${conflict} clashes · ${changed} ready`,
+    confirmTitle: "Please confirm",
+    confirmDeleteBody: "Deleting skips the Recycle Bin — it's gone for good",
+    confirmDeleteMany: (count, size) => `${count} items · ${size} to delete`,
   },
 };
