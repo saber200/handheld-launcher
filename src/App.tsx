@@ -406,7 +406,7 @@ export default function App() {
             {tab === "apps" && <AppsPage />}
             {tab === "downloads" && <ScheduledPage kind="downloads" />}
             {tab === "files" && <FilesPage />}
-            {tab === "toolbox" && <ToolboxPage />}
+            {tab === "toolbox" && <ToolboxPage onOpenGames={() => setTab("games")} />}
           </div>
         </div>
         <GamepadKeyboard />

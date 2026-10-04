@@ -1,0 +1,381 @@
+/*
+ * 工具箱（画板 K4）：标题行 + 四张卡（TDP 驱动主卡 / 前端 / 游戏 Mod 工具 / 运行库 / 系统维护）。
+ *
+ * 为什么单开一个文件：global.css 里那套 `.toolbox-*` 是「一列两块」的旧排法，而且
+ * **独立前端程序（src/frontend/）也在用其中几个类**（它 import 同一份 global.css），
+ * 所以旧类一个都不动，这里只写 K4 自己的 `k4-*`。
+ * 几何一律 `calc(N * var(--dp))`，数字取自改造包 §8 与画板 K4 的实测（2560×1440 按 2 除）。
+ */
+
+/* ── 页面骨架（画板：标题行 52..85，主卡 98..294.5、右侧两卡同高，底部两卡 310.5..467.5） ── */
+.k4-page {
+  position: relative;
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.k4-head {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  height: calc(41 * var(--dp)); /* 8 上内边距 + 33 行高 */
+  padding: calc(8 * var(--dp)) var(--safe) 0;
+}
+
+.k4-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--stack-lg);
+}
+
+.k4-title h2 {
+  flex: none;
+  margin: 0;
+  font-size: var(--font-h1);
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.k4-sub {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+/* 自检：重新读一遍这一页的状态（不是「跑一遍测试」—— 页上没有测试，只有状态） */
+.k4-selfcheck {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  height: calc(32 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--font-body);
+}
+
+.k4-selfcheck .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
+}
+
+.k4-selfcheck:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+.k4-selfcheck:disabled {
+  opacity: 0.5;
+}
+
+/* 卡片区：第一行「主卡 + 右侧两张小卡」，第二行「两张并列」 */
+.k4-body {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gutter);
+  margin-top: calc(13 * var(--dp)); /* 85 → 98 */
+  padding: 0 var(--safe);
+}
+
+.k4-row {
+  display: flex;
+  gap: var(--gutter);
+  min-height: 0;
+}
+
+.k4-main {
+  flex: 0 0 calc(616 * var(--dp));
+}
+
+.k4-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gutter);
+}
+/* ── 卡片本体 ── */
+/* 主卡 616×196：改造包 §8 的「聚焦态 accent 2dp 描边」。这里是**页面一进来就聚焦的那张**
+   （手柄导航的起点在它里面的按钮上），所以直接把 accent 描边当常态 —— 不然一进工具箱
+   就少一半视觉重点。焦点环仍然按通用规范走（4 外扩 + 3 描边）。 */
+.k4-card {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--pad-panel);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.k4-main .k4-card {
+  flex: 1;
+  height: calc(196 * var(--dp)); /* 画板实测 98..294.5 */
+  border: calc(2 * var(--dp)) solid var(--accent);
+  padding: var(--pad-card); /* 描边多吃 2dp，内边距补回来 */
+  overflow: hidden;
+}
+
+/* 右侧两张小卡各 90dp：90 + 16 + 90 = 196，正好和主卡同高 */
+.k4-side .k4-card {
+  flex: none;
+  height: calc(90 * var(--dp));
+  overflow: hidden;
+}
+
+/* 正文最多两行：卡高是固定的，长句子不能把卡顶开（多的省略） */
+.k4-side .k4-card-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 底部两张并列：各 490dp（(996-16)/2）、高 157dp（画板 310.5..467.5） */
+.k4-pair {
+  display: flex;
+  gap: var(--gutter);
+}
+
+.k4-pair > .k4-card {
+  flex: 1;
+  min-width: 0;
+  height: calc(157 * var(--dp));
+  overflow: hidden;
+}
+
+/* 卡片小标签（TDP 驱动 10dp ink-4） */
+.k4-label {
+  flex: none;
+  margin: 0;
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+  letter-spacing: 0.06em;
+}
+
+.k4-card-title {
+  flex: none;
+  margin: calc(2 * var(--dp)) 0 0;
+  font-size: calc(19 * var(--dp));
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* 小卡（前端 / Mod / 运行库 / 系统维护）的标题是 16dp，不用主卡那个 19dp */
+.k4-side .k4-card-title,
+.k4-row .k4-card .k4-card-title {
+  font-size: var(--font-h2);
+}
+
+.k4-card-body {
+  flex: none;
+  margin: calc(6 * var(--dp)) 0 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+}
+
+.k4-card-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--stack-lg);
+}
+
+.k4-card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(38 * var(--dp));
+  height: calc(38 * var(--dp));
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--accent);
+}
+
+.k4-card-icon .icon {
+  width: calc(20 * var(--dp));
+  height: calc(20 * var(--dp));
+}
+
+.k4-card-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 卡片右上角那颗按钮（重装 / 去游戏库 / 检查更新） */
+.k4-card-action {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  height: calc(34 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-3);
+  color: var(--ink);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+/* ── 主卡里的状态四格（画板实测：标签 10dp ink-4 在上、数值 13dp 在下，格宽 118） ── */
+.k4-stats {
+  display: flex;
+  gap: calc(4 * var(--dp));
+  margin-top: calc(10 * var(--dp));
+}
+
+.k4-stat {
+  flex: 0 0 auto;
+  min-width: calc(118 * var(--dp));
+}
+
+.k4-stat dt {
+  margin: 0;
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+}
+
+.k4-stat dd {
+  margin: calc(4 * var(--dp)) 0 0;
+  font-size: var(--font-h3);
+  color: var(--ink);
+}
+
+.k4-stat dd.is-on {
+  color: var(--accent);
+}
+
+.k4-stat dd.is-warn {
+  color: var(--warning);
+}
+
+.k4-stat dd.is-off {
+  color: var(--ink-4);
+}
+
+/* 主卡底部：主按钮 + 右边那行说明（画板实测按钮 132×40，说明 10.5dp ink-4） */
+.k4-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--pad-card);
+  margin-top: auto;
+}
+
+.k4-primary {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--stack);
+  width: calc(132 * var(--dp));
+  height: calc(40 * var(--dp));
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-3);
+  color: var(--ink);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+.k4-primary:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+.k4-primary:disabled {
+  opacity: 0.5;
+}
+
+.k4-note {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink-4);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+}
+
+/* ── 运行库那三行（画板：左边一个 ✓、右边名称 + 说明，行高 30 上下） ── */
+.k4-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  margin-top: calc(10 * var(--dp));
+}
+
+.k4-row-item {
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  min-height: calc(28 * var(--dp));
+  font-size: var(--font-caption);
+  color: var(--ink-2);
+}
+
+.k4-tick {
+  flex: none;
+  width: calc(14 * var(--dp));
+  color: var(--ink-4);
+  text-align: center;
+}
+
+.k4-tick.is-on {
+  color: var(--accent);
+}
+
+.k4-row-item strong {
+  font-weight: 500;
+}
+
+.k4-row-item small {
+  color: var(--ink-4);
+}
+
+/* 行尾那颗按钮比卡片右上角那颗小一号（每行一颗，不能喧宾夺主） */
+.k4-row-item .k4-card-action {
+  height: calc(28 * var(--dp));
+  margin-left: auto;
+  font-size: var(--font-caption);
+  font-weight: 500;
+}
+
+.k4-empty {
+  margin: calc(10 * var(--dp)) 0 0;
+  color: var(--ink-4);
+  font-size: var(--font-caption);
+}
+
+.k4-card-action:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+.k4-card-action:disabled {
+  opacity: 0.5;
+}
+
+

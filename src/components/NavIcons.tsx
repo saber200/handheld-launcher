@@ -191,6 +191,16 @@ export function EyeIcon({ off }: { off?: boolean }) {
   );
 }
 
+/** 独立前端（浮层）那张卡的图标：一个窗口，中间嵌一小块面板。 */
+export function OverlayIcon() {
+  return (
+    <svg {...base}>
+      <rect x="2.8" y="4.4" width="18.4" height="15.2" rx="2.6" />
+      <rect x="7.2" y="8.6" width="9.6" height="6.6" rx="1.6" />
+    </svg>
+  );
+}
+
 export function BatteryIcon({ level }: { level: number }) {
   const safe = Math.max(0, Math.min(1, level));
   return (

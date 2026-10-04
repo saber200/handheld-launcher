@@ -598,6 +598,59 @@ const scanTabs = async () => {
         }
       }
 
+      // 工具箱 = 画板 K4：主卡 616×196 + 右侧两张 90 + 底部两张 490×157。
+      // 期望值来自画板实测（2560×1440 的 PNG 按 2 除回 dp）。
+      if (name === "工具箱") {
+        const k4 = await page.eval(`
+          const rect = (el) => { const r = el.getBoundingClientRect();
+            return { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2), right: +r.right.toFixed(2) }; };
+          const box = (sel) => { const el = document.querySelector(sel); return el ? rect(el) : null; };
+          const cards = [...document.querySelectorAll('.k4-body .k4-card')];
+          const stat = document.querySelector('.k4-stat');
+          const stats = [...document.querySelectorAll('.k4-stat')];
+          return {
+            dp: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1,
+            head: box('.k4-head h2'),
+            self: box('.k4-selfcheck'),
+            main: box('.k4-main .k4-card'),
+            side: [...document.querySelectorAll('.k4-side .k4-card')].map(rect),
+            bottom: [...document.querySelectorAll('.k4-pair .k4-card')].map(rect),
+            primary: box('.k4-primary'),
+            stats: stats.length,
+            statW: stat ? +stat.getBoundingClientRect().width.toFixed(2) : null,
+            cards: cards.length,
+          };
+        `);
+        const d = k4 ? k4.dp : 1;
+        if (!k4 || !k4.main || k4.side.length !== 2 || k4.bottom.length !== 2) {
+          note(false, "工具箱是 K4：找不到主卡 / 右侧两卡 / 底部两卡");
+        } else {
+          note(Math.abs(k4.main.x - 260 * d) < 2 && Math.abs(k4.main.right - 876 * d) < 2,
+            `K4 主卡横跨 260..876（实测 ${k4.main.x}..${k4.main.right}）`);
+          note(Math.abs(k4.main.y - 98 * d) < 3 && Math.abs(k4.main.h - 196 * d) < 3,
+            `K4 主卡顶边 98dp、高 196dp（实测 ${k4.main.y} / ${k4.main.h}）`);
+          note(k4.side.every((c) => Math.abs(c.x - 892 * d) < 2 && Math.abs(c.right - 1256 * d) < 2),
+            `K4 右侧两卡 892..1256（实测 ${k4.side.map((c) => Math.round(c.x) + ".." + Math.round(c.right)).join(" / ")}）`);
+          note(k4.side.every((c) => Math.abs(c.h - 90 * d) < 4),
+            `K4 右侧两卡各 90dp 高（实测 ${k4.side.map((c) => Math.round(c.h)).join(" / ")}）`);
+          note(k4.side[0].y > k4.main.y - 1 && k4.side[1].y > k4.side[0].y + 60 * d,
+            `K4 右侧两卡上下排（${Math.round(k4.side[0].y)} → ${Math.round(k4.side[1].y)}）`);
+          note(k4.bottom.every((c) => Math.abs(c.h - 157 * d) < 4) && Math.abs(k4.bottom[0].y - 310.5 * d) < 4,
+            `K4 底部两卡顶边 310.5dp、高 157dp（实测 ${k4.bottom[0].y} / ${k4.bottom.map((c) => Math.round(c.h)).join(" / ")}）`);
+          note(
+            Math.abs(k4.bottom[0].w - 490 * d) < 3 && Math.abs(k4.bottom[1].w - 490 * d) < 3,
+            `K4 底部两卡各 490dp 宽（实测 ${k4.bottom.map((c) => Math.round(c.w)).join(" / ")}）`,
+          );
+          note(Math.abs(k4.primary.w - 132 * d) < 2 && Math.abs(k4.primary.h - 40 * d) < 2,
+            `K4 主卡按钮 132×40（实测 ${k4.primary.w}×${k4.primary.h}）`);
+          note(k4.stats === 3 && Math.abs(k4.statW - 118 * d) < 3,
+            `K4 主卡状态格 118dp 宽 × ${k4.stats} 格（实测 ${k4.statW}）`);
+          note(Math.abs(k4.self.h - 32 * d) < 2 && Math.abs(k4.self.right - 1256 * d) < 2,
+            `K4 自检按钮高 32dp、贴右安全边（实测 ${k4.self.h} / ${k4.self.right}）`);
+          note(k4.head && String(k4.head.y).length > 0, `K4 头部有标题（实测顶边 ${k4.head ? k4.head.y : "-"}）`);
+        }
+      }
+
       if (SHOTS) {
         const p = join(SHOTS, `tab-${name}-${width}x${height}.png`);
         await page.shot(p);

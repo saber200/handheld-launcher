@@ -141,6 +141,29 @@ export type Catalog = {
     runtimesTitle: string;
     runtimesBody: string;
     runtimesEmpty: string;
+    // 画板 K4（工具箱）：页面小标题、自检按钮、四张卡的短文案。
+    toolboxSubtitle: string;
+    toolboxSelfCheck: string;
+    toolboxDriverLabel: string;
+    toolboxDriverTitle: string;
+    toolboxStateLabel: string;
+    toolboxStateReady: string;
+    toolboxStateInstalled: string;
+    toolboxStateMissing: string;
+    toolboxBackendLabel: string;
+    toolboxBackendNone: string;
+    toolboxPermLabel: string;
+    toolboxAdmin: string;
+    toolboxStandardUser: string;
+    toolboxDriverNote: string;
+    toolboxModTitle: string;
+    toolboxModBody: string;
+    toolboxModAction: string;
+    toolboxRuntimesSub: string;
+    toolboxRuntimesAction: string;
+    toolboxMaintenanceTitle: string;
+    toolboxMaintenanceSub: string;
+    toolboxMaintenancePending: string;
     quitGame: string;
     quitGameBody: (name: string) => string;
     quitGameRunning: string;
@@ -603,6 +626,29 @@ export const zh: Catalog = {
     runtimesTitle: "游戏运行库",
     runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
     runtimesEmpty: "暂时没有可安装的运行库项。",
+    toolboxSubtitle: "运行库 · 驱动 · 前端 · 系统维护",
+    toolboxSelfCheck: "自检",
+    toolboxDriverLabel: "TDP 驱动",
+    toolboxDriverTitle: "WinRing0 驱动",
+    toolboxStateLabel: "状态",
+    toolboxStateReady: "已就绪",
+    toolboxStateInstalled: "已安装",
+    toolboxStateMissing: "未安装",
+    toolboxBackendLabel: "后端",
+    toolboxBackendNone: "不可用",
+    toolboxPermLabel: "权限",
+    toolboxAdmin: "管理员",
+    toolboxStandardUser: "普通用户",
+    toolboxDriverNote: "驱动缺失时 TDP 只读，其余功能不受影响",
+    toolboxModTitle: "游戏 Mod / 工具",
+    toolboxModBody: "在游戏卡片菜单里对单个游戏安装",
+    toolboxModAction: "去游戏库",
+    toolboxRuntimesSub: "VC++ / .NET / DirectX 一键补齐",
+    toolboxRuntimesAction: "检查更新",
+    toolboxMaintenanceTitle: "系统维护",
+    toolboxMaintenanceSub: "缓存清理 · 启动项 · 日志导出",
+    toolboxMaintenancePending:
+      "这三项要新的系统信息与清理命令（着色器缓存、启动项、日志），这一版还没接 —— 不摆假数字。",
     quitGame: "退出游戏",
     quitGameBody: (name) => `立刻结束「${name}」；没保存的进度会丢`,
     quitGameRunning: "正在退出…",
@@ -1062,6 +1108,29 @@ export const en: Catalog = {
     runtimesTitle: "Game runtimes",
     runtimesBody: "Official Microsoft redistributables first; more packages later.",
     runtimesEmpty: "No runtime packages available yet.",
+    toolboxSubtitle: "Runtimes · Driver · Frontend · Maintenance",
+    toolboxSelfCheck: "Self-check",
+    toolboxDriverLabel: "TDP driver",
+    toolboxDriverTitle: "WinRing0 driver",
+    toolboxStateLabel: "State",
+    toolboxStateReady: "Ready",
+    toolboxStateInstalled: "Installed",
+    toolboxStateMissing: "Not installed",
+    toolboxBackendLabel: "Backend",
+    toolboxBackendNone: "Unavailable",
+    toolboxPermLabel: "Rights",
+    toolboxAdmin: "Administrator",
+    toolboxStandardUser: "Standard user",
+    toolboxDriverNote: "Without the driver TDP stays read-only; everything else keeps working",
+    toolboxModTitle: "Game mods / tools",
+    toolboxModBody: "Install per game from its card menu",
+    toolboxModAction: "Open library",
+    toolboxRuntimesSub: "VC++ / .NET / DirectX in one pass",
+    toolboxRuntimesAction: "Check again",
+    toolboxMaintenanceTitle: "Maintenance",
+    toolboxMaintenanceSub: "Shader cache · Startup · Logs",
+    toolboxMaintenancePending:
+      "These three need new system-info and cleanup commands (shader cache, startup items, logs). Not wired up in this build — no invented numbers.",
     quitGame: "Quit game",
     quitGameBody: (name) => `Ends “${name}” right away; unsaved progress is lost`,
     quitGameRunning: "Quitting…",
