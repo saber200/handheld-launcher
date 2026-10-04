@@ -4,6 +4,7 @@ import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { MenuIcon, PlayIcon } from "../components/NavIcons";
 import { libraryActions } from "../library/actions";
+import { formatPlaytime, formatPlaytimeAndSize, formatSize } from "../library/format";
 import { type GameEntry } from "../data/previewGames";
 import {
   cancelLibraryGameMods,
@@ -143,6 +144,7 @@ export function GamesPage() {
           // 卡片条跟两个选择对话框画法不同（见 GameCard 的 variant）：这里必须把
           // LibraryShelf 给的 variant 传下去，漏了就会在卡片条里画成旧网格卡片。
           variant={options?.variant}
+          focusedMeta={options?.focused}
           picked={options?.picked}
           onPick={options?.onPick}
           name={options?.name}
@@ -163,6 +165,7 @@ function GameCard({
   running,
   onStatus,
   variant = "picker",
+  focusedMeta = false,
 }: {
   game: GameEntry;
   cardRef?: Ref<HTMLButtonElement>;
@@ -176,6 +179,8 @@ function GameCard({
    * `"picker"`（默认）= 旧网格卡片 —— 两个选择对话框还在用它，别一起改。
    */
   variant?: "shelf" | "picker";
+  /** 聚焦卡才露「时长 · 体积」那一行（画板 §3.2）。 */
+  focusedMeta?: boolean;
 }) {
   const shelf = variant === "shelf";
   const [src, setSrc] = useState(game.cover);
@@ -232,19 +237,24 @@ function GameCard({
   };
 
   if (shelf) {
-    // 只有封面 + 名字（+ 运行中的小圆点）：画板把「时长 / 体积 / 兼容性」这些放进信息面板，
-    // 而那些数据本地没有来源，就不摆假格子（见 STATUS.md 的 M1 一节）。
+    // 画板 §3.2：卡片里只有名称（未聚焦一行、聚焦两行）；**聚焦那张**再带一行「时长 · 体积」。
+    // 这一行只在真有数的时候才出现（Rust 那边 0 = 不知道），拿不到就整行不画 —— 不留空行、
+    // 也不写「0 GB」。两个数都没有时，卡片看起来就跟 M1 一样（只有名称）。
+    const facts = focusedMeta ? formatPlaytimeAndSize(game.playtimeMinutes, game.sizeBytes) : "";
     return (
       <button
         ref={cardRef}
         type="button"
-        className={["library-card", "k1-card", running ? "is-running" : ""].filter(Boolean).join(" ")}
+        className={["library-card", "k1-card", running ? "is-running" : "", facts ? "has-facts" : ""]
+          .filter(Boolean)
+          .join(" ")}
         data-focusable
         data-card-id={game.id}
         onClick={activate}
       >
         {cover}
         <span className="library-name">{title}</span>
+        {facts && <span className="k1-card-facts tnum">{facts}</span>}
         {running && <span className="k1-run-dot" aria-hidden />}
         <span className="k1-a" aria-hidden>
           A
@@ -315,13 +325,18 @@ function GameHero({ game }: { game: GameEntry }) {
 /**
  * 信息面板（画板上是 430×138 的卡片）。
  *
- * **只写真字段**：名称、来源、运行状态、安装位置。画板里的四格数据（总时长 / 最近游玩 /
- * 占用空间 / 兼容性）本地没有数据源 —— 摆上去只能是假数字，所以整块不画（见 STATUS.md M1）。
+ * **只写真字段**：名称、来源、运行状态、占用空间、总时长、安装位置。
+ * 画板那四格里的「最近游玩 / 兼容性」本地没有数据源（前者要 Steam 的 last played、
+ * 后者要一份兼容性清单），所以不画；「总时长 / 占用空间」现在是真数据了
+ * （Rust 扫描：Steam 的 appmanifest / localconfig、Epic 的 manifest；见 scan.rs），
+ * 拿不到的那一条自己会消失，不留空行。
  */
 function GameInfo({ game, name, running }: { game: GameEntry; name: string; running: boolean }) {
   const platform = platformOf(game);
   // Steam / Epic 的 launchPath 是 steam:// 这类地址，没有安装路径时别把它当路径显示出来。
   const path = game.installPath || (game.launchPath?.includes("://") ? "" : game.launchPath) || "";
+  const size = formatSize(game.sizeBytes);
+  const playtime = formatPlaytime(game.playtimeMinutes);
   return (
     <>
       <h3 className="k1-info-name">{name}</h3>
@@ -332,6 +347,18 @@ function GameInfo({ game, name, running }: { game: GameEntry; name: string; runn
         <dd className={running ? "is-running" : undefined}>
           {running ? text().library.stateRunning : text().library.stateIdle}
         </dd>
+        {size && (
+          <>
+            <dt>{text().library.fieldSize}</dt>
+            <dd className="tnum">{size}</dd>
+          </>
+        )}
+        {playtime && (
+          <>
+            <dt>{text().library.fieldPlaytime}</dt>
+            <dd className="tnum">{playtime}</dd>
+          </>
+        )}
         <dt>{text().library.fieldPath}</dt>
         <dd className="k1-path" title={path || undefined}>
           {path || "—"}

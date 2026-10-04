@@ -29,6 +29,8 @@ type RawGame = {
   coverPath: string;
   installPath: string;
   launchPath: string;
+  sizeBytes?: number;
+  playtimeMinutes?: number;
 };
 
 type RawApp = {
@@ -37,6 +39,8 @@ type RawApp = {
   iconPath: string;
   installPath: string;
   launchPath: string;
+  version?: string;
+  sizeBytes?: number;
 };
 
 function inTauri(): boolean {
@@ -574,6 +578,9 @@ function mapGame(row: RawGame): GameEntry {
     coverRemote: remoteCoverFor(row),
     installPath: row.installPath,
     launchPath: row.launchPath,
+    // 老缓存里没有这两项（更新前扫的库）→ undefined = 不知道，界面不画那一格。
+    sizeBytes: row.sizeBytes && row.sizeBytes > 0 ? row.sizeBytes : undefined,
+    playtimeMinutes: row.playtimeMinutes && row.playtimeMinutes > 0 ? row.playtimeMinutes : undefined,
   };
 }
 
@@ -637,6 +644,8 @@ function mapApp(row: RawApp): AppEntry {
     icon: row.iconPath ? convertFileSrc(row.iconPath) : undefined,
     installPath: row.installPath,
     launchPath: row.launchPath,
+    version: row.version?.trim() ? row.version.trim() : undefined,
+    sizeBytes: row.sizeBytes && row.sizeBytes > 0 ? row.sizeBytes : undefined,
   };
 }
 

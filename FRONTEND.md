@@ -26,6 +26,14 @@ M0 定的顺序里的第一页：游戏库换成画板 K1 的横向卡片条。*
 - **hero 的图从哪来由页面定**（`renderHero`），`LibraryShelf` 只负责换图时的交叉淡入与压暗；页面侧的回退链是 Steam 宽图 → 本地封面 → 渐变占位。宽图没有本地缓存（`cache_covers` 只存 600×900 竖封面），断网时自动退回封面。
 - **不摆假数据**：画板里有、本地没数据源的（时长·体积 / 四格数据 / 收藏 / 筛选 / 排序 / 网格列表切换）一律不做，右上角那一格放的是真按钮（新建分组 / 添加游戏 / 从扫描添加 / 重新扫描）。
 
+## 未发布：Rust 元数据（体积 / 时长 / 版本）—— 2026-10-04
+
+- **约定：`0` = 不知道，不是「0 字节 / 0 分钟」。** Rust 那四个新字段（`ScannedGame.sizeBytes` / `playtimeMinutes`、`ScannedApp.version` / `sizeBytes`）都按这个来；前端 `src/library/format.ts` 里 `formatSize` / `formatPlaytime` 见到 0/undefined 返回**空串**，调用方据此不画那一格 —— 别在别处自己判 0 然后显示「0 MB」。
+- **数据源**（不新增下载、不新增权限）：Steam 体积 = `appmanifest_*.acf` 的 `SizeOnDisk`；Steam 时长 = `<Steam>/userdata/<账号>/config/localconfig.vdf` 的 `apps → <appid> → Playtime`（分钟，多账号取最大）；Epic 体积 = manifest 的 `InstallSize`；软件版本/体积 = 注册表 `DisplayVersion` / `EstimatedSize`（KB）。
+- **localconfig 为什么要单独解析**：`scan.rs` 里那个 `vdf_pairs` 是**扁平**的（只认 key/value、不看 `{}`），而 localconfig 里 `apps` 下面每个 appid 一个块、多个 appid 都有 `Playtime` —— 扁平解析得到一串无主的 Playtime。`playtimes_from_localconfig` 是一台认 `{` `}` 的小状态机，只认「`apps` 的子块里的 Playtime」这一种形状（少认几层，Steam 换层级也不会整个失效）；4 个单测在本机跑（纯函数），读文件/读注册表那几行是 `#[cfg(windows)]`，只能靠 CI 编。
+- **K1 上怎么摆**：只有**聚焦卡**露第二行「时长 · 体积」（`CardOptions.focused` 由 `LibraryShelf` 传下来）；卡片上加 `has-facts` 时才把 `.library-name` 抬到 `bottom: 24dp`、第二行贴底 —— 名称是 `-webkit-line-clamp` 的多行块，直接塞进文档流会让聚焦/未聚焦两态封面高度不一致。信息面板只是多两行 dt/dd（占用空间 / 总时长），面板高度因此 138 → 168dp（画板四格那种紧凑排法我们没照抄）。
+- **`scripts/probe-ui.mjs` 的两条新断言**：聚焦卡第二行必须在卡内且不压住名称；信息面板的 dt/dd 必须成对。改卡片底部这一块之后跑它，比肉眼可靠。
+
 ## 未发布：界面大改 M1 修正（2026-10-04，用户截图反馈）
 
 三条都改完了，**Rust 一行没动**；改完先在 1280×720 与 1920×1080 下重量过再重截的自检图。

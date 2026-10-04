@@ -26,6 +26,13 @@ pub struct ScannedGame {
     pub cover_path: String,
     pub install_path: String,
     pub launch_path: String,
+    /// 占用空间（字节）。0 = **不知道**，界面按「这一格不画」处理，不许当 0 显示。
+    /// Steam 取 `appmanifest_*.acf` 的 `SizeOnDisk`、Epic 取 manifest 的 `InstallSize`；
+    /// 手动添加 / 注册表扫出来的游戏没有这个数。
+    pub size_bytes: u64,
+    /// 总时长（分钟）。0 = 不知道。只有 Steam 有：`userdata/<id>/config/localconfig.vdf` 里
+    /// `apps → <appid> → Playtime`，Steam 自己也是拿这个显示「已玩 x 小时」的。
+    pub playtime_minutes: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +43,11 @@ pub struct ScannedApp {
     pub icon_path: String,
     pub install_path: String,
     pub launch_path: String,
+    /// 版本（`DisplayVersion`）。空 = 注册表里没写（很多软件不填）。
+    pub version: String,
+    /// 占用空间（字节），来自注册表 `EstimatedSize`（KB，Windows「应用和功能」里显示的就是它）。
+    /// 0 = 注册表没写 —— 这个值本来就允许缺失，也允许不准，所以只能当参考值显示。
+    pub size_bytes: u64,
 }
 
 #[tauri::command]
@@ -331,6 +343,8 @@ struct AcfGame {
     name: String,
     installdir: String,
     fully_installed: bool,
+    /// `SizeOnDisk`（字节）。ACF 里没这一项就是 0 = 不知道。
+    size_on_disk: u64,
 }
 
 fn next_quoted(text: &str, start: usize) -> Option<(String, usize)> {
@@ -403,6 +417,7 @@ fn parse_acf(text: &str) -> Option<AcfGame> {
     let mut name = String::new();
     let mut installdir = String::new();
     let mut flags: Option<u32> = None;
+    let mut size_on_disk = 0u64;
     for (key, value) in vdf_pairs(text) {
         if key.eq_ignore_ascii_case("appid") {
             appid = value;
@@ -412,6 +427,9 @@ fn parse_acf(text: &str) -> Option<AcfGame> {
             installdir = value;
         } else if key.eq_ignore_ascii_case("stateflags") {
             flags = value.parse().ok();
+        } else if key.eq_ignore_ascii_case("SizeOnDisk") {
+            // Steam 自己「已安装」页面显示的就是这个数（字节）。解析不了就当不知道。
+            size_on_disk = value.trim().parse().unwrap_or(0);
         }
     }
     if appid.is_empty() || installdir.is_empty() {
@@ -426,7 +444,66 @@ fn parse_acf(text: &str) -> Option<AcfGame> {
         name,
         installdir,
         fully_installed,
+        size_on_disk,
     })
+}
+
+/// 从 `localconfig.vdf` 里取出「每个 appid 的总时长（分钟）」。
+///
+/// 为什么要单独走一遍嵌套：上面那个 `vdf_pairs` 是**扁平**的（只认 key/value，不看 `{}`），
+/// 而 localconfig 里 `apps` 块下面每个 appid 各有一个子块，一堆 appid 都有 `Playtime` ——
+/// 扁平解析拿到的是一串无主的 Playtime，分不清属于谁。这里只认「`apps` 块某个子块里的
+/// Playtime」这一种形状：少认几层，Steam 换一层裹皮也不会整个失效。
+///
+/// 真实结构（`UserLocalConfigStore` 那几层可能随版本变，所以不写死前缀）：
+/// ```text
+/// "Software" { "Valve" { "Steam" { "apps" { "<appid>" { "Playtime" "2560" } } } } }
+/// ```
+fn playtimes_from_localconfig(text: &str) -> Vec<(String, u64)> {
+    let bytes = text.as_bytes();
+    let mut stack: Vec<String> = Vec::new();
+    let mut pending: Option<String> = None;
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => {
+                stack.push(pending.take().unwrap_or_default());
+                i += 1;
+            }
+            b'}' => {
+                stack.pop();
+                i += 1;
+            }
+            b'"' => {
+                let Some((key, next)) = next_quoted(text, i) else {
+                    break;
+                };
+                // 引号后面紧跟着另一个引号 = 这是一个键值对；否则这个键后面是 `{`。
+                let after = next + (text[next..].len() - text[next..].trim_start().len());
+                if text[after..].starts_with('"') {
+                    if let Some((value, end)) = next_quoted(text, after) {
+                        let owner = stack.get(stack.len().wrapping_sub(2)).map(String::as_str);
+                        let block = stack.last().cloned().unwrap_or_default();
+                        if key.eq_ignore_ascii_case("Playtime")
+                            && !block.is_empty()
+                            && owner.is_some_and(|name| name.eq_ignore_ascii_case("apps"))
+                        {
+                            if let Ok(minutes) = value.trim().parse::<u64>() {
+                                out.push((block, minutes));
+                            }
+                        }
+                        i = end;
+                        continue;
+                    }
+                }
+                pending = Some(key);
+                i = next;
+            }
+            _ => i += 1,
+        }
+    }
+    out
 }
 
 fn is_steam_tool(appid: &str, name: &str) -> bool {
@@ -900,11 +977,14 @@ mod windows {
 
     pub fn scan_games(app: &tauri::AppHandle) -> Vec<ScannedGame> {
         let roots = steam_roots();
+        // 时长只在 localconfig 里，而且**按账号**分文件：先一次性读出来做成 appid → 分钟的表，
+        // 免得每个 appmanifest 都去翻一遍文件（Steam 库里几百个游戏，那是几百次读盘）。
+        let playtimes = steam_playtimes(&roots);
         let mut games = Vec::new();
         let mut seen = HashSet::new();
         for root in &roots {
             for library in steam_libraries(root) {
-                scan_steam_library(&library, &mut games, &mut seen);
+                scan_steam_library(&library, &mut games, &mut seen, &playtimes);
             }
         }
         scan_epic(&mut games, &mut seen);
@@ -992,6 +1072,29 @@ mod windows {
         }
     }
 
+    /// appid → 总时长（分钟）。逐个账号读 `<Steam>/userdata/<id>/config/localconfig.vdf`
+    /// （时长是按账号存的）；同一个 appid 出现在多个账号里取最大值。
+    /// 读不到就返回空表 —— 时长缺失只是少一格数据，不该影响扫描。
+    fn steam_playtimes(roots: &[PathBuf]) -> HashMap<String, u64> {
+        let mut out: HashMap<String, u64> = HashMap::new();
+        for root in roots {
+            let Ok(accounts) = std::fs::read_dir(root.join("userdata")) else {
+                continue;
+            };
+            for account in accounts.flatten() {
+                let config = account.path().join("config").join("localconfig.vdf");
+                let Ok(text) = std::fs::read_to_string(&config) else {
+                    continue;
+                };
+                for (appid, minutes) in playtimes_from_localconfig(&text) {
+                    let slot = out.entry(appid).or_insert(0);
+                    *slot = (*slot).max(minutes);
+                }
+            }
+        }
+        out
+    }
+
     fn steam_libraries(steam_root: &Path) -> Vec<PathBuf> {
         let mut roots = vec![steam_root.to_path_buf()];
         for relative in ["steamapps/libraryfolders.vdf", "config/libraryfolders.vdf"] {
@@ -1010,6 +1113,7 @@ mod windows {
         library: &Path,
         games: &mut Vec<ScannedGame>,
         seen: &mut HashSet<String>,
+        playtimes: &HashMap<String, u64>,
     ) {
         let steamapps = library.join("steamapps");
         let Ok(entries) = std::fs::read_dir(&steamapps) else {
@@ -1046,6 +1150,8 @@ mod windows {
                 cover_path: String::new(),
                 install_path: install_path.display().to_string(),
                 launch_path,
+                size_bytes: parsed.size_on_disk,
+                playtime_minutes: playtimes.get(&parsed.appid).copied().unwrap_or(0),
             });
         }
     }
@@ -1108,6 +1214,10 @@ mod windows {
                 cover_path: String::new(),
                 install_path: install.display().to_string(),
                 launch_path,
+                // Epic 的 manifest 里就有安装体积（字节）。时长只有 Steam 有 localconfig，
+                // Epic 侧没有公开可读的等价物 —— 保持 0（界面不画这一格）。
+                size_bytes: item.install_size,
+                playtime_minutes: 0,
             });
         }
     }
@@ -1187,6 +1297,10 @@ mod windows {
                 icon_path,
                 install_path,
                 launch_path,
+                version: reg_string(&sub, "DisplayVersion").trim().to_string(),
+                // EstimatedSize 是 KB（Windows「应用和功能」里显示的就是它）。0 或缺席 = 不知道；
+                // 溢出不了：u32 KB 最大约 4 TB。
+                size_bytes: u64::from(reg_dword(&sub, "EstimatedSize")) * 1024,
             };
             remember_app(found, app);
         }
@@ -1234,6 +1348,9 @@ mod windows {
         install_location: String,
         #[serde(default, rename = "LaunchExecutable")]
         launch_executable: String,
+        /// 安装体积（字节）。manifest 里通常有；没有就是 0 = 不知道。
+        #[serde(default, rename = "InstallSize")]
+        install_size: u64,
         #[serde(default, rename = "AppName")]
         app_name: String,
         #[serde(default, rename = "bIsIncompleteInstall")]
@@ -1452,5 +1569,87 @@ mod tests {
             clean_reg_path(r#""C:\Games\App\App.exe",0"#),
             r"C:\Games\App\App.exe"
         );
+    }
+
+    /// 真 appmanifest 的形状（只留用得到的键），SizeOnDisk 是字节。
+    const APP_MANIFEST: &str = r#"
+"AppState"
+{
+	"appid"		"1245620"
+	"Universe"		"1"
+	"name"		"ELDEN RING"
+	"StateFlags"		"4"
+	"installdir"		"ELDEN RING"
+	"SizeOnDisk"		"53687091200"
+	"LastUpdated"		"1750000000"
+}
+"#;
+
+    #[test]
+    fn acf_keeps_size_on_disk() {
+        let parsed = parse_acf(APP_MANIFEST).expect("appmanifest 应该能解析");
+        assert_eq!(parsed.appid, "1245620");
+        assert_eq!(parsed.installdir, "ELDEN RING");
+        assert!(parsed.fully_installed);
+        assert_eq!(parsed.size_on_disk, 53_687_091_200);
+    }
+
+    #[test]
+    fn acf_without_size_on_disk_is_unknown_not_zero_bytes() {
+        let text = "\"AppState\"\n{\n\t\"appid\"\t\t\"1\"\n\t\"installdir\"\t\t\"X\"\n}\n";
+        let parsed = parse_acf(text).expect("缺 SizeOnDisk 也要能解析");
+        assert_eq!(parsed.size_on_disk, 0);
+    }
+
+    /// 真 localconfig 的形状：`apps` 下面每个 appid 一个块，块里还有别的键和嵌套块。
+    const LOCAL_CONFIG: &str = r#"
+"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"apps"
+				{
+					"1245620"
+					{
+						"LastPlayed"		"1750000000"
+						"Playtime"		"2560"
+						"Playtime2wks"		"120"
+						"cloud"
+						{
+							"last_sync_state"		"1"
+						}
+					}
+					"367520"
+					{
+						"Playtime"		"15"
+					}
+				}
+				"RecentGames"
+				{
+					"Playtime"		"9999"
+				}
+			}
+		}
+	}
+}
+"#;
+
+    #[test]
+    fn localconfig_playtime_is_looked_up_per_appid() {
+        let found = playtimes_from_localconfig(LOCAL_CONFIG);
+        // RecentGames 那个 9999 不是 appid 块里的，不能混进来
+        assert_eq!(found.len(), 2);
+        assert!(found.iter().any(|(id, minutes)| id == "1245620" && *minutes == 2560));
+        assert!(found.iter().any(|(id, minutes)| id == "367520" && *minutes == 15));
+    }
+
+    #[test]
+    fn localconfig_without_apps_block_yields_nothing() {
+        let text = "\"UserLocalConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Playtime\"\t\t\"3\"\n\t}\n}\n";
+        assert!(playtimes_from_localconfig(text).is_empty());
     }
 }

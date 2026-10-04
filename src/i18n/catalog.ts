@@ -263,6 +263,11 @@ export type Catalog = {
     fieldSource: string;
     fieldState: string;
     fieldPath: string;
+    fieldSize: string;
+    fieldPlaytime: string;
+    /** 时长/体积的写法（画板：42.6 小时 · 8.4 GB）—— 单位跟着语言走，数值由 format.ts 算。 */
+    hours: (value: string) => string;
+    minutes: (value: string) => string;
     stateRunning: string;
     stateIdle: string;
   };
@@ -715,6 +720,10 @@ export const zh: Catalog = {
     fieldSource: "来源",
     fieldState: "状态",
     fieldPath: "安装位置",
+    fieldSize: "占用空间",
+    fieldPlaytime: "总时长",
+    hours: (value) => `${value} 小时`,
+    minutes: (value) => `${value} 分钟`,
     stateRunning: "运行中",
     stateIdle: "未运行",
   },
@@ -1168,6 +1177,10 @@ export const en: Catalog = {
     fieldSource: "Source",
     fieldState: "State",
     fieldPath: "Install path",
+    fieldSize: "Size on disk",
+    fieldPlaytime: "Playtime",
+    hours: (value) => `${value} h`,
+    minutes: (value) => `${value} min`,
     stateRunning: "Running",
     stateIdle: "Not running",
   },

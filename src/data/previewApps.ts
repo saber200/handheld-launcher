@@ -8,6 +8,10 @@ export type AppEntry = {
   launchPath?: string;
   /** Set when launch should open this path instead of the scanned command. */
   customPath?: boolean;
+  /** 版本（注册表 `DisplayVersion`）。空 = 软件自己没写，界面不画。 */
+  version?: string;
+  /** 占用空间（字节），注册表 `EstimatedSize`。0 / undefined = 不知道。 */
+  sizeBytes?: number;
 };
 
 export function displayAppMark(id: string, mark: string, locale: string): string {

@@ -63,6 +63,22 @@
 - 启动器设置页里装小组件那行改叫「**安装前端**」（英文 `Install frontend`），提示改成「前端界面就是 Game Bar 小组件；随启动器自动装，点这里重装一次」，预览提示里的「小组件」也改成「前端」—— 原来的「装 Game Bar 小组件」用户看不出是装什么。名字和工具箱那张「前端（独立程序）」卡片（装的是托盘常驻的后台 exe）有重叠，按用户要求就这么叫。
 - 本机验证：`python3 frontend/gamebar/check-static.py` PASS（XAML 里 6 条事件处理器的名字都能在 `.cs` 里找到 —— 删掉 `StartupClick` 后没有悬空事件）；`npm run build` 通过。**C# / XAML 的真编只能靠 CI 的 `gamebar.yml`（本机 macOS 编不了），且这一版还没发。**
 
+## 未发布：Rust 元数据 —— 游戏的「体积 / 时长」、软件的「版本 / 体积」（2026-10-04，用户答「要」）
+
+M1 自查里留了一条：信息面板与聚焦卡上的「时长 · 体积」没有本地数据源，所以整块没画。用户答「要」之后补的就是这一层 —— **只加数据，不加假数字**；没拿到的那一格自己会消失。
+
+- **数据从哪来（都是现成的文件/键，没有新增下载、没有新增权限）**：
+  - 游戏体积：Steam `appmanifest_*.acf` 的 `SizeOnDisk`（字节）—— 就是 Steam 自己「已安装」页面上显示的那个数；Epic 用 manifest 的 `InstallSize`。
+  - 游戏时长：Steam `userdata/<账号>/config/localconfig.vdf` 里 `apps → <appid> → Playtime`（分钟）。**为一个嵌套结构单独写了走法**（`playtimes_from_localconfig`）：文件里那个扁平的 `vdf_pairs` 只认 key/value、不看 `{}`，而 `apps` 下面每个 appid 一个块、好几个 appid 都有 `Playtime`，扁平解析拿到的是一串无主的 Playtime。多账号取最大值；Epic 侧没有公开可读的等价物，保持 0。
+  - 软件版本 / 体积：注册表 `DisplayVersion` 与 `EstimatedSize`（KB，Windows「应用和功能」里显示的就是它）—— 就在既有那次 uninstall 键枚举里，顺带读出来。
+- **0 = 不知道**（不是「0 字节」）：Rust 四个新字段统一这个约定；前端 `src/library/format.ts` 见到 0/undefined 返回空串，调用方据此**不画那一格/那一行**。实测：预览数据里故意给「只狼」不给时长，卡片上就只写「14.0 GB」—— 不写「0 分钟」。
+- **K1 接上两处**：① 聚焦卡第二行「时长 · 体积」（画板 §3.2）——**只有聚焦那张有**，靠 `has-facts` 开关类把名称抬高 24dp、第二行贴底（名称是 `-webkit-line-clamp` 多行块，直接塞进文档流会让聚焦/未聚焦两态的封面高度不一致）；② 信息面板多两行真字段（占用空间 / 总时长），拿不到就整行不出。**面板因此从画板的 138dp 变成 168dp**（画板那四格是「标签在上、数值在下」的紧凑排法，这里是 6 组 dt/dd 行），底边 650，离提示条 672 还有 22dp。画板四格里的「最近游玩 / 兼容性」仍不画（前者 Steam 的 `LastPlayed` 其实就在同一个文件里，能加；后者没有数据源）。
+- **测过的 / 没测过的**：解析全是纯函数，**本机（macOS）跑了 4 个新单测** —— 真 appmanifest 片段取 `SizeOnDisk`、缺这一项时是 0 而不是「0 字节」、真 localconfig 片段按 appid 取 Playtime（`RecentGames` 块里的 9999 不能混进来）、没有 `apps` 块时返回空；`cargo clippy --workspace --all-targets` 退出 0。**没测过的**：读文件、读注册表那几行是 `#[cfg(windows)]`（本机编不到），只能靠 CI 的 `windows-latest` 类型检查 —— **真机没装过**；`EstimatedSize` 缺省很常见（这类软件的体积会显示成空，不是 0）。
+- **顺带**：浏览器预览的样例数据也带上了体积/时长，否则本机没法核对这两处 UI；`scripts/probe-ui.mjs` 加了两条断言（第二行在卡内且没压住名称、面板的 dt/dd 成对）。
+- **下一步**：K2 软件库卡片的底行（`版本 · 体积`）现在有真数据可用了，跟着 M2 一起做。
+
+
+
 ## 0.1.58 这一版（二）：OptiScaler 安装重做 + 文件管理器补六项（2026-10-04，用户要求「都做好」）
 
 **已随 `v0.1.58` 发布（2026-10-04）**：启动器包 30.34 MB / 前端包 3.20 MB，CI 三项全绿。用户原话「你说的这些都很重要 都做好」，于是这一轮把讨论里列的项全做了。**本机全绿（`cargo test` 42 项 / `cargo clippy --workspace --all-targets` 退出 0 / `npx tsc --noEmit` / `npm run build`）**；Windows 专属那段（`SHFileOperationW`、`ureq`、`sevenz-rust2`、TabTip）**已由 CI 的 Lint 作业在 `windows-latest` 上真编过（clippy 退出 0）**，但**真机没装过**。

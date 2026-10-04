@@ -168,7 +168,15 @@ async function connect({ width, height }) {
         /* 已经断了 */
       }
       child.kill("SIGKILL");
-      rmSync(profile, { recursive: true, force: true });
+      // 临时 profile 是 Chrome 的，SIGKILL 之后它还在写盘 —— 立刻删会 ENOTEMPTY
+      // （真遇到过，整个探针会在这里崩掉）。等一会儿再删，仍然失败就算了：
+      // 那是系统临时目录，不该影响「检查是否通过」这个结论。
+      await sleep(300);
+      try {
+        rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      } catch {
+        /* 留给系统清理 */
+      }
     },
   };
 }
@@ -278,6 +286,33 @@ const run = async (width, height) => {
     note(
       Math.abs(centered.card.centerX - centered.stripCenter) < 2,
       `聚焦卡居中于内容区（卡中心 ${centered.card.centerX} / 内容区中线 ${centered.stripCenter}）`,
+    );
+
+    // 聚焦卡的第二行「时长 · 体积」（画板 §3.2）：必须在卡内、且不压住名称
+    const facts = await page.eval(`
+      const card = document.querySelector('.k1-item.is-current .k1-card');
+      const line = card?.querySelector('.k1-card-facts');
+      const name = card?.querySelector('.library-name');
+      if (!line || !name) return null;
+      const c = card.getBoundingClientRect();
+      const l = line.getBoundingClientRect();
+      const n = name.getBoundingClientRect();
+      return { text: (line.textContent || '').trim(), inside: l.bottom <= c.bottom + 0.5 && l.left >= c.left - 0.5, gap: +(l.top - n.bottom).toFixed(1) };
+    `);
+    note(facts !== null, `聚焦卡有第二行「时长 · 体积」（${facts ? facts.text : "没有 —— 预览数据里应该有"}）`);
+    if (facts) note(facts.inside && facts.gap >= -0.5, `第二行在卡内、没压住名称（间隙 ${facts.gap}）`);
+
+    // 信息面板：键值必须成对（dt/dd 各一半），且写出来的都是真字段
+    const panel = await page.eval(`
+      const dl = document.querySelector('.k1-info-fields');
+      if (!dl) return null;
+      const dts = [...dl.querySelectorAll('dt')].map((d) => (d.textContent || '').trim());
+      const dds = [...dl.querySelectorAll('dd')].map((d) => (d.textContent || '').trim());
+      return { dts, dds };
+    `);
+    note(
+      panel !== null && panel.dts.length === panel.dds.length && panel.dts.length > 0,
+      `信息面板键值成对（${panel ? panel.dts.join(" / ") : "-"}）`,
     );
 
     // 焦点域进出（用户 2026-10-04 报的那条）：先退回条上最左边那张，再按左

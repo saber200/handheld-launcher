@@ -20,6 +20,8 @@ type CardOptions = {
    * 不然对话框里会跟着卡片条的尺寸一起变形。
    */
   variant?: "shelf" | "picker";
+  /** 这张卡是不是当前聚焦的那张（画板：只有聚焦卡露「时长 · 体积」第二行）。 */
+  focused?: boolean;
 };
 
 type MenuView = "actions" | "group" | "rename";
@@ -548,6 +550,7 @@ export function LibraryShelf<T extends Item>({
                 >
                   {renderCard(item, index === 0 ? firstRef : undefined, {
                     variant: "shelf",
+                    focused: focused?.id === item.id,
                     name: library.names[item.id] || item.name,
                   })}
                 </div>

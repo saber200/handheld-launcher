@@ -350,6 +350,30 @@
   opacity: 1;
 }
 
+/* 聚焦卡上的「时长 · 体积」（画板 §3.2 的第二行）。
+   为什么要 `has-facts` 这个开关类 + 绝对定位：名称块是 `-webkit-line-clamp` 的多行块，
+   直接把它塞进文档流会让聚焦/未聚焦两态的封面高度不一致（卡片是定高的）；而没数据时
+   连那一行都不该留位置。所以：有数据 → 名称抬高 20dp、第二行贴在底部；
+   没数据 → 跟 M1 一模一样（名称贴底）。 */
+.k1-card.has-facts .library-name {
+  bottom: calc(24 * var(--dp));
+}
+
+.k1-card-facts {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 右边给 A 角标让位（26dp 圆 + 6dp 边距），左边跟名称对齐 */
+  padding: 0 calc(36 * var(--dp)) calc(7 * var(--dp)) calc(8 * var(--dp));
+  font-size: calc(10.5 * var(--dp));
+  color: var(--ink-2);
+  text-shadow: 0 1px calc(2 * var(--dp)) rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 焦点：画板要的 3dp 环 + 14dp 发光（和外壳统一，见 shell.css 的 .nav-item:focus） */
 .k1-card:focus {
   background: transparent;
