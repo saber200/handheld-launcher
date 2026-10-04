@@ -52,3 +52,33 @@ commands.allow = ["file_delete"]
 identifier = "allow-file-open"
 description = "Open a file with the system app."
 commands.allow = ["file_open"]
+
+[[permission]]
+identifier = "allow-file-rename"
+description = "Rename one item."
+commands.allow = ["file_rename"]
+
+[[permission]]
+identifier = "allow-file-rename-many"
+description = "Rename several items at once."
+commands.allow = ["file_rename_many"]
+
+[[permission]]
+identifier = "allow-file-properties"
+description = "Read size, dates, attributes and writability."
+commands.allow = ["file_properties"]
+
+[[permission]]
+identifier = "allow-file-search"
+description = "Search a folder tree by name."
+commands.allow = ["file_search"]
+
+[[permission]]
+identifier = "allow-file-transfer"
+description = "Copy or move items with progress events."
+commands.allow = ["file_transfer"]
+
+[[permission]]
+identifier = "allow-file-cancel"
+description = "Cancel a running copy, move or search."
+commands.allow = ["file_cancel"]
