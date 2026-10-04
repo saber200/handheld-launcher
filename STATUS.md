@@ -67,6 +67,8 @@
 
 **本机门禁**：`npx tsc --noEmit` / `npm run build` / `node scripts/audit-ui.mjs --strict`（**0 处**）/ `cargo clippy --workspace --all-targets --locked` 退出 0 / `cargo test --workspace`（**69 条**：53 + 13 + 3，含新加的「暂停期间不搬」「暂停中取消立刻停」「日志只认 `.log`」「魔数认不出就是 unknown」「盘符规整」）/ 探针 1280×720 + 1920×1080 全绿（几何 + 六页签焦点环 + 左右键跨域 + 英文一遍）。
 
+**CI / 发版**：`main` 第一次推上去 **Windows Lint 红了**（run `37231698107`）—— 四处全在 `#[cfg(windows)]` 里，本机 macOS 一次都编不到：`toolbox.rs::driver_version` 少了 `use ... CommandExt` 与局部 `CREATE_NO_WINDOW`（那是同模块其它函数的局部定义）、`scan.rs` 的 `steam_roots` / `steam_libraries` 在私有子模块里声明为私有（Rust 的私有是「本模块及后代可见」，**父模块看不见**，得标 `pub(super)`）。修完（`6242b32`）**Lint 绿**（run `37232089257`，2m17s）、**Game Bar (Windows) 绿**（run `37231698113`，2m35s）、tag `v0.1.61` 触发的 **Build Windows 绿**（run `37232317049`，15m50s），Release `v0.1.61` 已挂上两个安装包：`FantasyHub_0.1.61_x64-setup.exe` **30.60 MB**（>7.8 MB 说明小组件 payload 带上了）、`FantasyHubFrontend_0.1.61_x64-setup.exe` **3.24 MB**。**装包这一步在你手上** —— 真机要看什么逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.61）」（九条）。
+
 **验证边界（重要）**：`winfs.rs` / `maintain.rs` / `sysinfo.rs` 里所有 `#[cfg(windows)]` 的分支**本机编不到**，只有 CI 的 Windows Lint 能把它们编过一遍 —— 编译通过 ≠ 行为正确。真机要看的逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.61）」。
 
 ## 0.1.60：文件管理增强（改造包 8 项）（2026-10-05）
