@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "fantasyhub-frontend"
-version = "0.1.58"
+version = "0.1.59"
 dependencies = [
  "fh-core",
  "serde",
@@ -1113,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "fh-core"
-version = "0.1.58"
+version = "0.1.59"
 dependencies = [
  "getrandom 0.2.17",
  "serde",
@@ -1583,7 +1583,7 @@ dependencies = [
 
 [[package]]
 name = "handheld-launcher"
-version = "0.1.58"
+version = "0.1.59"
 dependencies = [
  "fh-core",
  "image",
