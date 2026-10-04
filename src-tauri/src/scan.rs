@@ -680,6 +680,21 @@ fn score_exe(path: &Path, folded_name: &str) -> i32 {
     }
 }
 
+/// Steam 的**库根**列表（含主安装目录与所有附加库）。
+///
+/// 为什么放在模块外面：工具箱的「系统维护」要量 `steamapps/shadercache`，
+/// 而「Steam 装在哪」的解析逻辑只该有一份（注册表三处 + `libraryfolders.vdf`）。
+#[cfg(windows)]
+pub(crate) fn steam_library_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = Vec::new();
+    for root in windows::steam_roots() {
+        roots.extend(windows::steam_libraries(&root));
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
 #[cfg(windows)]
 mod windows {
     use super::*;

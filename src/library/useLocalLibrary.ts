@@ -225,7 +225,7 @@ export async function cancelLibraryGameMods(): Promise<void> {
   }
 }
 
-export function useRunningGameIds(items: GameEntry[]) {
+export function useRunningGameIds(items: { id: string; launchPath?: string; installPath?: string }[]) {
   const [ids, setIds] = useState<string[]>([]);
   const itemsRef = useRef(items);
   itemsRef.current = items;

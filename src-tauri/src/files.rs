@@ -1354,7 +1354,10 @@ pub struct FileProperties {
 const DIR_SIZE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// 走一遍目录算总大小。`deadline` 是共用截止时间：超了就返回下限（`false`）。
-fn dir_bytes_until(path: &Path, deadline: std::time::Instant) -> (u64, bool) {
+///
+/// `pub(crate)`：工具箱的「系统维护」卡要量显卡缓存目录，复用这一份 ——
+/// 两处各写一份「带预算的目录遍历」，迟早会有一处忘了给预算。
+pub(crate) fn dir_bytes_until(path: &Path, deadline: std::time::Instant) -> (u64, bool) {
     let mut stack = vec![path.to_path_buf()];
     let mut total = 0u64;
     while let Some(dir) = stack.pop() {

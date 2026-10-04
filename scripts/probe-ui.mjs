@@ -703,7 +703,9 @@ const scanTabs = async () => {
           );
           note(Math.abs(k4.primary.w - 132 * d) < 2 && Math.abs(k4.primary.h - 40 * d) < 2,
             `K4 主卡按钮 132×40（实测 ${k4.primary.w}×${k4.primary.h}）`);
-          note(k4.stats === 3 && Math.abs(k4.statW - 118 * d) < 3,
+          // 4 格（0.1.61 加的）：画板上就是状态 / 版本 / 后端 / 权限四格，
+          // 以前少「版本」那一格是因为驱动版本没暴露出来，现在有 `toolbox_driver_version` 了。
+          note(k4.stats === 4 && Math.abs(k4.statW - 118 * d) < 3,
             `K4 主卡状态格 118dp 宽 × ${k4.stats} 格（实测 ${k4.statW}）`);
           note(Math.abs(k4.self.h - 32 * d) < 2 && Math.abs(k4.self.right - 1256 * d) < 2,
             `K4 自检按钮高 32dp、贴右安全边（实测 ${k4.self.h} / ${k4.self.right}）`);

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { playSfx } from "../audio/sfx";
+import { prefs } from "../settings/prefs";
 
 type Options = {
   onBack?: () => void;
@@ -644,7 +645,9 @@ export function useGamepadNav({
 
       const ax = pad.axes[0] ?? 0;
       const ay = pad.axes[1] ?? 0;
-      const dead = 0.45;
+      // 死区可调（设置抽屉「手柄死区」，FUTURE.md 功能 14 第 5 条）：老摇杆会飘，
+      // 新摇杆在 0.25 上更跟手。默认 0.45 = 0.1.60 的行为。
+      const dead = prefs().deadzone;
 
       const bx =
         pad.buttons[14]?.pressed ? -1 : pad.buttons[15]?.pressed ? 1 : 0;

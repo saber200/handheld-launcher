@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { SearchIcon } from "./NavIcons";
 import { FilePicker } from "../files/FilePicker";
+import { showSoftKeyboard } from "../files/useFileBrowser";
 import { setLibraryActions } from "../library/actions";
 import { useLibraryGroups } from "../library/useLibraryGroups";
 import { DEFAULT_MOD_HOOK, type ModStatus, type ModVersion } from "../library/useLocalLibrary";
@@ -23,6 +25,8 @@ export type CardOptions = {
   variant?: "shelf" | "grid" | "picker";
   /** 这张卡是不是当前聚焦的那张（画板：只有聚焦卡露「时长 · 体积」第二行）。 */
   focused?: boolean;
+  /** 这张卡对应的程序正在运行（K2 的包头行写「运行中」而不是「已安装」）。 */
+  running?: boolean;
 };
 
 type MenuView = "actions" | "group" | "rename";
@@ -105,6 +109,16 @@ type Props<T extends Item> = {
   renderInfo?: (item: T, ctx: { name: string }) => ReactNode;
   /** 操作区（主按钮 + 状态行）。ctx.status 是页面自己的提示（扫描说明 / 操作结果）。 */
   renderActions?: (item: T, ctx: { name: string; status: string }) => ReactNode;
+  /**
+   * K2 底部那条：聚焦卡片的信息 + 右侧动作（画板上是「安装」+「打开目录」+ 目录图标）。
+   * 页面侧给（软件库才知道怎么启动 / 打开目录），这里只负责「聚焦项一变就跟着变」，
+   * 和 K1 的 `renderActions` 同一个思路。不传就退化成原来的「重新扫描 / 添加软件」。
+   */
+  renderBar?: (item: T | null, ctx: { name: string; status: string }) => ReactNode;
+  /** K2 头部右上那颗搜索框里的占位文字。传了才渲染搜索（游戏库还用不上）。 */
+  searchPlaceholder?: string;
+  /** 标题右边那句小结（画板 K2：「12 个已装软件」）。 */
+  headingNote?: string;
   renderCard: (item: T, cardRef: Ref<HTMLButtonElement> | undefined, options?: CardOptions) => ReactNode;
 };
 
@@ -134,6 +148,9 @@ export function LibraryShelf<T extends Item>({
   renderHero,
   renderInfo,
   renderActions,
+  renderBar,
+  searchPlaceholder,
+  headingNote,
   renderCard,
 }: Props<T>) {
   const library = useLibraryGroups(kind);
@@ -141,6 +158,16 @@ export function LibraryShelf<T extends Item>({
   // K2 = 画板那份软件库：头部与 K1 同构，内容区换成 6 列卡片网格 + 底部操作条。
   const k2 = skin === "k2";
   const stripRef = useRef<HTMLElement>(null);
+  /**
+   * 头部那颗搜索框（画板 K2 右上，365×32）。
+   *
+   * 为什么默认是一颗**按钮**、按下去才变成输入框：掌机上手柄打字是件苦差事，
+   * 系统软键盘又要用户先点一下输入框才出来。做成「按钮 → 输入框 + 叫系统键盘」
+   * 这一步，手柄用户也走得通（文件页的「搜索」就是同一个路子）。
+   * `query` 一直留着：收起输入框不等于清掉关键词，用户可能只是要腾地方看卡片。
+   */
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
   // 卡片条里「当前聚焦」的是哪一张：hero 换图、信息面板、操作按钮都跟着它走。
   const [focusId, setFocusId] = useState<string | null>(null);
   const firstRef = useRef<HTMLButtonElement>(null);
@@ -199,13 +226,23 @@ export function LibraryShelf<T extends Item>({
     library.activeId === "all"
       ? items.filter((item) => !library.membership[item.id])
       : items.filter((item) => library.membership[item.id] === library.activeId);
+  /**
+   * 关键词过滤（画板 K2 右上那颗搜索框）。
+   *
+   * 只按**名字**匹配，不搜路径 / 描述：用户输入的是「微信」这种名字，
+   * 搜路径会搜出「D:\Program Files\...」的一堆无关命中，反而更难找。
+   */
+  const needle = query.trim().toLowerCase();
+  const shown = needle
+    ? visible.filter((item) => (library.names[item.id] || item.name).toLowerCase().includes(needle))
+    : visible;
   const visibleKey = visible.map((item) => item.id).join("\0");
   const activeName =
     library.groups.find((group) => group.id === library.activeId)?.name ?? text().library.all;
   const customGroup = library.activeId !== "all";
   // 焦点可能停在工具栏/操作区上（这时 focusId 还是上一张卡），也可能因为换了分组而不在可见列表里 ——
   // 两种情况都必须回落到第一张，否则信息面板会对着一个已经看不到的游戏。
-  const focused = visible.find((item) => item.id === focusId) ?? visible[0];
+  const focused = shown.find((item) => item.id === focusId) ?? shown[0];
   const heroLeaving = useHeroCrossFade(shelf ? focused : undefined);
   const nameOf = (item: T) => library.names[item.id] || item.name;
   const shelfSummary = [
@@ -439,6 +476,9 @@ export function LibraryShelf<T extends Item>({
         {k2 && heading && (
           <div className="k2-title">
             <h2>{heading}</h2>
+            {/* 画板 K2：标题右边一句小结（「12 个已装软件 · 5 个预置可安装 · 3 个可更新」）。
+                没有数据源的那两段（预置可安装 / 可更新）不写 —— 只写数得出来的。 */}
+            {headingNote ? <p className="k2-title-note">{headingNote}</p> : null}
           </div>
         )}
         <div className="library-group-row" data-focus-zone="library-groups" aria-live="polite">
@@ -483,6 +523,53 @@ export function LibraryShelf<T extends Item>({
         </div>
         </div>
         <div className={shelf || k2 ? "library-tools k1-tools" : "library-tools"} data-focus-zone="library-tools">
+          {k2 && searchPlaceholder ? (
+            <div className="k2-search">
+              {searching ? (
+                <>
+                  <SearchIcon />
+                  <input
+                    className="k2-search-input"
+                    data-focusable
+                    value={query}
+                    placeholder={searchPlaceholder}
+                    maxLength={40}
+                    onChange={(event) => setQuery(event.target.value)}
+                    onFocus={() => void showSoftKeyboard()}
+                  />
+                  <button
+                    type="button"
+                    className="k2-search-clear"
+                    data-focusable
+                    aria-label={text().library.searchClear}
+                    onClick={() => {
+                      // 有词就先清词、没词才收起输入框 —— 按一下同时干两件事会让人不知道发生了什么。
+                      if (query) setQuery("");
+                      else setSearching(false);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="k2-search-open"
+                  data-focusable
+                  onClick={() => {
+                    setSearching(true);
+                    // 掌机上直接叫系统软键盘：手柄一格一格挪虚拟键盘太难用。
+                    window.setTimeout(() => {
+                      document.querySelector<HTMLInputElement>(".k2-search-input")?.focus();
+                    }, 0);
+                  }}
+                >
+                  <SearchIcon />
+                  <span>{query || searchPlaceholder}</span>
+                </button>
+              )}
+            </div>
+          ) : null}
           <button
             ref={createRef}
             type="button"
@@ -574,50 +661,67 @@ export function LibraryShelf<T extends Item>({
             </section>
           )}
         </div>
-      ) : visible.length === 0 && items.length > 0 ? (
+      ) : shown.length === 0 && items.length > 0 && !needle ? (
         <p className="group-empty">
           {customGroup
             ? text().library.noCards
             : text().library.ungrouped}
         </p>
-      ) : visible.length === 0 ? null : (
+      ) : shown.length === 0 && needle ? (
+        // 关键词一个都没命中：说清楚是「搜不到」而不是「库是空的」（画板 ui-strings 原话）。
+        <p className="group-empty">{text().library.noSearchHit}</p>
+      ) : shown.length === 0 ? null : (
         <section
           key={library.activeId}
           className={k2 ? "k2-grid motion-stagger" : "library-grid motion-stagger"}
           data-focus-zone="library-grid"
           aria-label={label}
+          // K2 底部那条要跟着聚焦卡片变，所以网格也要认焦点：卡片上已经带了 data-card-id，
+          // 事件从卡片冒泡到这里就够了（不为每张卡包一层 div，K2 的网格是严格的 6 列）。
+          onFocus={(event) => {
+            if (!k2) return;
+            const id = (event.target as HTMLElement).dataset?.cardId;
+            if (id) setFocusId(id);
+          }}
         >
-          {visible.map((item, index) =>
+          {shown.map((item, index) =>
             renderCard(item, index === 0 ? firstRef : undefined, {
               variant: k2 ? "grid" : "picker",
               name: library.names[item.id] || item.name,
+              running: runningIds?.has(item.id),
             }),
           )}
         </section>
       )}
-      {/* K2 的底部操作条（画板 y=554..602）：左边页面自己的状态行，右边两颗真按钮。
-          画板里这条右边还有两颗按钮（一颗 accent 填充 + 一颗 panel-3），这里放的是
-          「重新扫描 / 添加软件」—— 两个能力都是现成的，只是把入口从工具栏挪到这里。 */}
+      {/* K2 的底部操作条（画板 y=554..602）：左边是**聚焦那一张**的名字 + 元信息，
+          右边两颗真按钮（画板上是「安装 A」+「打开目录」；页面侧给，见 renderBar）。
+          没传 renderBar 就退化成原来的「重新扫描 / 添加软件」—— 那两个能力只是换了入口。 */}
       {k2 && (
         <div className="k2-bar" data-focus-zone="library-actions">
-          <p className="k2-bar-note">{cardStatus}</p>
-          <button
-            type="button"
-            className="k2-btn is-primary"
-            data-focusable
-            disabled={scanning}
-            onClick={onScan}
-          >
-            {text().library.rescan}
-          </button>
-          <button
-            type="button"
-            className="k2-btn"
-            data-focusable
-            onClick={() => setFileTarget({ mode: "add" })}
-          >
-            {kind === "games" ? text().library.addGame : text().library.addApp}
-          </button>
+          {renderBar ? (
+            renderBar(focused ?? null, { name: focused ? nameOf(focused) : "", status: cardStatus })
+          ) : (
+            <>
+              <p className="k2-bar-note">{cardStatus}</p>
+              <button
+                type="button"
+                className="k2-btn is-primary"
+                data-focusable
+                disabled={scanning}
+                onClick={onScan}
+              >
+                {text().library.rescan}
+              </button>
+              <button
+                type="button"
+                className="k2-btn"
+                data-focusable
+                onClick={() => setFileTarget({ mode: "add" })}
+              >
+                {kind === "games" ? text().library.addGame : text().library.addApp}
+              </button>
+            </>
+          )}
         </div>
       )}
       {/* 信息面板 + 操作区：内容全在页面侧（游戏库才知道来源/路径/运行状态），

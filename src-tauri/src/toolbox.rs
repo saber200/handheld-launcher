@@ -150,6 +150,61 @@ pub fn toolbox_cancel_mod() -> bool {
 /// 下载进度事件名（前端 `useModProgress` 在听）。
 pub const MOD_EVENT: &str = "toolbox-mod-progress";
 
+/// 一个装了 OptiScaler 的游戏（工具箱那张「游戏 Mod / 工具」卡的「查看列表」用）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledMod {
+    pub game: String,
+    /// 装在哪个目录（就是游戏目录）。
+    pub dir: String,
+    /// 账本里记的版本；旧版标记没记版本就是空串。
+    pub version: String,
+    pub hook: String,
+}
+
+/// 列出「哪些游戏装了 OptiScaler」。
+///
+/// 为什么要现扫一遍：账本（`.fantasyhub-optiscaler.json`）写在**每个游戏的目录里**，
+/// 不是集中在一处；所以要先拿到库里的游戏（`scan_games`，含手动添加的），
+/// 再逐个目录看有没有账本 / 旧版标记。慢一点（几秒），所以只由按钮触发，不在进页时跑。
+#[tauri::command]
+pub async fn toolbox_mod_list(app: tauri::AppHandle) -> Vec<InstalledMod> {
+    let games = crate::scan::scan_games(app).await;
+    crate::off_main(move || mod_list_now(games)).await.unwrap_or_default()
+}
+
+fn mod_list_now(games: Vec<crate::scan::ScannedGame>) -> Vec<InstalledMod> {
+    #[cfg(windows)]
+    {
+        return windows::installed_mods(games);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = games;
+        Vec::new()
+    }
+}
+
+/// 已装的 WinRing0 驱动版本（画板 K4 主卡那一格「版本 1.3.0」）。
+///
+/// 取的 `.sys` 文件的版本资源 —— 那是驱动**真实**的版本号，而不是我们自己编的。
+/// 拿不到（没装 / 读不到）就返回空串，界面写「—」：这一格宁可不写，也不摆假数字。
+#[tauri::command]
+pub async fn toolbox_driver_version() -> String {
+    crate::off_main(driver_version_now).await.unwrap_or_default()
+}
+
+fn driver_version_now() -> String {
+    #[cfg(windows)]
+    {
+        return windows::driver_version();
+    }
+    #[cfg(not(windows))]
+    {
+        String::new()
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModProgress {
@@ -881,6 +936,58 @@ mod windows {
         );
         let _ = app;
         Ok(status)
+    }
+
+    /// 已装驱动的版本号（读 `.sys` 的版本资源）。读不到就是空串 —— 界面写「—」，
+    /// 不用一个猜的版本号占着那一格。
+    pub fn driver_version() -> String {
+        let Ok(dir) = driver_dir() else {
+            return String::new();
+        };
+        let sys = dir.join("WinRing0x64.sys");
+        if !sys.is_file() {
+            return String::new();
+        }
+        // 用 PowerShell 读版本资源：比在 Rust 里走 GetFileVersionInfo + 查翻译表 +
+        // VerQueryValue 那一套短得多，而这条命令只在 Windows 上跑。
+        let script = format!(
+            "(Get-Item -LiteralPath '{}').VersionInfo.FileVersion",
+            sys.to_string_lossy().replace('\'', "''")
+        );
+        let Ok(output) = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        else {
+            return String::new();
+        };
+        // 没有版本资源时 PowerShell 打印空行 → 空串，界面照样写「—」。
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    /// 列出装了 OptiScaler 的游戏：账本优先；只有旧版标记（没账本）的也列出来，
+    /// 版本写空串 —— 「装了但不知道装的哪版」是真实状态，不编一个版本号。
+    pub fn installed_mods(games: Vec<crate::scan::ScannedGame>) -> Vec<InstalledMod> {
+        let mut out = Vec::new();
+        for game in games {
+            let Some(dir) = resolve_game_dir(&game.launch_path, &game.install_path) else {
+                continue;
+            };
+            let manifest = read_manifest(&dir);
+            if manifest.is_none() && !marker_present(&dir) {
+                continue;
+            }
+            let (version, hook) = manifest
+                .map(|row| (row.version, row.hook))
+                .unwrap_or_default();
+            out.push(InstalledMod {
+                game: game.name,
+                dir: dir.display().to_string(),
+                version,
+                hook,
+            });
+        }
+        out
     }
 
     fn winring0_present() -> bool {

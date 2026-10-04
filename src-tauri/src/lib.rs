@@ -3,6 +3,8 @@ mod files;
 mod frontend_tool;
 mod i18n;
 mod library;
+// 工具箱「系统维护」卡：着色器缓存 / 启动项 / 日志（FUTURE.md 功能 14 第 2 条）。
+mod maintain;
 mod media;
 // 手柄归属：浮层在屏上时启动器不吃手柄（见 FRONTEND.md §10）。
 mod overlay_watch;
@@ -149,6 +151,9 @@ pub fn run() {
             toolbox::toolbox_cancel_mod,
             toolbox::toolbox_tdp_driver_status,
             toolbox::toolbox_install_tdp_driver,
+            toolbox::toolbox_driver_version,
+            maintain::toolbox_maintenance,
+            maintain::toolbox_maintenance_clean,
             startup::autostart_enabled,
             startup::set_autostart,
             startup::fse_status,

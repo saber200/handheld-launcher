@@ -71,6 +71,26 @@ export type Catalog = {
     languageHint: string;
     autostart: string;
     autostartHint: string;
+    /* ── 功能 14 第 5 条补的三行 ── */
+    scaleTitle: string;
+    scaleHint: string;
+    /** 自动档的读数：参数是算出来的倍率（「1.13」）。 */
+    scaleAuto: (value: string) => string;
+    /** 手动档：第一个参数是用户系数（「1.1」），第二个是最终倍率。 */
+    scaleManual: (factor: string, value: string) => string;
+    scaleSmall: string;
+    scaleNormal: string;
+    scaleBig: string;
+    powerTitle: string;
+    powerHint: string;
+   /** 当前功耗（「15 W」）；拿不到就是空串，界面写「—」。 */
+    powerValue: (watts: string) => string;
+    powerUnavailable: string;
+    deadzoneTitle: string;
+    deadzoneHint: string;
+    /** 参数是百分比整数（「35」）。 */
+    deadzoneValue: (percent: string) => string;
+    deadzoneRaw: (value: string) => string;
     on: string;
     off: string;
     fullscreen: string;
@@ -154,6 +174,7 @@ export type Catalog = {
     toolboxDriverLabel: string;
     toolboxDriverTitle: string;
     toolboxStateLabel: string;
+    toolboxVersionLabel: string;
     toolboxStateReady: string;
     toolboxStateInstalled: string;
     toolboxStateMissing: string;
@@ -171,6 +192,25 @@ export type Catalog = {
     toolboxMaintenanceTitle: string;
     toolboxMaintenanceSub: string;
     toolboxMaintenancePending: string;
+    /* ── 系统维护那三行（功能 14 第 2 条） ── */
+    toolboxCacheRow: (size: string) => string;
+    toolboxStartupRow: (count: number) => string;
+    toolboxLogRow: (size: string) => string;
+    toolboxCacheEmpty: string;
+    toolboxStartupReadonly: string;
+    toolboxClean: string;
+    toolboxCleaning: string;
+    toolboxCleanDone: (freed: string, caches: number, logs: number) => string;
+    toolboxCleanNothing: string;
+    /* ── 「查看列表」与驱动版本（功能 14 第 3、4 条） ── */
+    toolboxModListAction: string;
+    toolboxModListTitle: string;
+    toolboxModListLoading: string;
+    toolboxModListEmpty: string;
+    toolboxModListBody: string;
+    toolboxModListEntry: (game: string, version: string) => string;
+    toolboxModListLegacy: string;
+    toolboxModInstalled: (count: number, version: string) => string;
     quitGame: string;
     quitGameBody: (name: string) => string;
     quitGameRunning: string;
@@ -303,6 +343,15 @@ export type Catalog = {
     /** K2（画板）软件库：页面副标题的计数 + 卡片包头行的状态字。 */
     appCount: (count: number) => string;
     stateInstalled: string;
+    /* ── K2 的搜索框与底部操作条（FUTURE.md 功能 14 第 6、7 条） ── */
+    searchPlaceholder: string;
+    searchClear: string;
+    noSearchHit: string;
+    openFolder: string;
+    /** K2 底部主按钮：启动一个已装的软件（画板上那颗写的是「安装」，那是**预置**软件的写法）。 */
+    startApp: string;
+    /** 底部操作条左边那行元信息（「v1.2.1 · 240 MB · 已安装」这类，空的部分不拼）。 */
+    barMeta: (parts: string) => string;
   };
   files: {
     folder: string;
@@ -751,6 +800,21 @@ export const zh: Catalog = {
     languageHint: "中文显示幻想枢纽，英文显示 FantasyHub",
     autostart: "开机自启",
     autostartHint: "登录后打开启动器",
+    scaleTitle: "界面缩放",
+    scaleHint: "按屏幕自动换算",
+    scaleAuto: (value) => `自动 · ${value}×`,
+    scaleManual: (factor, value) => `手动 ×${factor} · ${value}×`,
+    scaleSmall: "小",
+    scaleNormal: "标准",
+    scaleBig: "大",
+    powerTitle: "性能与功耗",
+    powerHint: "每游戏可覆盖（需要管理员权限）",
+    powerValue: (watts) => `${watts} W`,
+    powerUnavailable: "这台机器上调不了 TDP",
+    deadzoneTitle: "手柄死区",
+    deadzoneHint: "摇杆方向判定阈值",
+    deadzoneValue: (percent) => `${percent}%`,
+    deadzoneRaw: (value) => `阈值 ${value}`,
     on: "开",
     off: "关",
     fullscreen: "回到全屏",
@@ -835,6 +899,7 @@ export const zh: Catalog = {
     toolboxDriverLabel: "TDP 驱动",
     toolboxDriverTitle: "WinRing0 驱动",
     toolboxStateLabel: "状态",
+    toolboxVersionLabel: "版本",
     toolboxStateReady: "已就绪",
     toolboxStateInstalled: "已安装",
     toolboxStateMissing: "未安装",
@@ -853,6 +918,24 @@ export const zh: Catalog = {
     toolboxMaintenanceSub: "缓存清理 · 启动项 · 日志导出",
     toolboxMaintenancePending:
       "这三项要新的系统信息与清理命令（着色器缓存、启动项、日志），这一版还没接 —— 不摆假数字。",
+    toolboxCacheRow: (size) => `着色器缓存 ${size}`,
+    toolboxStartupRow: (count) => `启动项 ${count} 个`,
+    toolboxLogRow: (size) => `日志 ${size}`,
+    toolboxCacheEmpty: "没有找到显卡着色器缓存（NVIDIA / AMD / Intel 都没有）",
+    toolboxStartupReadonly: "只读：改别人的开机启动是另一回事，这里只报数",
+    toolboxClean: "立即清理",
+    toolboxCleaning: "正在清理…",
+    toolboxCleanDone: (freed, caches, logs) =>
+      `清出 ${freed}（${caches} 个缓存目录、${logs} 个日志文件）`,
+    toolboxCleanNothing: "没有可清的东西（缓存目录本来就空）",
+    toolboxModListAction: "查看列表",
+    toolboxModListTitle: "装了 Mod 的游戏",
+    toolboxModListLoading: "正在扫一遍游戏目录…",
+    toolboxModListEmpty: "库里还没有游戏装过 OptiScaler",
+    toolboxModListBody: "账本写在每个游戏的目录里，所以这里要现扫一遍才能列全。",
+    toolboxModListEntry: (game, version) => `${game} · OptiScaler ${version}`,
+    toolboxModListLegacy: "旧版标记（没记版本）",
+    toolboxModInstalled: (count, version) => `已装 ${count} 个游戏${version ? ` · OptiScaler ${version}` : ""}`,
     quitGame: "退出游戏",
     quitGameBody: (name) => `立刻结束「${name}」；没保存的进度会丢`,
     quitGameRunning: "正在退出…",
@@ -981,6 +1064,12 @@ export const zh: Catalog = {
     stateIdle: "未运行",
     appCount: (count) => `${count} 个软件`,
     stateInstalled: "已安装",
+    searchPlaceholder: "搜索软件 / 分类",
+    searchClear: "清除关键词",
+    noSearchHit: "没有找到软件 · 换个关键词",
+    openFolder: "打开目录",
+    startApp: "启动",
+    barMeta: (parts) => parts,
   },
   files: {
     folder: "文件夹",
@@ -1413,6 +1502,21 @@ export const en: Catalog = {
     languageHint: "Chinese shows 幻想枢纽. English shows FantasyHub",
     autostart: "Start with Windows",
     autostartHint: "Open the launcher after sign-in",
+    scaleTitle: "UI scale",
+    scaleHint: "Fitted to the screen",
+    scaleAuto: (value) => `Auto · ${value}×`,
+    scaleManual: (factor, value) => `Manual ×${factor} · ${value}×`,
+    scaleSmall: "Small",
+    scaleNormal: "Default",
+    scaleBig: "Large",
+    powerTitle: "Power",
+    powerHint: "Per-game override (needs admin)",
+    powerValue: (watts) => `${watts} W`,
+    powerUnavailable: "TDP can't be changed on this machine",
+    deadzoneTitle: "Stick deadzone",
+    deadzoneHint: "Direction threshold for the analog stick",
+    deadzoneValue: (percent) => `${percent}%`,
+    deadzoneRaw: (value) => `threshold ${value}`,
     on: "On",
     off: "Off",
     fullscreen: "Fill the screen",
@@ -1497,6 +1601,7 @@ export const en: Catalog = {
     toolboxDriverLabel: "TDP driver",
     toolboxDriverTitle: "WinRing0 driver",
     toolboxStateLabel: "State",
+    toolboxVersionLabel: "Version",
     toolboxStateReady: "Ready",
     toolboxStateInstalled: "Installed",
     toolboxStateMissing: "Not installed",
@@ -1514,7 +1619,25 @@ export const en: Catalog = {
     toolboxMaintenanceTitle: "Maintenance",
     toolboxMaintenanceSub: "Shader cache · Startup · Logs",
     toolboxMaintenancePending:
-      "These three need new system-info and cleanup commands (shader cache, startup items, logs). Not wired up in this build — no invented numbers.",
+      "These three need new system/cleanup commands (shader cache, startup items, logs); not wired up in this build — no fake numbers.",
+    toolboxCacheRow: (size) => `Shader cache ${size}`,
+    toolboxStartupRow: (count) => `${count} startup items`,
+    toolboxLogRow: (size) => `Logs ${size}`,
+    toolboxCacheEmpty: "No GPU shader cache found (neither NVIDIA, AMD nor Intel)",
+    toolboxStartupReadonly: "Read-only: changing other apps' startup entries is a different matter",
+    toolboxClean: "Clean now",
+    toolboxCleaning: "Cleaning…",
+    toolboxCleanDone: (freed, caches, logs) =>
+      `Freed ${freed} (${caches} cache folders, ${logs} log files)`,
+    toolboxCleanNothing: "Nothing to clean — the cache folders are already empty",
+    toolboxModListAction: "View list",
+    toolboxModListTitle: "Games with mods installed",
+    toolboxModListLoading: "Scanning the game folders…",
+    toolboxModListEmpty: "No game in the library has OptiScaler yet",
+    toolboxModListBody: "The ledger lives inside each game folder, so this has to scan them to list them all.",
+    toolboxModListEntry: (game, version) => `${game} · OptiScaler ${version}`,
+    toolboxModListLegacy: "Legacy marker (version not recorded)",
+    toolboxModInstalled: (count, version) => `${count} game(s) installed${version ? ` · OptiScaler ${version}` : ""}`,
     quitGame: "Quit game",
     quitGameBody: (name) => `Ends “${name}” right away; unsaved progress is lost`,
     quitGameRunning: "Quitting…",
@@ -1643,6 +1766,12 @@ export const en: Catalog = {
     stateIdle: "Not running",
     appCount: (count) => `${count} apps`,
     stateInstalled: "Installed",
+    searchPlaceholder: "Search apps / groups",
+    searchClear: "Clear the keyword",
+    noSearchHit: "No apps found · try another keyword",
+    openFolder: "Open folder",
+    startApp: "Launch",
+    barMeta: (parts) => parts,
   },
   files: {
     folder: "Folder",

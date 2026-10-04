@@ -49,6 +49,96 @@
   color: var(--ink);
 }
 
+/* 标题右边那句小结（画板 K2：「12 个已装软件 · 5 个预置可安装 · 3 个可更新」）。
+   一定要和标题**同一行**：标题块多出一行会把整个头部顶高 50dp，卡片第一行就落不到
+   画板的 134（探针盯着这条）。 */
+.k2-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--stack-lg);
+  min-width: 0;
+}
+
+.k2-title-note {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ── 头部右上那颗 365×32 的搜索框（画板 K2） ──
+   默认是一颗按钮（手柄按 A 才进输入态），进输入态后是输入框 + 一颗清除。
+   允许收缩（min-width 180）：英文界面下旁边还有四颗工具栏按钮，硬撑 365 会把它们挤到换行。 */
+.k2-search {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--dp));
+  /* 用 `flex: 1 1 auto` + `max-width` 而不是固定 flex-basis：flex-wrap 是拿
+     **flex-basis** 判断换不换行的，写死 365 的话（英文界面下按钮更宽）这一行会被判成放不下、
+     整条工具栏折成两行，头部就高出 40dp，卡片第一行落不到画板的 134。 */
+  flex: 1 1 auto;
+  max-width: calc(365 * var(--dp));
+  min-width: calc(150 * var(--dp));
+  height: calc(32 * var(--dp));
+  padding: 0 calc(12 * var(--dp));
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--panel-2);
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k2-search-open {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--dp));
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.k2-search-open span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k2-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+
+.k2-search-clear {
+  flex: none;
+  padding: 0 calc(4 * var(--dp));
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+}
+
+.k2-search:focus-within {
+  border-color: var(--accent);
+}
+
+.k2-search-open:focus,
+.k2-search-clear:focus {
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+  border-radius: var(--radius-tag);
+}
+
 /* chip 行：顶边落在画板 y=86（标题行盒底 83.6 + 2.4） */
 .k2-head .library-group-row {
   grid-area: 2 / 1 / 3 / -1;
@@ -231,6 +321,20 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  font-size: var(--font-caption);
+  color: var(--ink-3);
+}
+
+/* 底部条左边那两行（画板：名字一行粗体 + 元信息一行小字）。 */
+.k2-bar-title {
+  display: block;
+  font-size: var(--font-body);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.k2-bar-meta {
+  display: block;
   font-size: var(--font-caption);
   color: var(--ink-3);
 }
