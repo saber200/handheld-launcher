@@ -5,6 +5,7 @@ import { PREVIEW_APPS, type AppEntry } from "../data/previewApps";
 import { PREVIEW_GAMES, type GameEntry } from "../data/previewGames";
 import { parentPath } from "../files/useFileBrowser";
 import { currentLocale, text } from "../i18n";
+import { resetModProgress } from "./useModProgress";
 
 const APP_COLORS = [
   "#1b2838",
@@ -102,20 +103,67 @@ export async function quitLibraryGame(item: {
   }
 }
 
-/** Card menu → 安装 Mod / 工具: drop OptiScaler next to the game executable. */
-export async function installLibraryGameMods(item: {
+/** Rust 侧 `toolbox.rs::OptiScalerStatus` 的形状。 */
+export type ModStatus = {
+  dir: string | null;
+  installed: boolean;
+  version: string | null;
+  hook: string | null;
+  legacy: boolean;
+  /** 目录里已存在、但不是我们装的同名 DLL（游戏自带的 dxgi.dll 这类）。 */
+  conflict: string | null;
+  /** 主程序不是 x64 时的文件名：装进去游戏会起不来。 */
+  arch: string | null;
+  running: boolean;
+  hooks: string[];
+  message: string;
+};
+
+export type ModTarget = {
   name: string;
   launchPath?: string;
-}): Promise<string> {
+  installPath?: string;
+};
+
+export const DEFAULT_MOD_HOOK = "dxgi.dll";
+
+/**
+ * 安装前的状态：装哪儿、装了没有、会不会冲突。
+ *
+ * 必须把 `installPath` 一起给 Rust：Steam 游戏的 `launchPath` 是 `steam://rungameid/…`
+ * 这类地址，只有它的话后端算不出游戏目录（老实现就是这么报「游戏目录无效」的）。
+ */
+export async function modStatus(item: ModTarget, hook?: string): Promise<ModStatus | null> {
+  if (!inTauri()) return null;
+  try {
+    return await invoke<ModStatus>("toolbox_optiscaler_status", {
+      launchPath: item.launchPath ?? "",
+      installPath: item.installPath ?? "",
+      hook: hook ?? null,
+    });
+  } catch {
+    // 状态查不到不该挡路：面板会退回「按默认值装」这条路，真正的报错在安装时给。
+    return null;
+  }
+}
+
+/** Card menu → 安装 Mod / 工具: drop OptiScaler next to the game executable. */
+export async function installLibraryGameMods(
+  item: ModTarget,
+  hook: string = DEFAULT_MOD_HOOK,
+): Promise<string> {
   if (!inTauri()) {
     return text().library.installModsPreview;
   }
-  if (!item.launchPath) return text().library.installModsNoPath;
+  if (!item.launchPath && !item.installPath) return text().library.installModsNoPath;
   if (installingMods) return text().library.installModsBusy;
   installingMods = true;
+  resetModProgress();
   try {
     const message = await invoke<string>("toolbox_install_optiscaler", {
-      launchPath: item.launchPath,
+      launchPath: item.launchPath ?? "",
+      installPath: item.installPath ?? "",
+      hook,
     });
     playSfx("done");
     return text().library.installModsResult(item.name, message);
@@ -123,6 +171,32 @@ export async function installLibraryGameMods(item: {
     return text().library.installModsFailed(item.name, formatError(err));
   } finally {
     installingMods = false;
+  }
+}
+
+/** 卸载并把被覆盖的原文件还原（靠游戏目录里的安装账本）。 */
+export async function uninstallLibraryGameMods(item: ModTarget): Promise<string> {
+  if (!inTauri()) return text().library.installModsPreview;
+  if (!item.launchPath && !item.installPath) return text().library.installModsNoPath;
+  try {
+    const message = await invoke<string>("toolbox_uninstall_optiscaler", {
+      launchPath: item.launchPath ?? "",
+      installPath: item.installPath ?? "",
+    });
+    playSfx("done");
+    return text().library.uninstallModsResult(item.name, message);
+  } catch (err) {
+    return text().library.uninstallModsFailed(item.name, formatError(err));
+  }
+}
+
+/** 「取消安装」按钮：只翻一个开关，Rust 在下载循环里看到它就收尾。 */
+export async function cancelLibraryGameMods(): Promise<void> {
+  if (!inTauri()) return;
+  try {
+    await invoke("toolbox_cancel_mod");
+  } catch {
+    /* 没在装的时候点它什么也不用做 */
   }
 }
 

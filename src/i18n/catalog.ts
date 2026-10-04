@@ -157,6 +157,28 @@ export type Catalog = {
     installModsNoPath: string;
     installModsResult: (name: string, detail: string) => string;
     installModsFailed: (name: string, detail: string) => string;
+    uninstallModsResult: (name: string, detail: string) => string;
+    uninstallModsFailed: (name: string, detail: string) => string;
+    modsTitle: (name: string) => string;
+    modsLoading: string;
+    modsDir: (dir: string) => string;
+    modsNoDir: string;
+    modsInstalled: (version: string, hook: string) => string;
+    modsInstalledLegacy: string;
+    modsHook: string;
+    modsHookHint: string;
+    modsConflict: (name: string) => string;
+    modsArch: (name: string) => string;
+    modsRunning: string;
+    modsWarn: string;
+    modsInstall: string;
+    modsReinstall: string;
+    modsUninstall: string;
+    modsProgress: (percent: number) => string;
+    modsExtracting: string;
+    modsWriting: string;
+    modsCancel: string;
+    modsClose: string;
     remove: string;
     leaveGroup: string;
     currentGroup: string;
@@ -520,6 +542,28 @@ export const zh: Catalog = {
     installModsNoPath: "这个游戏还没有启动路径，先在卡片菜单里设置路径。",
     installModsResult: (name, detail) => `${name}：${detail}`,
     installModsFailed: (name, detail) => `为 ${name} 安装 OptiScaler 失败：${detail}`,
+    uninstallModsResult: (name, detail) => `${name}：${detail}`,
+    uninstallModsFailed: (name, detail) => `卸载 ${name} 的 OptiScaler 失败：${detail}`,
+    modsTitle: (name) => `${name} · OptiScaler`,
+    modsLoading: "正在检查游戏目录…",
+    modsDir: (dir) => `安装到：${dir}`,
+    modsNoDir: "找不到游戏目录。Steam 游戏请先在卡片菜单里用「修改路径」选中游戏的 exe。",
+    modsInstalled: (version, hook) => `已安装 v${version}（${hook}）`,
+    modsInstalledLegacy: "已安装（旧版装的，没有完整记录）",
+    modsHook: "注入文件名",
+    modsHookHint: "默认 dxgi；游戏自带 dxgi.dll 或已被别的 Mod 占用时改选 winmm.dll。",
+    modsConflict: (name) => `目录里已经有一个 ${name}（不是我们装的）：会被备份后覆盖，卸载时还原。`,
+    modsArch: (name) => `${name} 是 32 位程序，OptiScaler 只有 64 位版，装进去游戏会起不来。`,
+    modsRunning: "游戏正在运行，先退出再装。",
+    modsWarn: "联机游戏（带反作弊）不要装：可能被判违规。装完如果游戏打不开，用「卸载并还原」退回。",
+    modsInstall: "安装",
+    modsReinstall: "重新安装 / 更新",
+    modsUninstall: "卸载并还原",
+    modsProgress: (percent) => `正在下载 ${percent}%`,
+    modsExtracting: "正在解压…",
+    modsWriting: "正在写入游戏目录…",
+    modsCancel: "取消安装",
+    modsClose: "关闭",
     remove: "从库中移除",
     quitGame: "退出游戏",
     leaveGroup: "移出分组",
@@ -884,6 +928,28 @@ export const en: Catalog = {
     installModsNoPath: "This game has no executable path yet; set it from the card menu first.",
     installModsResult: (name, detail) => `${name}: ${detail}`,
     installModsFailed: (name, detail) => `Couldn't install OptiScaler for ${name}: ${detail}`,
+    uninstallModsResult: (name, detail) => `${name}: ${detail}`,
+    uninstallModsFailed: (name, detail) => `Couldn't uninstall OptiScaler for ${name}: ${detail}`,
+    modsTitle: (name) => `${name} · OptiScaler`,
+    modsLoading: "Checking the game folder…",
+    modsDir: (dir) => `Installs into: ${dir}`,
+    modsNoDir: "Couldn't find the game folder. For Steam games, pick the game exe via \"Change path\" first.",
+    modsInstalled: (version, hook) => `Installed v${version} (${hook})`,
+    modsInstalledLegacy: "Installed (legacy install, no full record)",
+    modsHook: "Hook file name",
+    modsHookHint: "dxgi by default; pick winmm.dll if the game ships its own dxgi.dll or another mod uses it.",
+    modsConflict: (name) => `This folder already has ${name} (not ours): it will be backed up, and restored on uninstall.`,
+    modsArch: (name) => `${name} is 32-bit. OptiScaler is x64-only and would stop the game from starting.`,
+    modsRunning: "The game is running. Quit it first.",
+    modsWarn: "Don't install into online games with anti-cheat: you may be flagged. If the game stops launching, use \"Uninstall and restore\".",
+    modsInstall: "Install",
+    modsReinstall: "Reinstall / update",
+    modsUninstall: "Uninstall and restore",
+    modsProgress: (percent) => `Downloading ${percent}%`,
+    modsExtracting: "Extracting…",
+    modsWriting: "Writing into the game folder…",
+    modsCancel: "Cancel install",
+    modsClose: "Close",
     remove: "Remove from library",
     quitGame: "Quit game",
     leaveGroup: "Remove from group",

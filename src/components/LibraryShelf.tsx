@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref 
 import { FilePicker } from "../files/FilePicker";
 import { setLibraryActions } from "../library/actions";
 import { useLibraryGroups } from "../library/useLibraryGroups";
+import { DEFAULT_MOD_HOOK, type ModStatus } from "../library/useLocalLibrary";
 import type { PickedProgram } from "../library/useLocalLibrary";
+import { useModProgress } from "../library/useModProgress";
 import { text } from "../i18n";
 import { playSfx } from "../audio/sfx";
 
@@ -32,7 +34,13 @@ type Props<T extends Item> = {
   onRestore?: (id: string) => string;
   onSteamCover?: (id: string, appId: string) => string | Promise<string>;
   /** Games only: install mods / tools (OptiScaler) for this game. */
-  onInstallMods?: (id: string) => string | Promise<string>;
+  onInstallMods?: (id: string, hook: string) => string | Promise<string>;
+  /** Games only: what's installed right now / can it be installed（点开菜单时问一次）。 */
+  onModStatus?: (id: string, hook: string) => Promise<ModStatus | null>;
+  /** Games only: uninstall OptiScaler and restore the overwritten files. */
+  onUninstallMods?: (id: string) => string | Promise<string>;
+  /** Games only: 打断正在下载的安装。 */
+  onCancelMods?: () => void;
   onScan: () => void;
   scanning?: boolean;
   renderCard: (item: T, cardRef: Ref<HTMLButtonElement> | undefined, options?: CardOptions) => ReactNode;
@@ -52,6 +60,9 @@ export function LibraryShelf<T extends Item>({
   onRestore,
   onSteamCover,
   onInstallMods,
+  onModStatus,
+  onUninstallMods,
+  onCancelMods,
   onScan,
   scanning = false,
   renderCard,
@@ -76,6 +87,14 @@ export function LibraryShelf<T extends Item>({
   const [fileTarget, setFileTarget] = useState<FileTarget | null>(null);
   const [coverFor, setCoverFor] = useState<{ id: string; name: string } | null>(null);
   const [coverDraft, setCoverDraft] = useState("");
+  // OptiScaler 面板：先问一次状态（装哪儿 / 装了没有 / 会不会冲突），再让用户决定。
+  const [modFor, setModFor] = useState<{ id: string; name: string } | null>(null);
+  const [modState, setModState] = useState<ModStatus | null>(null);
+  const [modLoading, setModLoading] = useState(false);
+  const [modHook, setModHook] = useState(DEFAULT_MOD_HOOK);
+  const [modBusy, setModBusy] = useState(false);
+  const modProgress = useModProgress();
+  const modRef = useRef<HTMLButtonElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
   const filePickRef = useRef(false);
   filePickRef.current = fileTarget !== null;
@@ -87,6 +106,7 @@ export function LibraryShelf<T extends Item>({
   const menuRef = useRef(menuCardId);
   const menuViewRef = useRef(menuView);
   const coverForRef = useRef(coverFor);
+  const modForRef = useRef(modFor);
   namingRef.current = naming;
   deletingRef.current = deleting;
   hidingRef.current = hiding;
@@ -95,6 +115,7 @@ export function LibraryShelf<T extends Item>({
   menuRef.current = menuCardId;
   menuViewRef.current = menuView;
   coverForRef.current = coverFor;
+  modForRef.current = modFor;
 
   const visible =
     library.activeId === "all"
@@ -104,17 +125,25 @@ export function LibraryShelf<T extends Item>({
   const activeName =
     library.groups.find((group) => group.id === library.activeId)?.name ?? text().library.all;
   const customGroup = library.activeId !== "all";
+  const modPercent =
+    modProgress && modProgress.totalBytes > 0
+      ? Math.min(100, Math.round((modProgress.bytes / modProgress.totalBytes) * 100))
+      : 0;
+  const closeModPanel = () => {
+    setModFor(null);
+    setModState(null);
+  };
 
   useEffect(() => {
     const blocked = () => document.querySelector(".drawer-root.open") !== null;
     setLibraryActions({
       cycleGroup: (dir) => {
-        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || modForRef.current || blocked()) return;
         library.cycle(dir);
         playSfx("click");
       },
       openCardMenu: () => {
-        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || blocked()) return false;
+        if (namingRef.current || deletingRef.current || hidingRef.current || pickingRef.current || restoringRef.current || menuRef.current || filePickRef.current || coverForRef.current || modForRef.current || blocked()) return false;
         const cardId = (document.activeElement as HTMLElement | null)
           ?.closest("[data-card-id]")
           ?.getAttribute("data-card-id");
@@ -132,6 +161,12 @@ export function LibraryShelf<T extends Item>({
             button.focus();
             return true;
           }
+        }
+        if (modForRef.current) {
+          // 安装/download 正在进行时只关面板：任务在 Rust 那边跑，进度条留在提示行。
+          setModFor(null);
+          setModState(null);
+          return true;
         }
         if (coverForRef.current) {
           setCoverFor(null);
@@ -172,7 +207,7 @@ export function LibraryShelf<T extends Item>({
   }, [library]);
 
   useEffect(() => {
-    if (naming || deleting || hiding || picking || restoring || menuCardId || fileTarget || coverFor) return;
+    if (naming || deleting || hiding || picking || restoring || menuCardId || fileTarget || coverFor || modFor) return;
     if (focusAdd.current && addRef.current) {
       addRef.current.focus();
       focusAdd.current = false;
@@ -184,7 +219,7 @@ export function LibraryShelf<T extends Item>({
     if (id && visible.some((item) => item.id === id)) return;
     if (firstRef.current) firstRef.current.focus();
     else addRef.current?.focus();
-  }, [library.activeId, visibleKey, naming, deleting, hiding, picking, restoring, menuCardId, fileTarget, coverFor, visible]);
+  }, [library.activeId, visibleKey, naming, deleting, hiding, picking, restoring, menuCardId, fileTarget, coverFor, modFor, visible]);
 
   useEffect(() => {
     if (naming) nameRef.current?.focus();
@@ -193,6 +228,10 @@ export function LibraryShelf<T extends Item>({
   useEffect(() => {
     if (coverFor) coverRef.current?.focus();
   }, [coverFor]);
+
+  useEffect(() => {
+    if (modFor) modRef.current?.focus();
+  }, [modFor, modLoading]);
 
   useEffect(() => {
     if (!deleting && !hiding) return;
@@ -398,6 +437,138 @@ export function LibraryShelf<T extends Item>({
               >
                 {text().delete}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {modFor && (
+        <div className="group-dialog focus-trap open">
+          <button
+            type="button"
+            className="drawer-scrim"
+            aria-label={text().close}
+            tabIndex={-1}
+            onClick={closeModPanel}
+          />
+          <div
+            className="group-dialog-panel group-create-panel"
+            role="dialog"
+            aria-label={text().library.modsTitle(modFor.name)}
+          >
+            <h2>{text().library.modsTitle(modFor.name)}</h2>
+            {modLoading && <p className="group-empty">{text().library.modsLoading}</p>}
+            {!modLoading && (
+              <>
+                <p className="group-empty">
+                  {modState?.dir ? text().library.modsDir(modState.dir) : text().library.modsNoDir}
+                </p>
+                <p className="group-empty">
+                  {modState?.installed
+                    ? modState.version
+                      ? text().library.modsInstalled(modState.version, modState.hook ?? modHook)
+                      : text().library.modsInstalledLegacy
+                    : text().library.modsHookHint}
+                </p>
+                {!modState?.installed && (
+                  <div className="library-tools">
+                    {(modState?.hooks?.length ? modState.hooks : [DEFAULT_MOD_HOOK]).map((hook) => (
+                      <button
+                        key={hook}
+                        type="button"
+                        className={`library-tool${hook === modHook ? " is-current" : ""}`}
+                        data-focusable
+                        onClick={() => {
+                          setModHook(hook);
+                          if (!onModStatus) return;
+                          const id = modFor.id;
+                          setModLoading(true);
+                          // 换注入名要重新问一次：同名文件是否被占用取决于选哪个名字。
+                          void onModStatus(id, hook).then((state) => {
+                            setModState(state);
+                            setModLoading(false);
+                          });
+                        }}
+                      >
+                        {hook}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {modState?.arch && (
+                  <p className="group-empty">{text().library.modsArch(modState.arch)}</p>
+                )}
+                {modState?.running && <p className="group-empty">{text().library.modsRunning}</p>}
+                {modState?.conflict && (
+                  <p className="group-empty">{text().library.modsConflict(modState.conflict)}</p>
+                )}
+                <p className="group-empty">{text().library.modsWarn}</p>
+              </>
+            )}
+            {modBusy && (
+              <p className="group-empty">
+                {modProgress?.phase === "download"
+                  ? text().library.modsProgress(modPercent)
+                  : modProgress?.phase === "extract"
+                    ? text().library.modsExtracting
+                    : modProgress?.phase === "copy"
+                      ? text().library.modsWriting
+                      : text().library.installModsBusy}
+              </p>
+            )}
+            <div className="library-tools">
+              <button type="button" className="library-tool" data-focusable onClick={closeModPanel}>
+                {text().library.modsClose}
+              </button>
+              {modBusy ? (
+                <button
+                  type="button"
+                  className="library-tool"
+                  data-focusable
+                  onClick={() => onCancelMods?.()}
+                >
+                  {text().library.modsCancel}
+                </button>
+              ) : (
+                <>
+                  {modState?.installed && onUninstallMods && (
+                    <button
+                      type="button"
+                      className="library-tool"
+                      data-focusable
+                      onClick={() => {
+                        const id = modFor.id;
+                        setModBusy(true);
+                        void Promise.resolve(onUninstallMods(id)).then((message) => {
+                          setHint(message);
+                          setModBusy(false);
+                          if (onModStatus) void onModStatus(id, modHook).then(setModState);
+                        });
+                      }}
+                    >
+                      {text().library.modsUninstall}
+                    </button>
+                  )}
+                  {onInstallMods && (
+                    <button
+                      ref={modRef}
+                      type="button"
+                      className="library-tool"
+                      data-focusable
+                      onClick={() => {
+                        const id = modFor.id;
+                        setModBusy(true);
+                        void Promise.resolve(onInstallMods(id, modHook)).then((message) => {
+                          setHint(message);
+                          setModBusy(false);
+                          if (onModStatus) void onModStatus(id, modHook).then(setModState);
+                        });
+                      }}
+                    >
+                      {modState?.installed ? text().library.modsReinstall : text().library.modsInstall}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -631,10 +802,21 @@ export function LibraryShelf<T extends Item>({
                     onClick={() => {
                       if (!menuCardId) return;
                       const id = menuCardId;
+                      const item = items.find((entry) => entry.id === id);
                       setMenuCardId(null);
                       setMenuView("actions");
-                      setHint(text().library.installModsBusy);
-                      void Promise.resolve(onInstallMods(id)).then(setHint);
+                      setModFor({ id, name: item ? library.names[id] || item.name : id });
+                      setModState(null);
+                      setModHook(DEFAULT_MOD_HOOK);
+                      // 先问状态：装哪儿、装了没有、会不会冲突 —— 让用户带着事实决定，
+                      // 而不是点一下才发现装到了别的目录（老实现就是闷着装的）。
+                      if (onModStatus) {
+                        setModLoading(true);
+                        void onModStatus(id, DEFAULT_MOD_HOOK).then((state) => {
+                          setModState(state);
+                          setModLoading(false);
+                        });
+                      }
                     }}
                   >
                     {text().library.installMods}

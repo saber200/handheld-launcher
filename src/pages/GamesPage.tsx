@@ -4,9 +4,12 @@ import { currentLocale, text } from "../i18n";
 import { LibraryShelf } from "../components/LibraryShelf";
 import { type GameEntry } from "../data/previewGames";
 import {
+  cancelLibraryGameMods,
   installLibraryGameMods,
   launchLibraryItem,
+  modStatus,
   quitLibraryGame,
+  uninstallLibraryGameMods,
   useLocalGames,
   useRunningGameIds,
 } from "../library/useLocalLibrary";
@@ -55,12 +58,34 @@ export function GamesPage() {
         setStatus("");
         return library.setSteamCover(id, appId);
       }}
-      onInstallMods={(id) => {
+      onInstallMods={(id, hook) => {
         const game = library.items.find((item) => item.id === id);
         if (!game) return text().library.failed;
         setStatus("");
-        return installLibraryGameMods({ name: game.name, launchPath: game.launchPath });
+        return installLibraryGameMods(
+          { name: game.name, launchPath: game.launchPath, installPath: game.installPath },
+          hook,
+        );
       }}
+      onModStatus={(id, hook) => {
+        const game = library.items.find((item) => item.id === id);
+        if (!game) return Promise.resolve(null);
+        return modStatus(
+          { name: game.name, launchPath: game.launchPath, installPath: game.installPath },
+          hook,
+        );
+      }}
+      onUninstallMods={(id) => {
+        const game = library.items.find((item) => item.id === id);
+        if (!game) return text().library.failed;
+        setStatus("");
+        return uninstallLibraryGameMods({
+          name: game.name,
+          launchPath: game.launchPath,
+          installPath: game.installPath,
+        });
+      }}
+      onCancelMods={() => void cancelLibraryGameMods()}
       scanning={library.scanning}
       onScan={() => setStatus(library.rescan())}
       renderCard={(game, cardRef, options) => (
