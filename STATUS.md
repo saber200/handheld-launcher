@@ -5,7 +5,9 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
-**这一版（0.1.58）装了两件事**（都是用户直接提的）：① **OptiScaler 安装重做**（目录定位 bug、注入名可选、版本可选、账本与卸载还原、进度取消缓存、装前拦截）；② **文件管理器补六项**（删除默认进回收站、解压 zip/7z、压缩成 zip、隐藏文件开关、传输速度与剩余时间、软键盘，另修 PowerShell 闪黑框）；另有一条小组件的小改动（删掉没用的「自启」行、设置页那行改名「安装前端」）。**已发布 `v0.1.58`（2026-10-04）**：启动器包 `FantasyHub_0.1.58_x64-setup.exe` **30.34 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.58_x64-setup.exe` 3.20 MB；CI 三项全绿 —— **Lint**（`windows-latest`，`cargo clippy --workspace --all-targets --locked`）这次是真的把这堆 `#[cfg(windows)]` 新代码（回收站 API、GitHub 版本查询、7z、TabTip）编过了一遍；**Game Bar (Windows)** 产出 `…_0.1.58.0_x64_Debug.msix`（`Package.appxmanifest` 那处手改的版本号确实生效）；**Build Windows** 的两个作业（`gamebar-payload` + `windows`）都 success。**装到掌机上这一步还没做**，逐条细则见下面「0.1.58 这一版（一）（二）」。
+**这一版（0.1.58）装了两件事**（都是用户直接提的）：① **OptiScaler 安装重做**（目录定位 bug、注入名可选、版本可选、账本与卸载还原、进度取消缓存、装前拦截）；② **文件管理器补六项**（删除默认进回收站、解压 zip/7z、压缩成 zip、隐藏文件开关、传输速度与剩余时间、软键盘，另修 PowerShell 闪黑框）；另有一条小组件的小改动（删掉没用的「自启」行、设置页那行改名「安装前端」）。**已发布 `v0.1.58`（2026-10-04）**：启动器包 `FantasyHub_0.1.58_x64-setup.exe` **30.34 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.58_x64-setup.exe` 3.20 MB；CI 三项全绿 —— **Lint**（`windows-latest`，`cargo clippy --workspace --all-targets --locked`）这次是真的把这堆 `#[cfg(windows)]` 新代码（回收站 API、GitHub 版本查询、7z、TabTip）编过了一遍；**Game Bar (Windows)** 产出 `…_0.1.58.0_x64_Debug.msix`（`Package.appxmanifest` 那处手改的版本号确实生效）；**Build Windows** 的两个作业（`gamebar-payload` + `windows`）都 success。**装到掌机上这一步已开始**：2026-10-04 真机试的第一件事就是 OptiScaler 安装 —— **没装成功**（用户判断「安装的方法不对」，要求下次先读官方文档核对安装方式；**暂时先不做**，详见 `FEEDBACK.md`「掌机试用问题（v0.1.58）」）。逐条细则见下面「0.1.58 这一版（一）（二）」。
+
+**下一轮是界面大改**：用户会另给文档与设计图，**拿到材料前不要按 `FUTURE.md` 功能 13 的自拟草案动手**。
 
 **上一版（0.1.57）装了四条**：都是 0.1.56 装到掌机上之后提的第一轮真机反馈（文件夹不显示大小 / 下探文件夹后焦点跑到最上面 / 多选后换盘变全选 / Steam 游戏静默启动）。本机门禁全过、Windows CI 也绿、**已发布 `v0.1.57`**（两个安装包挂在 Releases），但**真机一次都没装**，细则见下面「0.1.57 这一版（一）」。
 
