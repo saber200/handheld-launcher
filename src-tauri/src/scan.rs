@@ -1052,7 +1052,9 @@ mod windows {
         apps
     }
 
-    fn steam_roots() -> Vec<PathBuf> {
+    // `pub(super)`：`scan::steam_library_roots`（本模块外面那层）要借它把「Steam 装在哪」
+    // 的解析复用给工具箱的「系统维护」—— 私有的子模块项父模块是看不见的。
+    pub(super) fn steam_roots() -> Vec<PathBuf> {
         let mut roots = Vec::new();
         push_reg_path(
             HKEY_CURRENT_USER,
@@ -1112,7 +1114,7 @@ mod windows {
         out
     }
 
-    fn steam_libraries(steam_root: &Path) -> Vec<PathBuf> {
+    pub(super) fn steam_libraries(steam_root: &Path) -> Vec<PathBuf> {
         let mut roots = vec![steam_root.to_path_buf()];
         for relative in ["steamapps/libraryfolders.vdf", "config/libraryfolders.vdf"] {
             let path = steam_root.join(relative);

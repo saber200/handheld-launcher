@@ -941,6 +941,8 @@ mod windows {
     /// 已装驱动的版本号（读 `.sys` 的版本资源）。读不到就是空串 —— 界面写「—」，
     /// 不用一个猜的版本号占着那一格。
     pub fn driver_version() -> String {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let Ok(dir) = driver_dir() else {
             return String::new();
         };

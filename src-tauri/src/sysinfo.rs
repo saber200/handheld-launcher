@@ -82,8 +82,6 @@ fn power_now() -> PowerStatus {
     }
 }
 
-/// 给前端看的一句人话（`kind` → 中文 / 英文）。
-
 #[cfg(windows)]
 mod windows {
     use super::*;
