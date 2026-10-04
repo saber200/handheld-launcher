@@ -52,6 +52,7 @@
 - **顺带按同一类问题做了一次全量巡检**（把每个 `[data-focusable]` 的「环外框」和它所有 overflow 祖先的内边距盒逐层比一遍，元素自己被滚出可视区的不算）：游戏库页 0 处；又抓到并修了三处同类 —— 分组 chip 的滚动盒 `.group-strip-scroll`（原来只有 2px；K1 因此把 `.k1-strip-wrap` 的 margin-top 从 60 补到 64，卡条坐标回到画板值）、设置抽屉的滚动体 `.drawer .settings-body`（满宽行：左右补 7dp + 负外边距收回，**下面那 7dp 直接给内边距**当滚动余量 —— 不然 1080p 下电源那一排的环正好贴在底边被切；它是 `flex: 1` 的滚动体，上下也配负外边距的话盒子会被撑出抽屉、透明那一条会盖住页脚点击）。**还剩两处已知、有意留着**：旧网格 `.library-grid`（软件库 K2 + 文件页网格）和文件页的 `.file-list` / 顶部按钮行 —— 那些页面正是 M2 / M3 要换视觉的，跟着一起改，免得同一块地方改两遍；`scripts/probe-ui.mjs` 的 `KNOWN_RING_CLIP` 里记着这三个容器名，**新出现的裁切一律算失败**。
 - **本机验证**：`npx tsc --noEmit`、`npm run build`、`node scripts/audit-ui.mjs`（阻塞 0）全过；新加的 `scripts/probe-ui.mjs`（零依赖真渲染探针，Chrome + DevTools 协议）在 1280×720 与 1920×1080 下自动核对：hero 底 481 / 721.5 ≥ 卡条盒底 480 / 721、聚焦卡 158×190 落在 y=278、滚起来后中心正对内容区中线 758、面板 y=482、无横向溢出、最左卡按左进侧栏 / 侧栏按右回到原卡、六个页签的焦点环巡检 —— 现在整份脚本除了 `KNOWN_RING_CLIP` 里那三项（软件库 / 文件页，M2 / M3 会修）**全绿**；另把侧栏与 chip 行放大 3 倍截图肉眼确认环完整，并把 `docs/redesign/preview/` 的 K1 两张自检图按新样式重截。**Windows 真机没装过**（这轮没动 Rust）。
 - **顺带确认**：`App.tsx` 的默认页签在 HEAD 里就是 `"games"`（`git show HEAD:src/App.tsx` 里那行 `useState<TabId>("games")`）—— 没被人改过，是有意的默认页。
+- **CI**：`Lint`（`windows-latest`）**绿**（run 37202301364，2m02s）—— tsc、`cargo clippy --workspace --all-targets --locked`、界面审计三步都在 Windows 上过。`scripts/probe-ui.mjs` 不进 CI（要本机 Chrome + dev server），只在改界面的那台机器上手动跑。
 - **下一步**（用户 2026-10-04 指示）：① 用户已答「要」的 Rust 元数据（Steam `appmanifest` 体积 + `localconfig` 时长）放 M2 / M3 之后做，做了信息面板才上「体积 / 总时长」；② 接着做 **M2（软件库 K2 + 下载 K6）与 M3（首页 K5 + 文件 K7）**，逻辑按 M0 的约定一行不动。
 
 
