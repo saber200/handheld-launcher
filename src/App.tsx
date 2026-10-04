@@ -316,10 +316,21 @@ export default function App() {
       toggleSettings();
     },
     onFaceTop: () => {
+      // Y：规格书 §13.2 的「文件」页那一格是**剪切**。只在真的有选中项时接走，
+      // 否则落到全局含义（上下文菜单 —— 属性 / 压缩 / 解压 / 批量重命名都只在里面）。
+      if (fileActions().cut?.()) return;
       fileActions().openMenu?.();
     },
     onFaceLeft: () => {
+      // X：文件页那一格是**复制**；没选中东西时才回到「进选择模式」——
+      // 选择模式是手柄上唯一能多选的路（多选之后靠方向键逐项选中）。
+      if (fileActions().copy?.()) return;
       fileActions().toggleSelect?.();
+    },
+    onStart: () => {
+      // Menu / Start：启动器里一直空闲，这里给文件页当「菜单键」用 ——
+      // 有选中项时 Y 已经是剪切了，属性 / 压缩那些还得有个入口。
+      fileActions().openMenu?.();
     },
     onBack: () => {
       if (closePowerMenu()) return;

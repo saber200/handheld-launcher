@@ -599,11 +599,21 @@ export type Catalog = {
     cleanLogsHint: string;
     cleanCaches: string;
     cleanCachesHint: string;
+    cleanRecycle: string;
+    cleanRecycleHint: string;
     /* ── U 盘 ── */
     usbToDevice: string;
     usbFromDevice: string;
     usbToDeviceHint: string;
     usbFromDeviceHint: string;
+    usbEject: string;
+    usbEjectAfter: string;
+    usbEjectAfterHint: string;
+    usbEjectDone: string;
+    /* ── 光碟镜像的魔数判定 ── */
+    discBucket: string;
+    discBucketHint: string;
+    discNote: (count: number) => string;
     /* ── 预览面板（F2） ── */
     previewTitle: string;
     previewAuto: string;
@@ -616,6 +626,8 @@ export type Catalog = {
     previewGame: string;
     previewDir: string;
     previewDirCount: (count: number, size: string) => string;
+    previewDisc: (magic: string) => string;
+    previewCover: string;
     previewLoading: string;
     previewTooBig: string;
     previewFailed: string;
@@ -635,6 +647,7 @@ export type Catalog = {
     jobsEmptyBody: string;
     jobsPause: string;
     jobsPauseHint: string;
+    jobsPaused: string;
     jobsResume: string;
     jobsCancel: string;
     jobsCancelled: string;
@@ -687,10 +700,10 @@ export const zh: Catalog = {
   },
   hints: {
     filesNav: "方向键选择",
-    filesMulti: "X 多选（进选择模式）",
+    filesMulti: "X 多选；选中之后 X 复制",
     filesOpen: "A 打开",
     filesBack: "B 返回",
-    filesCopy: "Y 菜单：复制 / 移动 / 改名 / 删除 / 属性",
+    filesCopy: "Y 菜单；选中之后 Y 剪切（☰ 也是菜单）",
     filesTabs: "LB / RB 切页；双栏时 LT / RT 换栏",
     tabs: "LB / RB 切换",
     keys: "键盘 Q / E",
@@ -1222,7 +1235,7 @@ export const zh: Catalog = {
     optChecks: "要清理的项目",
     optRelease: (size) => `预计可释放 ${size}`,
     optNothing: "没有可清理的项目",
-    optEjectHint: "安全弹出需要新命令，本版先不做，请用系统的弹出。",
+    optEjectHint: "勾上「搬完自动弹出」，传输结束就能直接安全弹出",
     optDevice: "设备",
     optPickDevice: "选择设备",
     optNoDevice: "没检测到设备",
@@ -1251,10 +1264,19 @@ export const zh: Catalog = {
     cleanLogsHint: "启动器与游戏的日志",
     cleanCaches: "着色器缓存",
     cleanCachesHint: "Steam 与模拟器的 shader cache（删了会重新编译，不影响存档）",
+    cleanRecycle: "回收站",
+    cleanRecycleHint: "系统回收站里的东西（清空之后取不回来）",
     usbToDevice: "传到 U 盘",
     usbToDeviceHint: "复制过去，本机上的原样留着",
     usbFromDevice: "从 U 盘导入",
     usbFromDeviceHint: "复制到下载夹",
+    usbEject: "安全弹出",
+    usbEjectAfter: "搬完自动弹出",
+    usbEjectAfterHint: "只在「传到 U 盘」时有效；弹不出来会告诉你真正的原因",
+    usbEjectDone: "已弹出，可以拔了",
+    discBucket: "光碟镜像（没认出来）",
+    discBucketHint: "文件头既不是 PS2 也不是 PSP，这一组要你自己指定放哪儿",
+    discNote: (count) => `另有 ${count} 个光碟镜像的文件头没认出来（不是 PS2，也不是 PSP）`,
     previewTitle: "预览",
     previewAuto: "随焦点自动更新",
     previewToggle: "预览",
@@ -1266,6 +1288,8 @@ export const zh: Catalog = {
     previewGame: "游戏目录",
     previewDir: "文件夹",
     previewDirCount: (count, size) => `${count} 个子项 · ${size}`,
+    previewDisc: (magic) => `光碟镜像 · 文件头 ${magic}`,
+    previewCover: "游戏封面",
     previewLoading: "正在生成预览…",
     previewTooBig: "这张图太大，不生成预览",
     previewFailed: "这个文件预览不了",
@@ -1283,7 +1307,8 @@ export const zh: Catalog = {
     jobsEmpty: "现在没有任务",
     jobsEmptyBody: "从文件页的「任务」里挑一个开始吧",
     jobsPause: "暂停",
-    jobsPauseHint: "暂停要改后端传输循环，本版还没做",
+    jobsPauseHint: "暂停在当前文件传完之后生效",
+    jobsPaused: "已暂停",
     jobsResume: "继续",
     jobsCancel: "取消",
     jobsCancelled: "已取消",
@@ -1337,10 +1362,10 @@ export const en: Catalog = {
   },
   hints: {
     filesNav: "D-pad to move",
-    filesMulti: "X select mode",
+    filesMulti: "X select mode; X copies once something is picked",
     filesOpen: "A open",
     filesBack: "B back",
-    filesCopy: "Y menu: copy / move / rename / delete / properties",
+    filesCopy: "Y menu; Y cuts once something is picked (≡ is the menu too)",
     filesTabs: "LB / RB tabs; LT / RT panes",
     tabs: "LB / RB switch",
     keys: "Q / E on keyboard",
@@ -1871,7 +1896,7 @@ export const en: Catalog = {
     optChecks: "Items to clean",
     optRelease: (size) => `${size} would be freed`,
     optNothing: "Nothing to clean up",
-    optEjectHint: "Safe eject needs a new command; use the system one for now.",
+    optEjectHint: "Tick “Eject when done” to eject the drive safely right after the copy",
     optDevice: "Device",
     optPickDevice: "Choose device",
     optNoDevice: "No device detected",
@@ -1900,10 +1925,19 @@ export const en: Catalog = {
     cleanLogsHint: "Launcher and game logs",
     cleanCaches: "Shader caches",
     cleanCachesHint: "Steam and emulator shader caches (they get rebuilt; saves untouched)",
+    cleanRecycle: "Recycle Bin",
+    cleanRecycleHint: "Whatever is in the system Recycle Bin (gone for good once emptied)",
     usbToDevice: "Copy to USB",
     usbToDeviceHint: "Copies over, the originals stay put",
     usbFromDevice: "Import from USB",
     usbFromDeviceHint: "Copies into Downloads",
+    usbEject: "Eject safely",
+    usbEjectAfter: "Eject when done",
+    usbEjectAfterHint: "Only applies to “Copy to USB”; if it can't eject you'll get the real reason",
+    usbEjectDone: "Ejected — safe to unplug",
+    discBucket: "Disc images (unrecognised)",
+    discBucketHint: "The header is neither PS2 nor PSP, so pick the folder yourself",
+    discNote: (count) => `${count} disc images have an unrecognised header (neither PS2 nor PSP)`,
     previewTitle: "Preview",
     previewAuto: "Follows the focus",
     previewToggle: "Preview",
@@ -1915,6 +1949,8 @@ export const en: Catalog = {
     previewGame: "Game folder",
     previewDir: "Folder",
     previewDirCount: (count, size) => `${count} items · ${size}`,
+    previewDisc: (magic) => `Disc image · header ${magic}`,
+    previewCover: "Game cover",
     previewLoading: "Building preview…",
     previewTooBig: "This image is too large to preview",
     previewFailed: "Can't preview this file",
@@ -1932,7 +1968,8 @@ export const en: Catalog = {
     jobsEmpty: "No transfers right now",
     jobsEmptyBody: "Start one from the Tasks tab on the Files page",
     jobsPause: "Pause",
-    jobsPauseHint: "Pausing needs a change in the transfer loop, not in this build",
+    jobsPauseHint: "Takes effect when the current file finishes",
+    jobsPaused: "Paused",
     jobsResume: "Resume",
     jobsCancel: "Cancel",
     jobsCancelled: "Cancelled",

@@ -155,6 +155,36 @@ function batchPlan(form: BatchForm): { from: string; to: string; name: string }[
   return pairs;
 }
 
+/**
+ * K7 底部操作条的按键角标（画板 K7 画了六处：X 复制 / Y 剪切 / ☰ 粘贴 /
+ * 长按 A 重命名 / 长按 B 删除 / LB 新建文件夹）。
+ *
+ * 这里**只写真绑上了的**按键，而且只在对应 chip 真的能用时才画角标 ——
+ * 0.1.60 那次一颗角标都没画，就是因为当时一个手柄绑定都没改，挂上去全是假提示。
+ * 这一版按规格书 §13.2 补了两条（文件页：X 复制 / Y 剪切，见 `files/actions.ts`）；
+ * 剩下四条**故意没做**，理由写在这儿免得以后被当成漏做：
+ *   - `☰ 粘贴`：☰（Share / View）在全局是「双击开设置抽屉」，让它在这页变成粘贴，
+ *     就成了同一颗键两种语义；粘贴本来就在操作条上，不缺入口。
+ *   - `LB 新建文件夹`：LB / RB 在全局是「切一级分区」（App.tsx 的 shiftTab），
+ *     和画板这条冲突；规格书 §13.2 的全局那一列也是切分区，以它为准。
+ *   - `长按 A 重命名` / `长按 B 删除`：A 现在是**按下即打开**，要支持长按就得把确认
+ *     动作押后到松手（否则长按会先打开文件再改名）；这一改动的是全局确认手感，
+ *     不做。删除/重命名都在操作条上，也都在 ☰ / Y 菜单里。
+ */
+const CHIP_KEYS = {
+  copy: "X",
+  cut: "Y",
+} as const;
+
+/** 角标：单个按键是正圆（规范里允许的两类正圆之一），多字符的用矩形圆角 —— 同提示条。 */
+function KeyBadge({ label }: { label: string }) {
+  return (
+    <span className={label.length === 1 ? "k7-key is-round" : "k7-key"} aria-hidden>
+      {label}
+    </span>
+  );
+}
+
 export function FilesPage() {
   const [dual, setDual] = useState(loadDual);
   const [activePane, setActivePane] = useState<PaneId>("left");
@@ -754,6 +784,14 @@ export function FilesPage() {
     const entry = spot ? paneRef.current[spot.pane][spot.index] : menu;
     const pane = spot?.pane ?? activePane;
     if (!entry) return;
+    await openPropertiesFor(entry, pane);
+  }
+
+  /**
+   * 看某一项的属性。抽出来是因为底部操作条的「属性」chip 要按**选中项**来（而菜单那颗
+   * 按键走的是焦点项）：两处共用一段逻辑，免得改一处漏一处。
+   */
+  async function openPropertiesFor(entry: { path: string; name: string }, pane: PaneId) {
     setMenu(null);
     setProps({ path: entry.path, name: entry.name, info: null, busy: true, error: "" });
     try {
@@ -950,8 +988,8 @@ export function FilesPage() {
 
   // 手柄回调注册一次就够：里面全走 handlersRef / actionsRef 读最新的闭包，
   // 不然 rAF 里拿到的会是第一次渲染时的状态（老代码踩过这个坑）。
-  const handlersRef = useRef({ back, openMenu, toggleSelect, dismissAll, switchPaneDirection });
-  handlersRef.current = { back, openMenu, toggleSelect, dismissAll, switchPaneDirection };
+  const handlersRef = useRef({ back, openMenu, toggleSelect, dismissAll, switchPaneDirection, stageCopy, stageCut });
+  handlersRef.current = { back, openMenu, toggleSelect, dismissAll, switchPaneDirection, stageCopy, stageCut };
 
   useEffect(() => {
     setFileActions({
@@ -959,6 +997,10 @@ export function FilesPage() {
       dismiss: () => handlersRef.current.dismissAll(),
       openMenu: () => handlersRef.current.openMenu(),
       toggleSelect: () => handlersRef.current.toggleSelect(),
+      // X / Y：**有选中项才接走**，没有就返回 false，让 App 落到老绑定
+      // （X 进选择模式 / Y 开菜单）—— 不然多功能就只剩「选中之后」才走得到。
+      copy: () => handlersRef.current.stageCopy(),
+      cut: () => handlersRef.current.stageCut(),
       back: () => handlersRef.current.back(),
       switchPane: (dir) => handlersRef.current.switchPaneDirection(dir),
     });
@@ -1073,11 +1115,26 @@ export function FilesPage() {
         }`
       : hint;
 
-  /** 剪切 / 复制：和 Y 菜单里那两颗按钮同一个动作（都只是装进剪贴板）。 */
-  function stageSelection(mode: "copy" | "move") {
+  /**
+   * 剪切 / 复制：和 Y 菜单里那两颗按钮同一个动作（都只是装进剪贴板）。
+   * 返回值给手柄绑定用：**没选中东西就是 false**（见 files/actions.ts 的说明）。
+   */
+  function stageSelection(mode: "copy" | "move"): void {
     if (barTargets.length === 0) return;
     if (mode === "copy") active.stageCopy(barTargets);
     else active.stageMove(barTargets);
+  }
+
+  function stageCopy(): boolean {
+    if (barTargets.length === 0) return false;
+    stageSelection("copy");
+    return true;
+  }
+
+  function stageCut(): boolean {
+    if (barTargets.length === 0) return false;
+    stageSelection("move");
+    return true;
   }
 
   /** 跳到这条结果所在的文件夹，并把它自己选上（比「打开」有用：先看清它在哪）。 */
@@ -1514,9 +1571,12 @@ export function FilesPage() {
 
           {/* 底部操作条（画板 K7：左「已选 N 项 · 名字」，右边一排能按的 chip）。
               动作全部作用于**当前选中项**：没选东西时复制 / 移动 / 重命名 / 删除是灰的，
-              新建 / 粘贴 / 全选一直可用。画板那 6 个 chip 上还画着按键角标（X 复制 / Y 剪切
-              / LB 新建文件夹…），但本版没有改手柄绑定（M3 只换视觉），带上去就是假提示，
-              所以只留动作名。 */}
+              新建 / 粘贴 / 全选一直可用。
+
+              按键角标（画板 K7 画了 X 复制 / Y 剪切 / ☰ 粘贴 / 长按 A 重命名 / 长按 B 删除 /
+              LB 新建文件夹）：**只画真绑上了的**，而且只画在当前真的能用的时候 ——
+              `CHIP_KEYS` 是这一处唯一的按键来源，改绑定就改它，角标不会说谎。
+              没做的四条与理由见 `CHIP_KEYS` 上面那段注释。 */}
           <div className="k7-bar" data-focus-zone="files-actions">
             <p className="k7-bar-note">{barNote}</p>
             <button
@@ -1526,6 +1586,7 @@ export function FilesPage() {
               disabled={barTargets.length === 0}
               onClick={() => stageSelection("copy")}
             >
+              <KeyBadge label={CHIP_KEYS.copy} />
               {text().files.copy}
             </button>
             <button
@@ -1535,6 +1596,7 @@ export function FilesPage() {
               disabled={barTargets.length === 0}
               onClick={() => stageSelection("move")}
             >
+              <KeyBadge label={CHIP_KEYS.cut} />
               {text().files.move}
             </button>
             <button
@@ -1567,6 +1629,18 @@ export function FilesPage() {
               onClick={() => setTrash(barTargets)}
             >
               {text().delete}
+            </button>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={barTargets.length !== 1}
+              onClick={() => {
+                const spot = barTargets[0];
+                if (spot) void openPropertiesFor(spot, activePane);
+              }}
+            >
+              {text().files.properties}
             </button>
             <button
               type="button"

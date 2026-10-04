@@ -650,7 +650,9 @@ const scanTabs = async () => {
           `);
           note(inter.sortKeys === 4 && inter.sortClosed === 0,
             `K7「排序」展开 4 个键、再点收起（${inter.sortKeys} → ${inter.sortClosed}）`);
-          note(inter.chips === 8, `K7 底部操作条 8 个 chip（实测 ${inter.chips}）`);
+          // 9 个（0.1.61 加的）：画板的 8 个 + 「属性」—— Y 在有选中项时改成「剪切」了，
+          // 属性得从菜单里挪一颗出来，否则手柄上就只剩菜单一条路（见 FilesPage 的 CHIP_KEYS）。
+          note(inter.chips === 9, `K7 底部操作条 9 个 chip（实测 ${inter.chips}）`);
           note(inter.picked === 1 && inter.copyOn && inter.renameOn && inter.note.includes("已选"),
             `K7 选中一项后操作条跟着变（选中 ${inter.picked} 项 / 复制${inter.copyOn ? "亮" : "灰"} / 提示「${inter.note}」）`);
         }

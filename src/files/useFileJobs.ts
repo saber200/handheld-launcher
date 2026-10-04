@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useSyncExternalStore } from "react";
 
@@ -14,6 +15,8 @@ export type TransferEvent = {
   skipped: number;
   bytes: number;
   totalBytes: number;
+  /** 用户按了暂停（后端 `file_pause` 置上的）；任务中心据此把按钮翻成「继续」。 */
+  paused: boolean;
   message: string;
   reason: string;
 };
@@ -76,7 +79,9 @@ function start() {
         rate = rate > 0 ? rate * 0.6 + sample * 0.4 : sample;
       }
     }
-    if (payload.phase !== "run") rate = 0;
+    // 暂停中速度和剩余时间都没意义（等的那段时间全被算成「慢」），直接清零，
+    // 界面就不会在暂停时还写着「剩余 30 秒」。
+    if (payload.phase !== "run" || payload.paused) rate = 0;
     const remaining = payload.totalBytes - payload.bytes;
     const eta = rate > 0 && remaining > 0 ? remaining / rate : 0;
     const job: Job = { ...payload, at: Date.now(), rate, eta };
@@ -108,6 +113,17 @@ function subscribe(listener: () => void) {
 
 export function forgetJob(id: string) {
   if (jobs.delete(id)) emit();
+}
+
+/**
+ * 暂停 / 继续一个正在跑的活儿（后端 `file_pause`）。
+ *
+ * 界面**不猜**结果：后端在进出暂停时都会各报一次进度事件（`Runner::wait_if_paused`），
+ * 按钮的文案跟着事件走 —— 命令回 false（活儿已经结束了）时什么都不用改，下一次事件
+ * 自然会把它从「进行中」挪到「最近完成」。
+ */
+export function setJobPaused(id: string, paused: boolean): void {
+  void invoke("file_pause", { id, paused }).catch(() => undefined);
 }
 
 /** 任务中心的「清空记录」：只清历史，正在跑的照旧。 */

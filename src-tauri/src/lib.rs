@@ -15,6 +15,9 @@ mod tdp;
 // TDP 的本地 IPC 服务端：独立前端只能发这三个请求（见 tdp_ipc.rs）。
 mod tdp_ipc;
 mod toolbox;
+// 文件管理要的 Windows 专属原语：清空回收站 / 安全弹出 / 读盘镜像魔数
+// （见文件头说明；非 Windows 平台一律报「不支持」）。
+mod winfs;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -189,7 +192,14 @@ pub fn run() {
             files::file_dir_sizes,
             files::file_search,
             files::file_transfer,
-            files::file_cancel
+            files::file_cancel,
+            // 暂停 / 继续一条正在跑的传输（FUTURE.md 功能 15 第 3 条）。
+            files::file_pause,
+            // 文件管理的 Windows 专属原语（FUTURE.md 功能 15 第 1、2、4 条）。
+            winfs::recycle_bin_info,
+            winfs::recycle_bin_empty,
+            winfs::file_eject,
+            winfs::file_probe_disc
         ])
         .setup(|app| {
             startup::prepare();

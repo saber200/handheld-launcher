@@ -1493,15 +1493,15 @@ pub struct DirSize {
 /// 所以列目录本身永远是瞬时的，大小是一个个补上来的。
 #[tauri::command]
 pub async fn file_dir_sizes(id: String, parent: String) -> Result<Vec<DirSize>, FileError> {
-    let token = job_start(&id);
-    let found = worker(move || dir_sizes(Path::new(&parent), &token)).await;
+    let flags = job_start(&id);
+    let found = worker(move || dir_sizes(Path::new(&parent), &flags)).await;
     job_finish(&id);
     found
 }
 
 /// 只算**直接子文件夹**，而且不跟进链接（junction 可能指回自己，也可能让同一份数据被算两遍）。
 /// 所有子文件夹共用一份预算：一屏里前几个很大的目录不会把后面全拖成「没算」。
-fn dir_sizes(parent: &Path, token: &Arc<AtomicBool>) -> Result<Vec<DirSize>, FileError> {
+fn dir_sizes(parent: &Path, flags: &Arc<JobFlags>) -> Result<Vec<DirSize>, FileError> {
     if !parent.is_dir() {
         return Ok(Vec::new());
     }
@@ -1516,7 +1516,7 @@ fn dir_sizes(parent: &Path, token: &Arc<AtomicBool>) -> Result<Vec<DirSize>, Fil
     let mut out = Vec::with_capacity(dirs.len());
     for dir in dirs {
         // 取消 = 前端已经换目录了：剩下的没必要再走盘。
-        if token.load(Ordering::Relaxed) {
+        if flags.cancelled() {
             break;
         }
         let (bytes, complete) = if std::time::Instant::now() < deadline {
@@ -1724,13 +1724,13 @@ const SEARCH_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
 
 #[tauri::command]
 pub async fn file_search(id: String, root: String, query: String) -> Result<Vec<SearchHit>, FileError> {
-    let token = job_start(&id);
-    let found = worker(move || search_tree(Path::new(&root), &query, &token)).await;
+    let flags = job_start(&id);
+    let found = worker(move || search_tree(Path::new(&root), &query, &flags)).await;
     job_finish(&id);
     found
 }
 
-fn search_tree(root: &Path, query: &str, token: &Arc<AtomicBool>) -> Result<Vec<SearchHit>, FileError> {
+fn search_tree(root: &Path, query: &str, flags: &Arc<JobFlags>) -> Result<Vec<SearchHit>, FileError> {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
         return Err(FileError::rule(pick(
@@ -1748,7 +1748,7 @@ fn search_tree(root: &Path, query: &str, token: &Arc<AtomicBool>) -> Result<Vec<
     let mut hits = Vec::new();
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = stack.pop() {
-        if token.load(Ordering::Relaxed) {
+        if flags.cancelled() {
             return Err(FileError::cancelled());
         }
         if hits.len() >= SEARCH_MAX_HITS || started.elapsed() > SEARCH_BUDGET {
@@ -1844,20 +1844,57 @@ const COPY_CHUNK: usize = 1024 * 1024;
 /// 一次前端。
 const EMIT_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
 
-static JOBS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+/// 暂停时每次醒来查一眼（取消 / 继续）。100 ms 是「按键手感」与「空转开销」的折中：
+/// 再短就是白白唤醒线程，再长用户会觉得继续键迟钝。
+const PAUSE_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
-fn jobs() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+/// 一个正在跑的活儿的两个开关。
+///
+/// 为什么取消和暂停放**同一个**结构里，而不是两个 map：`file_cancel` 与
+/// `file_pause` 拿的是同一个 id，两个 map 意味着两次查找、两处可能对不上 ——
+/// 传输线程要同时看这两个开关，放一起它只查一次。
+struct JobFlags {
+    cancel: AtomicBool,
+    paused: AtomicBool,
+}
+
+impl JobFlags {
+    fn new(paused: bool) -> Self {
+        Self { cancel: AtomicBool::new(false), paused: AtomicBool::new(paused) }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+
+    fn set_cancel(&self) {
+        // SeqCst：置上之后**立刻**要让另一个线程看见（用户刚按的取消键）。
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+
+    fn paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
+    }
+
+    fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::SeqCst);
+    }
+}
+
+static JOBS: OnceLock<Mutex<HashMap<String, Arc<JobFlags>>>> = OnceLock::new();
+
+fn jobs() -> &'static Mutex<HashMap<String, Arc<JobFlags>>> {
     JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// 登记一个可取消的活儿（复制 / 移动 / 搜索）。
-fn job_start(id: &str) -> Arc<AtomicBool> {
-    let token = Arc::new(AtomicBool::new(false));
+/// 登记一个可取消 / 可暂停的活儿（复制 / 移动 / 搜索 / 算文件夹大小）。
+fn job_start(id: &str) -> Arc<JobFlags> {
+    let flags = Arc::new(JobFlags::new(false));
     jobs()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
-        .insert(id.to_string(), token.clone());
-    token
+        .insert(id.to_string(), flags.clone());
+    flags
 }
 
 fn job_finish(id: &str) {
@@ -1871,10 +1908,25 @@ fn job_finish(id: &str) {
 #[tauri::command]
 pub fn file_cancel(id: String) -> bool {
     let map = jobs().lock().unwrap_or_else(|poison| poison.into_inner());
-    let Some(token) = map.get(&id) else {
+    let Some(flags) = map.get(&id) else {
         return false;
     };
-    token.store(true, Ordering::SeqCst);
+    flags.set_cancel();
+    true
+}
+
+/// 暂停 / 继续一个正在跑的活儿（FUTURE.md 功能 15 的第 3 条）。
+///
+/// 暂停**在块与块之间**生效（见 `Runner::tick`）：正在写的那一块一定写完 ——
+/// 留半块数据在临时文件里，比让用户多等 200 ms 糟得多。取消仍然立刻生效，
+/// 暂停中按取消照样停得下来。
+#[tauri::command]
+pub fn file_pause(id: String, paused: bool) -> bool {
+    let map = jobs().lock().unwrap_or_else(|poison| poison.into_inner());
+    let Some(flags) = map.get(&id) else {
+        return false;
+    };
+    flags.set_paused(paused);
     true
 }
 
@@ -1891,6 +1943,8 @@ pub struct TransferProgress {
     pub skipped: usize,
     pub bytes: u64,
     pub total_bytes: u64,
+    /// 用户按了暂停（任务中心据此把按钮翻成「继续」）。暂停中这个字段一直为 true。
+    pub paused: bool,
     pub message: String,
     pub reason: String,
 }
@@ -1930,7 +1984,7 @@ struct Planned {
 struct Runner<'a> {
     sink: &'a mut dyn FnMut(&TransferProgress),
     id: String,
-    token: Arc<AtomicBool>,
+    flags: Arc<JobFlags>,
     phase: &'static str,
     name: String,
     item_index: usize,
@@ -1944,7 +1998,7 @@ struct Runner<'a> {
 
 impl Runner<'_> {
     fn cancelled(&self) -> bool {
-        self.token.load(Ordering::Relaxed)
+        self.flags.cancelled()
     }
 
     fn event(&self, message: String, reason: String) -> TransferProgress {
@@ -1958,6 +2012,7 @@ impl Runner<'_> {
             skipped: self.skipped,
             bytes: self.bytes,
             total_bytes: self.total_bytes,
+            paused: self.flags.paused(),
             message,
             reason,
         }
@@ -1968,8 +2023,28 @@ impl Runner<'_> {
         (self.sink)(&event);
     }
 
-    /// 每块 / 每次换项都过一下：取消要立刻生效，进度最多每 100 ms 报一次。
+    /// 暂停期间就地等（一醒来就先看取消）。
+    ///
+    /// 进出各报一次事件：不报的话，按下暂停之后进度条还停在最后一帧，
+    /// 用户看不出按钮到底生效没有 —— 而「看进度条不动」正是暂停该给人的反馈。
+    fn wait_if_paused(&mut self) {
+        if !self.flags.paused() {
+            return;
+        }
+        self.emit();
+        while self.flags.paused() && !self.cancelled() {
+            std::thread::sleep(PAUSE_POLL);
+        }
+        self.emit();
+    }
+
+    /// 每块 / 每次换项都过一下：取消要立刻生效，暂停要在这里等，进度最多每 100 ms 报一次。
     fn tick(&mut self) -> Result<(), FileError> {
+        if self.cancelled() {
+            return Err(FileError::cancelled());
+        }
+        self.wait_if_paused();
+        // 暂停中按的取消要立刻停：等出来再看一眼。
         if self.cancelled() {
             return Err(FileError::cancelled());
         }
@@ -2004,10 +2079,10 @@ pub async fn file_transfer(
     }
     let moving = mode == "move";
     let policy = Conflict::parse(&conflict);
-    let token = job_start(&id);
+    let flags = job_start(&id);
     std::thread::spawn(move || {
         // 不用 `off_main`：blocking pool 的活儿是「等它跑完再回话」的，而这个线程要活到
-        // 大文件拷完，还得能中途取消。
+        // 大文件拷完，还得能中途取消 / 暂停。
         let payload = {
             let mut sink = |progress: &TransferProgress| {
                 let _ = app.emit(TRANSFER_EVENT, progress.clone());
@@ -2015,7 +2090,7 @@ pub async fn file_transfer(
             let mut run = Runner {
                 sink: &mut sink,
                 id: id.clone(),
-                token: token.clone(),
+                flags: flags.clone(),
                 phase: "scan",
                 name: String::new(),
                 item_index: 0,
@@ -2435,11 +2510,10 @@ mod tests {
         archive_kind, base64, check_name, copy_path, dir_sizes, file_delete, file_move, fresh_dir,
         fresh_file, io_reason, is_drive_root, is_editable_name, is_escaping_name, is_system_dir,
         part_path, parse_zip_listing, read_text, relative_dir, rename_many, run_transfer, sibling_name,
-        thumb_image, ArchiveKind, Conflict, FileError, RenamePair, Runner, TransferProgress,
+        thumb_image, ArchiveKind, Conflict, FileError, JobFlags, RenamePair, Runner, TransferProgress,
         THUMB_MAX_EDGE,
     };
     use std::path::Path;
-    use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
 
     /// `file_move` / `file_delete` 是 async 命令（都走 `off_main`），测试里得有个运行时空转，
@@ -2485,10 +2559,14 @@ mod tests {
         let mut events = Vec::new();
         let outcome = {
             let mut sink = |progress: &TransferProgress| events.push(progress.clone());
+            let flags = Arc::new(JobFlags::new(false));
+            if cancel {
+                flags.set_cancel();
+            }
             let mut run = Runner {
                 sink: &mut sink,
                 id: "test".into(),
-                token: Arc::new(AtomicBool::new(cancel)),
+                flags,
                 phase: "scan",
                 name: String::new(),
                 item_index: 0,
@@ -2716,6 +2794,95 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// 暂停：传输线程在 `tick` 里等住，直到被继续；暂停中按取消也要立刻停。
+    ///
+    /// 这条用例的意义：暂停是**后端**的行为（`Runner::tick` 里那个等待循环），
+    /// 前端按钮只是发一个命令。不在这里验，就只能等 Windows 真机。
+    #[test]
+    fn transfer_waits_while_paused_then_finishes() {
+        let dir = temp_dir("pause");
+        let src = dir.join("a.bin");
+        std::fs::write(&src, vec![9u8; 3 * 1024 * 1024]).unwrap();
+        let dest = dir.join("目标");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        let flags = Arc::new(JobFlags::new(true)); // 一开始就是暂停态
+        let worker_flags = flags.clone();
+        let items = vec![src.display().to_string()];
+        // 线程里要用一份 dest：外面这几句断言还得接着用它。
+        let worker_dest = dest.clone();
+        let task = std::thread::spawn(move || {
+            let mut sink = |_progress: &TransferProgress| {};
+            let mut run = Runner {
+                sink: &mut sink,
+                id: "pause-test".into(),
+                flags: worker_flags,
+                phase: "scan",
+                name: String::new(),
+                item_index: 0,
+                item_total: 0,
+                items_done: 0,
+                skipped: 0,
+                bytes: 0,
+                total_bytes: 0,
+                last_emit: std::time::Instant::now(),
+            };
+            run_transfer(&mut run, &items, &worker_dest, false, Conflict::Keep)
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            !dest.join("a.bin").exists(),
+            "暂停期间不该有文件搬过去"
+        );
+        assert!(!part_path(&dest.join("a.bin")).exists(), "半截文件要留在临时名里");
+
+        flags.set_paused(false);
+        assert!(task.join().unwrap().is_ok());
+        assert_eq!(std::fs::metadata(dest.join("a.bin")).unwrap().len(), 3 * 1024 * 1024);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 暂停中置上取消：等待循环要立刻退出，而不是等用户再按一次继续。
+    #[test]
+    fn cancel_beats_pause() {
+        let dir = temp_dir("pause-cancel");
+        let src = dir.join("a.bin");
+        std::fs::write(&src, vec![9u8; 1024 * 1024]).unwrap();
+        let dest = dir.join("目标");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        let flags = Arc::new(JobFlags::new(true));
+        let worker_flags = flags.clone();
+        let items = vec![src.display().to_string()];
+        let worker_dest = dest.clone();
+        let task = std::thread::spawn(move || {
+            let mut sink = |_progress: &TransferProgress| {};
+            let mut run = Runner {
+                sink: &mut sink,
+                id: "pause-cancel-test".into(),
+                flags: worker_flags,
+                phase: "scan",
+                name: String::new(),
+                item_index: 0,
+                item_total: 0,
+                items_done: 0,
+                skipped: 0,
+                bytes: 0,
+                total_bytes: 0,
+                last_emit: std::time::Instant::now(),
+            };
+            run_transfer(&mut run, &items, &worker_dest, false, Conflict::Keep)
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        flags.set_cancel();
+        assert_eq!(task.join().unwrap().unwrap_err().reason, "cancelled");
+        assert!(!dest.join("a.bin").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn batch_rename_can_swap_two_names() {
         let dir = temp_dir("swap");
@@ -2789,7 +2956,7 @@ mod tests {
         std::fs::write(root.join("b").join("deep").join("y.bin"), vec![7u8; 1024]).unwrap();
         std::fs::write(root.join("note.txt"), b"hi").unwrap();
 
-        let token = Arc::new(AtomicBool::new(false));
+        let token = Arc::new(JobFlags::new(false));
         let rows = dir_sizes(&root, &token).unwrap();
         assert_eq!(rows.len(), 2, "只有文件夹算大小：{rows:?}");
         assert!(rows.iter().all(|row| row.complete));
@@ -2812,7 +2979,8 @@ mod tests {
         std::fs::create_dir_all(root.join("a")).unwrap();
         std::fs::create_dir_all(root.join("b")).unwrap();
 
-        let token = Arc::new(AtomicBool::new(true));
+        let token = Arc::new(JobFlags::new(false));
+        token.set_cancel();
         let rows = dir_sizes(&root, &token).unwrap();
         assert!(rows.is_empty(), "取消后一个都不该算：{rows:?}");
 

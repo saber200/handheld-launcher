@@ -5,8 +5,9 @@
  * 能删的东西，默认**一个都不勾**（验收清单里明写的一条）—— 默认勾上就等于替用户决定
  * 要删东西。
  *
- * 回收站没做：清空回收站要一个新的 Rust 原语（改造包只允许加 `file_thumb`）。
- * 与其做一个点了没反应的按钮，不如不列（已记进 FUTURE.md）。
+ * 回收站（0.1.61 补上，功能 15 第 1 条）：它是一大类「看得见的空间」，所以列成一个
+ * **虚拟条目** —— path 不是真路径，执行时走 `recycle_bin_empty` 一次清空，而不是逐项
+ * 删。用 `bucket` 认它（别用 path 前缀），因为 path 在这里只当稳定的勾选 id 用。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { text } from "../../i18n";
@@ -15,6 +16,10 @@ import type { TaskBucket, TaskDef, TaskScan, TaskScanItem } from "./types";
 
 const OLD_INSTALLER_EXTS = [".exe", ".msi", ".zip", ".7z", ".rar"];
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** 回收站那一项的勾选 id（不是路径；执行时认 bucket）。 */
+const RECYCLE_ITEM = "recycle-bin:all";
+const RECYCLE_BUCKET = "recyclebin";
 
 /** Steam 的着色器缓存：从已装游戏的安装路径反推（`...\steamapps\common\<game>`）。 */
 function steamShaderCache(installPath: string): string {
@@ -117,6 +122,24 @@ export const cleanup: TaskDef = {
       candidates.push({ path: cache, label: cache, size: size.bytes, bucket: "caches" });
     }
 
+    // ⑤ 回收站。只在 Windows 上有这个查询（`SHQueryRecycleBin`）；查不到 / 这台机器
+    // 上不支持（macOS）就整类不出现 —— 不做点了没反应的入口。
+    try {
+      const bin = await invoke<{ supported: boolean; bytes: number; items: number }>(
+        "recycle_bin_info",
+      );
+      if (bin.supported && bin.bytes > 0) {
+        candidates.push({
+          path: RECYCLE_ITEM,
+          label: t.cleanRecycle,
+          size: bin.bytes,
+          bucket: RECYCLE_BUCKET,
+        });
+      }
+    } catch {
+      /* 这台机器上没有回收站 */
+    }
+
     candidates.sort((a, b) => b.size - a.size);
     const items: TaskScanItem[] = candidates.map((row) => ({
       path: row.path,
@@ -128,6 +151,7 @@ export const cleanup: TaskDef = {
       [
         { key: "caches", label: t.cleanCaches, hint: t.cleanCachesHint, target: "", targetLabel: "", color: "accent" },
         { key: "installers", label: t.cleanInstallers, hint: t.cleanInstallersHint, target: "", targetLabel: "", color: "accent-2" },
+        { key: RECYCLE_BUCKET, label: t.cleanRecycle, hint: t.cleanRecycleHint, target: "", targetLabel: "", color: "violet" },
         { key: "dupShots", label: t.cleanDupShots, hint: t.cleanDupShotsHint, target: "", targetLabel: "", color: "violet" },
         { key: "logs", label: t.cleanLogs, hint: t.cleanLogsHint, target: "", targetLabel: "", color: "warning" },
       ] satisfies TaskBucket[]
@@ -151,7 +175,11 @@ export const cleanup: TaskDef = {
         choices: scan.items.map((item) => ({
           value: item.path,
           label: item.name,
-          hint: `${formatBytes(item.size)} · ${nameOf(item.path)}`,
+          // 回收站那一项没有「在哪个目录」可言（它是虚拟条目），别显示一个假路径。
+          hint:
+            item.bucket === RECYCLE_BUCKET
+              ? formatBytes(item.size)
+              : `${formatBytes(item.size)} · ${nameOf(item.path)}`,
         })),
       },
     ];
@@ -161,12 +189,18 @@ export const cleanup: TaskDef = {
     const picked = new Set((plan.options.picked as string[] | undefined) ?? []);
     const chosen = items.filter((item) => picked.has(item.path));
     const totalBytes = chosen.reduce((sum, item) => sum + item.size, 0);
+    const notes = [text().tasks.optDeleteWarning];
+    // 勾了回收站就再说一遍「取不回来」：它和别的项不一样，清的是系统回收站，
+    // 用户平时「删了还能找回」的习惯在这儿不成立。
+    if (chosen.some((item) => item.bucket === RECYCLE_BUCKET)) {
+      notes.push(text().tasks.cleanRecycleHint);
+    }
     return {
       count: chosen.length,
       totalBytes,
       etaSec: 0,
       conflictPolicy: plan.conflict,
-      notes: [text().tasks.optDeleteWarning],
+      notes,
     };
   },
 
@@ -180,9 +214,15 @@ export const cleanup: TaskDef = {
       if (signal.aborted) break;
       onProgress({ label: item.name, done, total, bytes: 0, totalBytes: 0 });
       try {
-        // 永久删除（不进回收站）：这些东西的共同点就是「在回收站里留着也没用」，
-        // 而掌机的存储本来就紧张；摘要页已经把这件事说清楚了。
-        await invoke("file_delete", { path: item.path, permanent: true });
+        if (item.bucket === RECYCLE_BUCKET) {
+          // 回收站是系统一次清空的（它自己遍历），所以这一类没有逐项进度 ——
+          // 进度条会从 0 直接跳到这一类做完，这是真实情况，不补假动画。
+          await invoke("recycle_bin_empty");
+        } else {
+          // 永久删除（不进回收站）：这些东西的共同点就是「在回收站里留着也没用」，
+          // 而掌机的存储本来就紧张；摘要页已经把这件事说清楚了。
+          await invoke("file_delete", { path: item.path, permanent: true });
+        }
         done += 1;
       } catch {
         failed += 1;

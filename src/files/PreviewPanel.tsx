@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { FileIcon, FolderIcon } from "../components/NavIcons";
 import { text } from "../i18n";
+import { gameCoverFor } from "../library/useLocalLibrary";
 import { formatBytes, formatTime } from "./tasks/env";
 import { platformOf } from "./taskMeta";
 import { THUMB_PREVIEW, isImageName, useThumb } from "./thumbs";
@@ -23,7 +24,14 @@ const PREVIEW_LINES = 20;
 type Loaded =
   | { kind: "text"; lines: string[] }
   | { kind: "archive"; rows: { name: string; bytes: number; dir: boolean }[]; more: number }
-  | { kind: "dir"; count: number; bytes: number; complete: boolean }
+  | {
+      kind: "dir";
+      count: number;
+      bytes: number;
+      complete: boolean;
+      /** 这个目录就是库里的某个游戏时，带上它的封面（功能 15 第 5 条）。 */
+      game: { name: string; cover: string } | null;
+    }
   | { kind: "none" };
 
 function extension(name: string): string {
@@ -47,6 +55,8 @@ export function PreviewPanel({
   const image = Boolean(entry && entry.kind === "file" && isImageName(entry.name));
   const thumb = useThumb(image && entry ? entry.path : null, THUMB_PREVIEW);
   const platform = entry ? platformOf(entry.name) : null;
+  /** 游戏目录的封面：库里的缓存文件，直接喂给 `<img src>`（不用再过一遍解码）。 */
+  const cover = extra.kind === "dir" ? extra.game : null;
 
   useEffect(() => {
     if (!entry) {
@@ -67,6 +77,8 @@ export function PreviewPanel({
               count: rows.length,
               bytes: props.bytes,
               complete: props.sizeComplete,
+              // 库里扫过的游戏目录才有封面；没扫到就是 null，界面照旧显示子项数。
+              game: gameCoverFor(entry.path),
             });
           }
         } catch {
@@ -125,13 +137,22 @@ export function PreviewPanel({
           <div className="ft-preview-stage">
             {image && thumb.src ? (
               <img className="ft-preview-image" src={thumb.src} alt={entry.name} />
+            ) : cover ? (
+              // 封面是竖图，用 `ft-preview-cover` 单独控制（object-fit: cover），
+              // 免得横向拉伸成一张「胖封面」。
+              <img className="ft-preview-cover" src={cover.cover} alt={cover.name} />
             ) : (
               <span className="ft-preview-placeholder" aria-hidden>
                 {entry.kind === "dir" ? <FolderIcon /> : <FileIcon />}
               </span>
             )}
             <span className="ft-preview-tag">
-              {platform ?? (entry.kind === "dir" ? t.previewDir : extension(entry.name) || "—")}
+              {platform ??
+                (entry.kind === "dir"
+                  ? cover
+                    ? t.previewGame
+                    : t.previewDir
+                  : extension(entry.name) || "—")}
               {image && (thumb.loading || thumb.failed) && (
                 <em className="ft-preview-note">
                   {thumb.loading ? t.previewLoading : t.previewTooBig}
@@ -191,12 +212,19 @@ export function PreviewPanel({
               </>
             )}
             {extra.kind === "dir" && (
-              <p className="ft-preview-label">
-                {t.previewDirCount(
-                  extra.count,
-                  `${formatBytes(extra.bytes)}${extra.complete ? "" : "+"}`,
+              <>
+                <p className="ft-preview-label">
+                  {t.previewDirCount(
+                    extra.count,
+                    `${formatBytes(extra.bytes)}${extra.complete ? "" : "+"}`,
+                  )}
+                </p>
+                {extra.game && (
+                  <p className="ft-preview-label">
+                    {t.previewCover} · {extra.game.name}
+                  </p>
                 )}
-              </p>
+              </>
             )}
             {/* 认不出平台的普通文件、也读不出内容的，就只说一句「预览不了」 */}
             {extra.kind === "none" && !image && !platform && entry.kind === "file" && (

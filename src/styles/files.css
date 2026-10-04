@@ -699,6 +699,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: calc(6 * var(--dp));
   height: calc(28 * var(--dp));
   padding: 0 calc(10 * var(--dp));
   border-radius: var(--radius-tag);
@@ -707,6 +708,31 @@
   color: var(--ink-2);
   font-size: var(--font-caption);
   white-space: nowrap;
+}
+
+/*
+ * chip 里的按键角标：比提示条那颗（--focus-badge = 26dp）小一号 ——
+ * 它嵌在 28dp 高的 chip 里，用 26dp 会把 chip 顶高。正圆 / 矩形圆角的规矩和提示条一致。
+ */
+.k7-key {
+  display: grid;
+  place-items: center;
+  min-width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
+  flex: none;
+  padding: 0 calc(4 * var(--dp));
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: calc(10.5 * var(--dp));
+  font-weight: 600;
+}
+
+.k7-key.is-round {
+  width: calc(18 * var(--dp));
+  padding: 0;
+  border-radius: calc(18 * var(--dp) / 2);
 }
 
 .k7-chip:disabled {

@@ -286,6 +286,34 @@ export type RunningProbe = {
 };
 
 /**
+ * 「游戏目录 → 封面」表，给**文件页**的预览面板用（FUTURE.md 功能 15 第 5 条）。
+ *
+ * 两条设计约束，都是踩过的：
+ *   1. **只读缓存，从不触发扫描**。文件页的预览是「焦点一动就更新」的，这里挂一次
+ *      全盘扫描，等于用户每进一个新目录就等几十秒。缓存里没有就返回 null ——
+ *      预览少一张封面，比整页卡住强得多。
+ *   2. 只用**这一层已有的** `installPath` 对齐，不猜「这个目录看起来像游戏」：
+ *      拿不到就什么都不显示（目录预览仍然有子项数与大小）。
+ */
+export function gameCoverFor(dirPath: string): { name: string; cover: string } | null {
+  if (!inTauri() || !dirPath) return null;
+  const key = normalizeDirKey(dirPath);
+  const rows = readScanCache<RawGame>("scan_games") ?? [];
+  for (const row of rows) {
+    if (!row.coverPath || !row.installPath) continue;
+    if (normalizeDirKey(row.installPath) !== key) continue;
+    return { name: row.name, cover: convertFileSrc(row.coverPath) };
+  }
+  // 手动添加的游戏（extras）没有 coverPath，也就没有封面可显示 —— 不猜。
+  return null;
+}
+
+/** 比路径时统一大小写与结尾分隔符（Windows 上两者都会变，不统一就永远比不上）。 */
+function normalizeDirKey(path: string): string {
+  return path.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+}
+
+/**
  * The games the library would show, read straight from this session's scan
  * cache. The frontend overlay only needs a candidate list for `running_games`;
  * unlike the library page it must never start a full system scan.

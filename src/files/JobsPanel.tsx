@@ -6,12 +6,18 @@
  *   1. 状态在模块里（`useFileJobs`），切页不丢、回来接着显示；
  *   2. 侧栏「文件」入口上的进度环（App.tsx），不进来也知道还在跑。
  *
- * 暂停按钮**置灰**并写明原因：暂停要在后端的传输循环里加一个 `AtomicBool`，
- * 本版没动 Rust。改造包允许这个降级，但要求「不能出现点了没反应」。
+ * 暂停 / 继续是真的（后端 `file_pause` → 传输循环里的 `Runner::wait_if_paused`）：
+ * 按下去之后进度会停在当前这一块，按钮自己翻成「继续」—— 文案跟事件走，界面不猜状态。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { text } from "../i18n";
-import { clearJobHistory, useFileJobs, useJobHistory, type Job } from "./useFileJobs";
+import {
+  clearJobHistory,
+  setJobPaused,
+  useFileJobs,
+  useJobHistory,
+  type Job,
+} from "./useFileJobs";
 import { formatBytes, formatEta } from "./tasks/env";
 
 function percentOf(job: Job): number {
@@ -75,7 +81,7 @@ export function JobsPanel({ onCancel }: { onCancel: (id: string) => void }) {
             const scanning = job.phase === "scan";
             const percent = scanning ? 0 : percentOf(job);
             return (
-              <article key={job.id} className="ft-job-card">
+              <article key={job.id} className={job.paused ? "ft-job-card is-paused" : "ft-job-card"}>
                 <span className="ft-job-icon" aria-hidden>
                   ⇄
                 </span>
@@ -85,9 +91,17 @@ export function JobsPanel({ onCancel }: { onCancel: (id: string) => void }) {
                     <span className="ft-job-fill" style={{ width: `${percent}%` }} />
                   </div>
                   <p className="ft-job-meta tnum">
-                    {scanning
-                      ? text().files.transferScan
-                      : t.jobsPercent(percent, formatBytes(job.bytes), formatBytes(job.totalBytes), rateText(job), etaText(job))}
+                    {job.paused
+                      ? t.jobsPaused
+                      : scanning
+                        ? text().files.transferScan
+                        : t.jobsPercent(
+                            percent,
+                            formatBytes(job.bytes),
+                            formatBytes(job.totalBytes),
+                            rateText(job),
+                            etaText(job),
+                          )}
                   </p>
                 </div>
                 <div className="ft-job-actions">
@@ -95,10 +109,12 @@ export function JobsPanel({ onCancel }: { onCancel: (id: string) => void }) {
                     type="button"
                     className="ft-btn"
                     data-focusable
-                    disabled
+                    // 暂停是**后端**做的事（`file_pause` → `Runner::wait_if_paused`）；
+                    // 文案跟事件走，不在这里猜状态。
                     title={t.jobsPauseHint}
+                    onClick={() => setJobPaused(job.id, !job.paused)}
                   >
-                    {t.jobsPause}
+                    {job.paused ? t.jobsResume : t.jobsPause}
                   </button>
                   <button
                     type="button"
