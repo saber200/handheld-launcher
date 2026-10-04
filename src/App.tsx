@@ -433,8 +433,7 @@ export default function App() {
         onClick={closeSettings}
       />
       <aside className="drawer" role="dialog" aria-label={m.settings.title}>
-        <h1>{m.settings.title}</h1>
-        <SettingsPage active={settingsOpen} />
+        <SettingsPage active={settingsOpen} onClose={closeSettings} />
       </aside>
     </div>
     {intro !== "done" && <BootSplash playing={intro === "play"} onDone={finishIntro} />}

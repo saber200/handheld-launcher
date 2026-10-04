@@ -1,0 +1,275 @@
+/*
+ * 设置抽屉（画板 K3，440dp）：标题行 + 设置行 + 底部提示。
+ *
+ * 为什么单开一个文件：抽屉外壳（.drawer / .settings-body）与行样式现在住在 global.css 里，
+ * 而**独立前端程序也在用其中几个类**（FrontendPanel 用 .settings-list / .setting-row / .switch，
+ * 它 import 的是同一份 global.css）—— 所以旧类一个都不动，这里只写 K3 自己的 `k3-*`，
+ * 抽屉自己换过去。几何取自改造包 §9 与画板 K3 实测（2560×1440 按 2 除回 dp）。
+ */
+
+/* ── 标题行：「设置」21dp Bold + 「双击 Back 呼出 · Esc 关闭」10dp + 关闭按钮 34×34 ── */
+.k3-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  margin-bottom: calc(18 * var(--dp));
+}
+
+.k3-head h2 {
+  flex: none;
+  margin: 0;
+  font-size: calc(21 * var(--dp));
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.k3-head-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-4);
+  font-size: calc(10 * var(--dp));
+}
+
+.k3-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  /* 34dp 方按钮：圆角取 --radius-sm(8)，不做正圆（规范只允许状态点与按键角标是圆的） */
+  width: calc(34 * var(--dp));
+  height: calc(34 * var(--dp));
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: calc(15 * var(--dp));
+  line-height: 1;
+}
+
+.k3-close:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+/* ── 设置行：高 52、步进 62（间距 10）、圆角 12、内边距 16 ── */
+.k3-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(10 * var(--dp));
+}
+
+.k3-row {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  width: 100%;
+  min-height: calc(52 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  text-align: left;
+}
+
+/* 标签 12.5dp Medium 在上、说明 9.5dp ink-4 在下（画板 y+18 / y+36） */
+.k3-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(3 * var(--dp));
+}
+
+.k3-text strong {
+  font-size: var(--font-body);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.k3-text small {
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+  line-height: 1.3;
+}
+
+/* 右侧控件区固定 170dp（画板 §9），里面的东西一律靠右 */
+.k3-control {
+  flex: none;
+  width: calc(170 * var(--dp));
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--stack);
+}
+
+.k3-value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+  font-size: var(--font-body);
+}
+
+/* 焦点态：2dp accent 描边 + 焦点环（画板 §9）。描边用 inset 阴影，免得行内容抖 2dp */
+.k3-row:focus {
+  border-color: var(--accent);
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 calc(1 * var(--dp)) var(--accent);
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+.k3-row:disabled {
+  opacity: 0.55;
+}
+
+/* ── 开关：轨道 42×24 圆角 6 + 正圆旋钮（规范允许的两类圆之一） ── */
+.k3-switch {
+  flex: none;
+  position: relative;
+  width: calc(42 * var(--dp));
+  height: calc(24 * var(--dp));
+  padding: 0;
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line-strong);
+  background: var(--sunken);
+  transition:
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+
+.k3-switch-knob {
+  position: absolute;
+  top: 50%;
+  left: calc(3 * var(--dp));
+  width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
+  transform: translateY(-50%);
+  /* 旋钮是规范允许的两类正圆之外的第三种，画板 §9 明确写了「旋钮正圆」；
+     audit 的白名单按名字认（knob）—— 所以这个类名不能改。 */
+  border-radius: 50%;
+  background: var(--ink-3);
+  transition:
+    left var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-soft);
+}
+
+.k3-switch.on {
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.k3-switch.on .k3-switch-knob {
+  left: calc(21 * var(--dp));
+  background: var(--panel);
+}
+
+.k3-switch:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+/* 语言那种二选一：两片小按钮，选中的用 accent-deep 底 + accent-hi 字 */
+.k3-seg {
+  display: flex;
+  gap: calc(6 * var(--dp));
+}
+
+.k3-seg-item {
+  display: grid;
+  place-items: center;
+  min-width: calc(56 * var(--dp));
+  height: calc(28 * var(--dp));
+  padding: 0 var(--stack);
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line-soft);
+  background: var(--panel-3);
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k3-seg-item.on {
+  border-color: transparent;
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+  font-weight: 600;
+}
+
+.k3-seg-item:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+/* 行尾那颗小按钮（重装 / 打开设置 / 电源） */
+.k3-action {
+  display: grid;
+  place-items: center;
+  min-width: calc(64 * var(--dp));
+  height: calc(32 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-3);
+  color: var(--ink);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.k3-action.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.k3-action.is-danger {
+  color: var(--danger);
+}
+
+.k3-action:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+.k3-action:disabled {
+  opacity: 0.5;
+}
+
+/* ── 底部：品牌字标 + 按键提示（画板：10dp ink-4 一行） ── */
+.k3-foot {
+  flex: none;
+  margin-top: var(--pad-panel);
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--dp));
+}
+
+.k3-foot .about-line {
+  font-size: calc(26 * var(--dp));
+}
+
+.k3-keys {
+  margin: 0;
+  color: var(--ink-4);
+  font-size: calc(10 * var(--dp));
+  line-height: 1.4;
+}
+
+/* 电源那三颗仍然是弹层（既有能力），位置跟着 k3 的页脚走 */
+.k3-power {
+  position: relative;
+  align-self: flex-start;
+}
+

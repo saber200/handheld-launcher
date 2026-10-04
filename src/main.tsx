@@ -20,6 +20,9 @@ import "./styles/files.css";
 // 画板 K4（工具箱）的样式：主卡 + 四张卡。旧 `.toolbox-*` **不能删** —— 独立前端程序
 // （src/frontend/）也在用其中几个类，它 import 的是同一份 global.css。
 import "./styles/toolbox.css";
+// 画板 K3（设置抽屉）的样式：标题行 + 设置行 + 底部提示。同样，旧 `.setting-*` / `.switch`
+// 不能删 —— 独立前端的面板（FrontendPanel）也 import 了 global.css 并在用它们。
+import "./styles/settings.css";
 import { watchUiScale } from "./styles/scale";
 
 // 设计画布是 1280×720，--dp 决定 1dp 等于几个物理 px（1080p→1.5、1440p→2.0）。

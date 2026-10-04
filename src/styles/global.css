@@ -119,10 +119,12 @@ button {
   top: 0;
   bottom: 0;
   left: 0;
-  width: min(440px, 88vw);
+  /* 画板 K3 的抽屉是 440dp 宽、内边距 28/24 —— 走 --dp，1080p 上才跟着整屏一起放大。
+     独立前端（K8，440×620 画布）不调用 watchUiScale()，--dp 恒为 1px，值不变。 */
+  width: min(calc(440 * var(--dp)), 88vw);
   display: flex;
   flex-direction: column;
-  padding: 28px 24px 24px;
+  padding: calc(28 * var(--dp)) calc(24 * var(--dp)) calc(24 * var(--dp));
   background: rgba(12, 18, 32, 0.96);
   border-right: 1px solid var(--line);
   box-shadow: 16px 0 48px rgba(0, 0, 0, 0.35);
@@ -164,8 +166,11 @@ button {
      自己 24px 的内边距里。
      上下不配负外边距（盒子会被撑出抽屉 7dp，透明那一条会盖住页脚点击），只在**下面**
      直接加 7dp 内边距当滚动余量：body 是 flex: 1 的滚动体，内边距只缩内容盒、不往外撑；
-     不加的话 1080p 下电源那一排的环正好贴在底边被切（上面那圈由 .settings-list 的间距兜着）。 */
-  padding: 0 calc(7 * var(--dp)) calc(7 * var(--dp));
+     不加的话 1080p 下电源那一排的环正好贴在底边被切（上面那圈由 .settings-list 的间距兜着）。
+     2026-10-04（M4/K3）：抽屉改成整宽满行之后，**上面那圈也得留** —— 第一行上面直接是
+     滚动盒的顶边，环一样会被切（探针报 k3-close←settings-body(上)）。抽屉自己有 28dp
+     上内边距，滚动体再加 7dp 不会顶出抽屉。 */
+  padding: calc(7 * var(--dp)) calc(7 * var(--dp)) calc(7 * var(--dp));
   margin: 0 calc(-7 * var(--dp));
 }
 

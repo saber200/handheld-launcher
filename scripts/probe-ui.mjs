@@ -331,6 +331,64 @@ const run = async (width, height) => {
       `信息面板键值成对（${panel ? panel.dts.join(" / ") : "-"}）`,
     );
 
+    // 设置抽屉（画板 K3）：这块 DOM 一直在，只是被 translateX 挪出屏幕 ——
+    // 宽度 / 行高 / 步进 / 控件尺寸都和位移无关，所以不用真把它拉开也能对。抽屉必须
+    // 排在最上面（z-index 5），量的是它自己的盒子，不是屏幕坐标。
+    const k3 = await page.eval(`
+      const drawer = document.querySelector('.drawer');
+      const rows = [...document.querySelectorAll('.k3-list .k3-row')];
+      const sw = document.querySelector('.k3-switch');
+      const close = document.querySelector('.k3-close');
+      if (!drawer || rows.length < 3 || !sw || !close) return null;
+      const box = (el) => { const r = el.getBoundingClientRect(); return { w: +r.width.toFixed(2), h: +r.height.toFixed(2), y: +r.y.toFixed(2) }; };
+      return {
+        dp: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1,
+        drawer: box(drawer), rows: rows.length, row: box(rows[0]),
+        step: +(rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top).toFixed(2),
+        sw: box(sw), close: box(close),
+        head: box(document.querySelector('.k3-head')),
+      };
+    `);
+    if (!k3) {
+      note(false, "设置抽屉是 K3：找不到 .k3-row / .k3-switch / .k3-close");
+    } else {
+      const d = k3.dp;
+      note(Math.abs(k3.drawer.w - 440 * d) < 3, `K3 抽屉宽 440dp=${(440 * d).toFixed(1)}（实测 ${k3.drawer.w}）`);
+      note(Math.abs(k3.row.h - 52 * d) < 2.5, `K3 设置行高 52dp（实测 ${k3.row.h}）`);
+      note(Math.abs(k3.step - 62 * d) < 2.5, `K3 设置行步进 62dp（实测 ${k3.step}）`);
+      note(k3.rows >= 6, `K3 抽屉里 ${k3.rows} 行（语言 / 自启 / FSE / 小组件 / 退出 / 关于…）`);
+      note(Math.abs(k3.sw.w - 42 * d) < 2 && Math.abs(k3.sw.h - 24 * d) < 2,
+        `K3 开关轨道 42×24（实测 ${k3.sw.w}×${k3.sw.h}）`);
+      note(Math.abs(k3.close.w - 34 * d) < 2 && Math.abs(k3.close.h - 34 * d) < 2,
+        `K3 关闭按钮 34×34（实测 ${k3.close.w}×${k3.close.h}）`);
+    }
+
+    // 呼出设置抽屉：双击 View（和真机同一套手势，viewGesture="double"）。拉出来截一张，
+    // 然后点遮罩关掉 —— 不然下面那些「焦点跨域」检查会跑在抽屉这个焦点陷阱里。
+    const drawerOpen = await page.eval(`
+      const pad = { id: 'probe', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes: [0, 0, 0, 0] };
+      pad.buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0, touched: false }));
+      navigator.getGamepads = () => [pad];
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const tap = async () => { pad.buttons[8] = { pressed: true, value: 1, touched: true }; await wait(120); pad.buttons[8] = { pressed: false, value: 0, touched: false }; };
+      await tap();
+      await wait(150);
+      await tap();
+      await wait(700);
+      return !!document.querySelector('.drawer-root.open');
+    `);
+    note(drawerOpen, `双击 View 呼出设置抽屉（实测 open=${drawerOpen}）`);
+    if (SHOTS) {
+      mkdirSync(SHOTS, { recursive: true });
+      await page.shot(join(SHOTS, `k3-drawer-${width}x${height}.png`));
+    }
+    await page.eval(`
+      document.querySelector('.drawer-scrim')?.click();
+      await new Promise((r) => setTimeout(r, 600));
+      navigator.getGamepads = () => [];
+      return !document.querySelector('.drawer-root.open');
+    `);
+
     // 焦点域进出（用户 2026-10-04 报的那条）：先退回条上最左边那张，再按左
     for (let i = 0; i < 15; i++) {
       const atFirst = await page.eval(`

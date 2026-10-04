@@ -60,6 +60,13 @@ export type Catalog = {
   settings: {
     title: string;
     close: string;
+    /** K3 抽屉标题行右边那句「双击 Back 呼出 · Esc 关闭」。 */
+    panelSub: string;
+    /** K3 抽屉底部那行按键提示。 */
+    panelKeys: string;
+    /** 「关于」那一行。 */
+    aboutTitle: string;
+    aboutStack: string;
     language: string;
     languageHint: string;
     autostart: string;
@@ -543,6 +550,10 @@ export const zh: Catalog = {
   settings: {
     title: "设置",
     close: "关闭设置",
+    panelSub: "双击 Back 呼出 · Esc 关闭",
+    panelKeys: "A 确认 · B 关闭抽屉 · ↑↓ 移动焦点 · ←→ 调整数值",
+    aboutTitle: "关于",
+    aboutStack: "Tauri 2 · Rust + React",
     language: "语言",
     languageHint: "中文显示幻想枢纽，英文显示 FantasyHub",
     autostart: "开机自启",
@@ -1025,6 +1036,10 @@ export const en: Catalog = {
   settings: {
     title: "Settings",
     close: "Close settings",
+    panelSub: "Double-press Back · Esc to close",
+    panelKeys: "A confirm · B close · ↑↓ focus · ←→ adjust",
+    aboutTitle: "About",
+    aboutStack: "Tauri 2 · Rust + React",
     language: "Language",
     languageHint: "Chinese shows 幻想枢纽. English shows FantasyHub",
     autostart: "Start with Windows",
