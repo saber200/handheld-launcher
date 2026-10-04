@@ -173,6 +173,7 @@ pub fn run() {
             files::file_move,
             files::file_delete,
             files::file_extract,
+            files::files_show_keyboard,
             files::file_read_text,
             files::file_write_text,
             files::file_icon,

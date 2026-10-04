@@ -18,7 +18,13 @@ export type TransferEvent = {
   reason: string;
 };
 
-export type Job = TransferEvent & { at: number };
+export type Job = TransferEvent & {
+  at: number;
+  /** 平滑过的速度（字节/秒）。取不到就是 0，界面就不显示速度那一行。 */
+  rate: number;
+  /** 按当前速度算的剩余秒数。0 = 算不出来（还没动 / 总量未知）。 */
+  eta: number;
+};
 
 /**
  * 任务状态放在模块级，不放组件里。
@@ -46,7 +52,21 @@ function start() {
   void listen<TransferEvent>("files-transfer", (event) => {
     const payload = event.payload;
     if (!payload || !payload.id) return;
-    jobs.set(payload.id, { ...payload, at: Date.now() });
+    const previous = jobs.get(payload.id);
+    // 速度用相邻两次事件的差算，再跟上一值做个指数平滑：Rust 每 150ms 报一次，
+    // 直接用瞬时值跳得厉害，读起来像坏了。
+    let rate = previous?.rate ?? 0;
+    if (previous && payload.bytes > previous.bytes) {
+      const elapsed = (Date.now() - previous.at) / 1000;
+      if (elapsed > 0) {
+        const sample = (payload.bytes - previous.bytes) / elapsed;
+        rate = rate > 0 ? rate * 0.6 + sample * 0.4 : sample;
+      }
+    }
+    if (payload.phase !== "run") rate = 0;
+    const remaining = payload.totalBytes - payload.bytes;
+    const eta = rate > 0 && remaining > 0 ? remaining / rate : 0;
+    jobs.set(payload.id, { ...payload, at: Date.now(), rate, eta });
     if (payload.phase !== "scan" && payload.phase !== "run") {
       const phase = payload.phase;
       window.setTimeout(() => {

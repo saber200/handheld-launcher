@@ -299,6 +299,11 @@ export type Catalog = {
     extracting: (name: string) => string;
     extractDone: (files: number, dir: string) => string;
     extractFailed: (name: string, detail: string) => string;
+    showHidden: string;
+    hideHidden: string;
+    keyboard: string;
+    keyboardHint: string;
+    transferRate: (rate: string, remaining: string) => string;
     previewOpen: string;
     opened: (name: string) => string;
     copyName: (stem: string, n: number, ext: string) => string;
@@ -692,6 +697,11 @@ export const zh: Catalog = {
     extracting: (name) => `正在解压「${name}」…`,
     extractDone: (files, dir) => `解压完成：${files} 个文件 → ${dir}`,
     extractFailed: (name, detail) => `解压「${name}」失败：${detail}`,
+    showHidden: "显示隐藏",
+    hideHidden: "不显示隐藏",
+    keyboard: "软键盘",
+    keyboardHint: "打开 Windows 触摸键盘（掌机上输入更顺手）",
+    transferRate: (rate, remaining) => `${rate}/秒 · 还剩 ${remaining}`,
     previewOpen: "浏览器预览不能调用系统打开。文本文件请用编辑。",
     opened: (name) => `已打开「${name}」。`,
     copyName: (stem, n, ext) =>
@@ -1086,6 +1096,11 @@ export const en: Catalog = {
     extracting: (name) => `Extracting “${name}”…`,
     extractDone: (files, dir) => `Extracted ${files} files → ${dir}`,
     extractFailed: (name, detail) => `Couldn't extract “${name}”: ${detail}`,
+    showHidden: "Show hidden",
+    hideHidden: "Hide hidden",
+    keyboard: "Keyboard",
+    keyboardHint: "Open the Windows touch keyboard (easier typing on a handheld)",
+    transferRate: (rate, remaining) => `${rate}/s · ${remaining} left`,
     previewOpen: "Browser preview can't open files with the system. Edit text files instead.",
     opened: (name) => `Opened “${name}”.`,
     copyName: (stem, n, ext) =>

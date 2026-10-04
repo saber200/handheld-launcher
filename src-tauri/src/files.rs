@@ -19,6 +19,8 @@ pub struct FileEntry {
     /// 修改时间（Unix 毫秒，取不到就是 0）。按时间排序、属性面板看日期都要它。
     pub modified: u64,
     pub editable: bool,
+    /// Windows 的隐藏属性 / 点开头的名字。默认不列出来，工具栏那颗「显示隐藏」才放它们进来。
+    pub hidden: bool,
 }
 
 /// 文件操作失败的原因。
@@ -292,6 +294,45 @@ pub struct ExtractOutcome {
 #[tauri::command]
 pub async fn file_extract(archive: String) -> Result<ExtractOutcome, FileError> {
     worker(move || extract_archive(archive)).await
+}
+
+/// 打开 Windows 的触摸键盘。
+///
+/// 掌机上用虚拟键盘敲路径 / 文件名太慢，直接把系统那把叫出来。先试 `TabTip.exe`
+/// （Windows 8+ 的触摸键盘，有输入法联想），它不在再退到 `osk.exe`（老式屏幕键盘，
+/// 任何 Windows 都有）；两个都起不来就如实报错，不要静默什么也没发生。
+#[tauri::command]
+pub fn files_show_keyboard() -> Result<(), FileError> {
+    #[cfg(windows)]
+    {
+        for candidate in [
+            r"C:\Program Files\Common Files\microsoft shared\ink\TabTip.exe",
+            r"C:\Program Files (x86)\Common Files\microsoft shared\ink\TabTip.exe",
+        ] {
+            if Path::new(candidate).is_file()
+                && std::process::Command::new(candidate).spawn().is_ok()
+            {
+                return Ok(());
+            }
+        }
+        if std::process::Command::new("osk.exe").spawn().is_ok() {
+            return Ok(());
+        }
+        return Err(FileError::new(
+            "other",
+            pick(
+                "没能打开触摸键盘：可以在「设置 → 时间和语言 → 输入」里打开触摸键盘",
+                "Couldn't open the touch keyboard; turn it on in Settings → Time & language → Typing.",
+            ),
+        ));
+    }
+    #[cfg(not(windows))]
+    {
+        Err(FileError::rule(pick(
+            "触摸键盘只在 Windows 上有",
+            "The touch keyboard only exists on Windows.",
+        )))
+    }
 }
 
 fn extract_archive(archive: String) -> Result<ExtractOutcome, FileError> {
@@ -713,6 +754,7 @@ fn dir_entry(name: String, path: String) -> FileEntry {
         bytes: 0,
         modified: 0,
         editable: false,
+        hidden: false,
     }
 }
 
@@ -774,6 +816,9 @@ fn list_dir(path: &Path) -> Result<Vec<FileEntry>, FileError> {
             kind: if is_dir { "dir" } else { "file" }.into(),
             bytes: meta.as_ref().map(|meta| meta.len()).unwrap_or(0),
             modified: meta.as_ref().map(modified_ms).unwrap_or(0),
+            hidden: meta
+                .as_ref()
+                .is_some_and(|meta| is_hidden(Path::new(&path), meta)),
             name,
             path: path.display().to_string(),
         });

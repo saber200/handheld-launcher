@@ -11,6 +11,8 @@ export type FileEntry = {
   /** 修改时间（Unix 毫秒，0 = 未知）。 */
   modified: number;
   editable: boolean;
+  /** 隐藏属性 / 点开头的名字：默认不列出来，工具栏那颗「显示隐藏」才放它们进来。 */
+  hidden: boolean;
 };
 
 export type SortKey = "name" | "size" | "time" | "type";
@@ -133,6 +135,20 @@ function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+/**
+ * 打开 Windows 触摸键盘（掌机上敲路径、文件名比手柄一格一格挪快得多）。
+ * 返回空串 = 打开了；返回非空 = 给用户看的原因。
+ */
+export async function showSoftKeyboard(): Promise<string> {
+  if (!inTauri()) return text().files.keyboardHint;
+  try {
+    await invoke("files_show_keyboard");
+    return "";
+  } catch (err) {
+    return toFileError(err).message;
+  }
+}
+
 export function isArchiveName(name: string): boolean {
   const lower = name.toLowerCase();
   return lower.endsWith(".zip") || lower.endsWith(".7z");
@@ -217,6 +233,7 @@ function toEntry(node: PreviewNode, path: string): FileEntry {
     // 预览里的文件没有真实时间：给 0（未知），按时间排序就退化成按名字。
     modified: 0,
     editable: node.kind === "file" && node.editable !== false,
+    hidden: false,
   };
 }
 
@@ -542,6 +559,11 @@ export type UseFileBrowserOptions = {
    * 就会顺手把第一行选上，用户看到的是一个莫名其妙的勾。
    */
   onNavigate?: () => void;
+  /**
+   * 要不要把隐藏文件（Windows 隐藏属性 / 点开头的名字）也列出来。默认不列 ——
+   * 掌机上 `AppData`、`desktop.ini` 这类东西只会把列表弄乱。按栏传，两栏可以不一样。
+   */
+  showHidden?: boolean;
 };
 
 
@@ -625,9 +647,14 @@ export function useFileBrowser(options: UseFileBrowserOptions = {}) {
   }, [cacheKey, location, preview]);
 
   const rows = preview ? listPreview(tree, location) : nativeEntries;
+  // 隐藏项默认不显示：过滤只发生在「要显示的那一份」上，索引与 pick / 选区的对应用的是同一个数组。
+  const shownRows = useMemo(
+    () => (options.showHidden ? rows : rows.filter((row) => !row.hidden)),
+    [rows, options.showHidden],
+  );
   const entries = useMemo(
-    () => sortRows(rows, sortKey, sortDir, dirSizes),
-    [rows, sortKey, sortDir, dirSizes],
+    () => sortRows(shownRows, sortKey, sortDir, dirSizes),
+    [shownRows, sortKey, sortDir, dirSizes],
   );
   const crumbs = useMemo(() => crumbsFor(location), [location, locale]);
 

@@ -46,7 +46,7 @@
 
 - 大概做什么：在游戏卡片菜单里一键把 OptiScaler 装进该游戏目录（参考 GitHub 开源 OptiScaler / OptiScaler-Client，以及 juij.fun 一类一键站的体验）
 - 为什么需要：掌机核显常用 FSR/XeSS 等补帧与超分，手动解压改名对手柄用户不友好
-- 备注：安装源以 **OptiScaler 官方 GitHub Release** 为准。第一版：卡片菜单「安装 Mod / 工具」→ 下载 **latest** zip → 解压到主程序旁并改名为 `dxgi.dll`。**版本选择 / 多 hook（dxgi、winmm 等）暂缓**，之后对一下可装哪些版本再做；卸载 / Fakenvapi 等后续补
+- 备注：安装源以 **OptiScaler 官方 GitHub Release** 为准。第一版：卡片菜单「安装 Mod / 工具」→ 下载 **latest** zip → 解压到主程序旁并改名为 `dxgi.dll`。**多 hook（dxgi、winmm 等）2026-10-04 已落地**（面板上可选 7 个名字，账本记下选的是哪个）；**版本选择仍暂缓**（只装 latest），之后对一下可装哪些版本再做；卸载 2026-10-04 已落地（账本 + 还原被覆盖的原文件）；Fakenvapi 等后续补
 
 ---
 

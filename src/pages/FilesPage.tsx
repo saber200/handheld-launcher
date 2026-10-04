@@ -7,6 +7,7 @@ import {
   toFileError,
   useFileBrowser,
   isArchiveName,
+  showSoftKeyboard,
   type Conflict,
   type FileEntry,
   type FileErrorInfo,
@@ -22,6 +23,18 @@ type PaneId = "left" | "right";
 type Naming = "dir" | "file" | null;
 type EditorState = { path: string; name: string; text: string };
 type BatchMode = "original" | "number" | "replace";
+
+/** 「显示隐藏文件」记在这儿：下次打开文件页还是上次的选择。 */
+const SHOW_HIDDEN_KEY = "files-show-hidden";
+
+/** 剩余时间写成 `0:45` / `12:07`：只有数字和冒号，不用翻译。 */
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
 
 type BatchForm = {
   items: FileEntry[];
@@ -158,8 +171,38 @@ export function FilesPage() {
     setSelectMode(false);
   }, []);
 
-  const left = useFileBrowser({ cacheKey: "left", onNavigate: () => dropSelection("left") });
-  const right = useFileBrowser({ cacheKey: "right", onNavigate: () => dropSelection("right") });
+  /**
+   * 显示隐藏文件：默认关。选择记在 localStorage 里 —— 掌机上 `AppData` 这类目录
+   * 平时不想看见，但真去翻的时候希望下次进来还是开着的。
+   */
+  const [showHidden, setShowHidden] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_HIDDEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleHidden = useCallback(() => {
+    setShowHidden((on) => {
+      try {
+        localStorage.setItem(SHOW_HIDDEN_KEY, on ? "0" : "1");
+      } catch {
+        /* 隐私模式下写不了就只当次生效 */
+      }
+      return !on;
+    });
+  }, []);
+
+  const left = useFileBrowser({
+    cacheKey: "left",
+    onNavigate: () => dropSelection("left"),
+    showHidden,
+  });
+  const right = useFileBrowser({
+    cacheKey: "right",
+    onNavigate: () => dropSelection("right"),
+    showHidden,
+  });
 
   const browsers: Record<PaneId, ReturnType<typeof useFileBrowser>> = { left, right };
   const active = browsers[activePane];
@@ -926,6 +969,28 @@ export function FilesPage() {
           </button>
           <button
             type="button"
+            className={`library-tool${showHidden ? " is-current" : ""}`}
+            data-focusable
+            onClick={toggleHidden}
+          >
+            {showHidden ? text().files.hideHidden : text().files.showHidden}
+          </button>
+          {/* 掌机上打字：与其让用户用手柄一格一格挪虚拟键盘，不如把系统那把叫出来。 */}
+          <button
+            type="button"
+            className="library-tool"
+            data-focusable
+            title={text().files.keyboardHint}
+            onClick={() =>
+              void showSoftKeyboard().then((problem) => {
+                if (problem) active.setNote(problem);
+              })
+            }
+          >
+            {text().files.keyboard}
+          </button>
+          <button
+            type="button"
             className="library-tool"
             data-focusable
             disabled={active.location == null}
@@ -1011,6 +1076,11 @@ export function FilesPage() {
                         formatBytes(job.totalBytes),
                       )}
                 </span>
+                {!scanning && job.rate > 0 && (
+                  <span className="file-progress-meta">
+                    {text().files.transferRate(formatBytes(job.rate), formatEta(job.eta))}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="library-tool"
