@@ -5,6 +5,7 @@ import { PREVIEW_APPS, type AppEntry } from "../data/previewApps";
 import { PREVIEW_GAMES, type GameEntry } from "../data/previewGames";
 import { parentPath } from "../files/useFileBrowser";
 import { currentLocale, text } from "../i18n";
+import { recordLaunch } from "./recent";
 import { resetModProgress } from "./useModProgress";
 
 const APP_COLORS = [
@@ -41,6 +42,8 @@ type RawApp = {
   launchPath: string;
   version?: string;
   sizeBytes?: number;
+  /** 注册表 `InstallDate`（`YYYYMMDD`）。空 = 安装器没写，界面就不拿它排序。 */
+  installDate?: string;
 };
 
 function inTauri(): boolean {
@@ -57,6 +60,8 @@ export async function launchLibraryItem(item: {
   installPath?: string;
   customPath?: boolean;
   switchIfRunning?: boolean;
+  /** 游戏还是软件：首页的「继续游玩」只排游戏（软件走「最近安装的软件」那一条）。 */
+  kind?: "game" | "app";
 }): Promise<string> {
   if (!inTauri()) {
     return text().library.previewLaunch;
@@ -69,6 +74,15 @@ export async function launchLibraryItem(item: {
       launchPath: item.launchPath ?? "",
       installPath: item.installPath ?? "",
       switchIfRunning: item.switchIfRunning ?? false,
+    });
+    // 记一笔「刚刚启动过」：首页的「继续游玩」就靠它（见 library/recent.ts）。
+    // 只在**真的动手启动**之后记 —— 前置失败（找不到 exe）不该出现在首页上。
+    recordLaunch({
+      id: item.id,
+      name: item.name,
+      kind: item.kind ?? "game",
+      installPath: item.installPath,
+      launchPath: item.launchPath,
     });
     playSfx("done");
     if (outcome === "focused") return text().library.switched(item.name);
@@ -311,6 +325,29 @@ export function gameCoverFor(dirPath: string): { name: string; cover: string } |
 /** 比路径时统一大小写与结尾分隔符（Windows 上两者都会变，不统一就永远比不上）。 */
 function normalizeDirKey(path: string): string {
   return path.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+}
+
+/**
+ * 已装软件（从这一层的扫描缓存里读，**不触发扫描**）—— 首页「最近安装的软件」用它。
+ *
+ * 和 `cachedLibraryGames` 同一个理由：首页一挂载就要出内容，不能等一次全盘扫描。
+ * 按 `installDate` 倒序排（注册表里那一列），没写日期的排后面、按名字排。
+ */
+export function cachedApps(): { id: string; name: string; version: string; sizeBytes: number; installDate: string }[] {
+  if (!inTauri()) return [];
+  const rows = readScanCache<RawApp>("scan_apps") ?? [];
+  return rows
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      version: (row.version ?? "").trim(),
+      sizeBytes: row.sizeBytes ?? 0,
+      installDate: (row.installDate ?? "").trim(),
+    }))
+    .sort((a, b) => {
+      if (a.installDate !== b.installDate) return b.installDate.localeCompare(a.installDate);
+      return a.name.localeCompare(b.name, currentLocale());
+    });
 }
 
 /**
@@ -681,6 +718,7 @@ function mapApp(row: RawApp): AppEntry {
     launchPath: row.launchPath,
     version: row.version?.trim() ? row.version.trim() : undefined,
     sizeBytes: row.sizeBytes && row.sizeBytes > 0 ? row.sizeBytes : undefined,
+    installDate: row.installDate?.trim() ? row.installDate.trim() : undefined,
   };
 }
 

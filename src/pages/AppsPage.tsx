@@ -84,6 +84,7 @@ export function AppsPage() {
                   launchPath: item.launchPath,
                   installPath: item.installPath,
                   customPath: item.customPath,
+                  kind: "app",
                 }).then(setStatus);
               }}
             >

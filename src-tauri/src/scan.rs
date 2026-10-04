@@ -48,6 +48,8 @@ pub struct ScannedApp {
     /// 占用空间（字节），来自注册表 `EstimatedSize`（KB，Windows「应用和功能」里显示的就是它）。
     /// 0 = 注册表没写 —— 这个值本来就允许缺失，也允许不准，所以只能当参考值显示。
     pub size_bytes: u64,
+    /// 安装日期（注册表 `InstallDate`，`YYYYMMDD`）。空 = 安装器没写。
+    pub install_date: String,
 }
 
 #[tauri::command]
@@ -1316,6 +1318,9 @@ mod windows {
                 // EstimatedSize 是 KB（Windows「应用和功能」里显示的就是它）。0 或缺席 = 不知道；
                 // 溢出不了：u32 KB 最大约 4 TB。
                 size_bytes: u64::from(reg_dword(&sub, "EstimatedSize")) * 1024,
+                // 安装日期（`YYYYMMDD`，Windows「应用和功能」里那一列就是它）。
+                // 很多安装器不写 —— 空串就是「不知道」，首页那边按名字兜底排序。
+                install_date: reg_string(&sub, "InstallDate").trim().to_string(),
             };
             remember_app(found, app);
         }

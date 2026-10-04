@@ -5,6 +5,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
 import { FilesPage } from "./pages/FilesPage";
+import { HomePage } from "./pages/HomePage";
+import { DownloadsPage } from "./pages/DownloadsPage";
 import { ToolboxPage } from "./pages/ToolboxPage";
 import { SettingsPage, closePowerMenu } from "./pages/SettingsPage";
 import { BootSplash } from "./components/BootSplash";
@@ -18,6 +20,9 @@ import { BatteryIcon, GamepadIcon, LockIcon, NavIcon, SearchIcon } from "./compo
 import { text, useI18n } from "./i18n";
 import type { HintPage } from "./i18n/catalog";
 import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
+import { formatSize } from "./library/format";
+
+type DriveSpace = { mount: string; label: string; totalBytes: number; freeBytes: number; kind: string };
 
 // 前端（幻想前端）自 0.1.46 起是一个**独立程序**：启动器不再创建浮层窗口、不再注册它的
 // 快捷键、也不再和它同步「开/关」状态，所以这里只剩启动器自己的界面逻辑。
@@ -63,18 +68,6 @@ function RailProgress() {
       </svg>
       <span className="nav-progress-text tnum">{percent > 99 ? "✓" : percent}</span>
     </span>
-  );
-}
-
-function ScheduledPage({ kind }: { kind: "home" | "downloads" }) {
-  const m = text().scheduled;
-  return (
-    <main className="page scheduled-page">
-      <div className="placeholder-panel scheduled-panel">
-        <h2>{kind === "home" ? m.homeTitle : m.downloadsTitle}</h2>
-        <p>{kind === "home" ? m.homeBody : m.downloadsBody}</p>
-      </div>
-    </main>
   );
 }
 
@@ -355,6 +348,30 @@ export default function App() {
   const finishIntro = useCallback(() => setIntro("done"), []);
   const mainLocked = intro !== "done";
 
+  /**
+   * 侧栏那颗「存储空间」（画板 K5 左下角）。
+   *
+   * 只读一次：进应用时问一次盘的容量就够（它不会在几秒内变），没必要轮询。
+   * 读不到（macOS / 权限）就写「—」，不写 0 —— 0 是「满了」，那是另一个意思。
+   */
+  const [drives, setDrives] = useState<DriveSpace[]>([]);
+  useEffect(() => {
+    if (!inTauri()) return;
+    void invoke<DriveSpace[]>("system_storage")
+      .then(setDrives)
+      .catch(() => setDrives([]));
+  }, []);
+  const primary = drives.find((drive) => drive.kind === "fixed") ?? drives[0] ?? null;
+  const usedBytes = primary ? Math.max(0, primary.totalBytes - primary.freeBytes) : 0;
+  const storagePercent =
+    primary && primary.totalBytes > 0 ? Math.round((usedBytes / primary.totalBytes) * 100) : 0;
+  const storageHead = primary
+    ? `${formatSize(usedBytes)} / ${formatSize(primary.totalBytes)}`
+    : m.shell.storagePending;
+  const storageMeta = primary
+    ? `${primary.mount} ${primary.label}`.trim()
+    : m.shell.storagePending;
+
   return (
     <>
     <div className="app-shell" inert={mainLocked || undefined}>
@@ -429,13 +446,13 @@ export default function App() {
           <div className="storage-card">
             <div className="storage-head">
               <span>{m.shell.storageTitle}</span>
-              <strong className="tnum">—</strong>
+              <strong className="tnum">{storageHead}</strong>
             </div>
             <div className="storage-track" aria-hidden>
-              <span className="storage-fill" style={{ width: "0%" }} />
+              <span className="storage-fill" style={{ width: `${storagePercent}%` }} />
             </div>
             <div className="storage-meta">
-              <span>{m.shell.storagePending}</span>
+              <span>{storageMeta}</span>
             </div>
             <button
               type="button"
@@ -453,10 +470,12 @@ export default function App() {
         </nav>
         <div className="tab-panel" role="tabpanel">
           <div key={tab} className="tab-panel-view">
-            {tab === "home" && <ScheduledPage kind="home" />}
+            {tab === "home" && (
+              <HomePage onOpenGames={() => setTab("games")} onOpenApps={() => setTab("apps")} />
+            )}
             {tab === "games" && <GamesPage />}
             {tab === "apps" && <AppsPage />}
-            {tab === "downloads" && <ScheduledPage kind="downloads" />}
+            {tab === "downloads" && <DownloadsPage onOpenFiles={() => setTab("files")} />}
             {tab === "files" && <FilesPage />}
             {tab === "toolbox" && <ToolboxPage onOpenGames={() => setTab("games")} />}
           </div>

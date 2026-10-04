@@ -13,6 +13,8 @@ mod overlay_watch;
 pub use fh_core::logutil;
 mod scan;
 mod startup;
+// 只读的系统状态：盘的容量 / 电池（FUTURE.md 功能 14 第 10 条，K5 首页用）。
+mod sysinfo;
 mod tdp;
 // TDP 的本地 IPC 服务端：独立前端只能发这三个请求（见 tdp_ipc.rs）。
 mod tdp_ipc;
@@ -154,6 +156,8 @@ pub fn run() {
             toolbox::toolbox_driver_version,
             maintain::toolbox_maintenance,
             maintain::toolbox_maintenance_clean,
+            sysinfo::system_storage,
+            sysinfo::system_power_status,
             startup::autostart_enabled,
             startup::set_autostart,
             startup::fse_status,

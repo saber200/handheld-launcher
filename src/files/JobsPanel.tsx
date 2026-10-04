@@ -43,7 +43,14 @@ function stateText(job: Job): string {
   return t.jobsSkipped(job.skipped);
 }
 
-export function JobsPanel({ onCancel }: { onCancel: (id: string) => void }) {
+export function JobsPanel({
+  onCancel,
+  onOpenFiles,
+}: {
+  onCancel: (id: string) => void;
+  /** 空态那颗按钮：去文件页起一个新任务（下载页传，任务中心不传）。 */
+  onOpenFiles?: () => void;
+}) {
   const t = text().tasks;
   const running = useFileJobs().filter((job) => job.phase === "scan" || job.phase === "run");
   const history = useJobHistory();
@@ -73,6 +80,12 @@ export function JobsPanel({ onCancel }: { onCancel: (id: string) => void }) {
         <div className="ft-empty">
           <p className="ft-empty-title">{t.jobsEmpty}</p>
           <p className="ft-empty-body">{t.jobsEmptyBody}</p>
+          {/* 空态留一个能聚焦的出口：手柄上「一条可聚焦的都没有」等于走进死胡同。 */}
+          {onOpenFiles && (
+            <button type="button" className="ft-btn" data-focusable onClick={onOpenFiles}>
+              {t.jobsOpenFiles}
+            </button>
+          )}
         </div>
       ) : (
         <div className="ft-jobs-list">

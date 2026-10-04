@@ -40,7 +40,51 @@ export type Catalog = {
   };
   hintPairs: Record<HintPage, HintPair[]>;
   /** 首页 / 下载：需要新数据源的页面，本版先占位并把话说清楚。 */
-  scheduled: { homeTitle: string; homeBody: string; downloadsTitle: string; downloadsBody: string };
+  /* ── 首页（画板 K5）与下载（画板 K6）：都是真数据，见 pages/HomePage.tsx / DownloadsPage.tsx ── */
+  home: {
+    resumeChip: string;
+    lastLaunched: (when: string) => string;
+    resume: string;
+    details: string;
+    recentTitle: string;
+    recentSub: string;
+    viewAll: string;
+    appsTitle: string;
+    installedOn: (date: string) => string;
+    statusTdp: string;
+    statusBattery: string;
+    statusStorage: string;
+    statusDriver: string;
+    /** 这台机器上读不到那一格时显示的字（就是一个破折号）。 */
+    statusNone: string;
+    empty: string;
+    emptyBody: string;
+    /** 空态那颗按钮：去游戏库。 */
+    openLibrary: string;
+    today: string;
+    yesterday: string;
+    daysAgo: (count: number) => string;
+    batteryLeft: (time: string) => string;
+    charging: string;
+    freeOf: (free: string, total: string) => string;
+    tdpValue: (watts: string) => string;
+    driverInstalled: (version: string) => string;
+    driverMissing: string;
+  };
+  downloads: {
+    title: string;
+    sub: (running: number, done: number) => string;
+    statRate: string;
+    statEta: string;
+    statBytes: string;
+    modSection: string;
+    modRow: (percent: string, right: string) => string;
+    empty: string;
+    emptyBody: string;
+    note: string;
+    noteBody: string;
+  };
+
   hints: {
     filesNav: string;
     filesMulti: string;
@@ -694,6 +738,8 @@ export type Catalog = {
     jobsClear: string;
     jobsEmpty: string;
     jobsEmptyBody: string;
+    /** 空态那颗按钮（下载页用）：去文件页起一个任务。 */
+    jobsOpenFiles: string;
     jobsPause: string;
     jobsPauseHint: string;
     jobsPaused: string;
@@ -781,13 +827,48 @@ export const zh: Catalog = {
     files: [["A", "打开"], ["B", "返回"], ["X", "多选"], ["Y", "菜单"], ["LT/RT", "换栏"], ["LB/RB", "切分区"]],
     toolbox: [["A", "安装 / 重装"], ["B", "返回"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
   },
-  scheduled: {
-    homeTitle: "首页 · 排期中",
-    homeBody:
-      "首页要把「继续游玩 + 最近安装的软件 + 系统状态条」拼起来，需要新的数据源（最近启动记录、存储容量、续航读数）。这一版先把入口和外壳做出来，页面按里程碑补上；其它页面不受影响。",
-    downloadsTitle: "下载 · 排期中",
-    downloadsBody:
-      "下载页要展示任务队列、Mod 安装进度、暂停与优先级，需要先把现在分散各处的安装进度（OptiScaler、运行库、前端）收进一个统一的任务模型。这一版先留入口；装 Mod 的进度现在仍在游戏卡片菜单里看。",
+  home: {
+    resumeChip: "继续游玩",
+    lastLaunched: (when) => `上次启动：${when}`,
+    resume: "继续游玩",
+    details: "详情",
+    recentTitle: "继续游玩",
+    recentSub: "最近启动过的游戏",
+    viewAll: "查看全部",
+    appsTitle: "最近安装的软件",
+    installedOn: (date) => `安装于 ${date}`,
+    statusTdp: "性能档位",
+    statusBattery: "续航预估",
+    statusStorage: "存储空间",
+    statusDriver: "TDP 驱动",
+    statusNone: "—",
+    empty: "还没有启动记录",
+    emptyBody:
+      "从游戏库启动一个游戏，这里就会接着显示。首页只写这台机器上真的发生过的事，不摆示例数据。",
+    openLibrary: "去游戏库",
+    today: "今天",
+    yesterday: "昨天",
+    daysAgo: (count) => `${count} 天前`,
+    batteryLeft: (time) => `约 ${time}`,
+    charging: "充电中",
+    freeOf: (free, total) => `可用 ${free} / ${total}`,
+    tdpValue: (watts) => `性能 · ${watts} W`,
+    driverInstalled: (version) => `已安装 ${version}`,
+    driverMissing: "未安装",
+  },
+  downloads: {
+    title: "下载",
+    sub: (running, done) => `${running} 个进行中 · ${done} 个已完成`,
+    statRate: "总速度",
+    statEta: "剩余时间",
+    statBytes: "本次已传",
+    modSection: "Mod / 工具安装",
+    modRow: (percent, right) => `${percent}% · ${right}`,
+    empty: "现在没有任务",
+    emptyBody: "文件复制 / 移动、OptiScaler 安装都会出现在这里，切页也不丢。",
+    note: "Steam 自己的下载不在这里",
+    noteBody:
+      "启动器看不到 Steam 的下载队列（那是 Steam 自己管的）。这一页只说启动器自己在做的事：文件传输与 Mod 安装。",
   },
   settings: {
     title: "设置",
@@ -1395,6 +1476,7 @@ export const zh: Catalog = {
     jobsClear: "清空记录",
     jobsEmpty: "现在没有任务",
     jobsEmptyBody: "从文件页的「任务」里挑一个开始吧",
+    jobsOpenFiles: "去文件页",
     jobsPause: "暂停",
     jobsPauseHint: "暂停在当前文件传完之后生效",
     jobsPaused: "已暂停",
@@ -1483,13 +1565,48 @@ export const en: Catalog = {
     files: [["A", "Open"], ["B", "Back"], ["X", "Select"], ["Y", "Menu"], ["LT/RT", "Pane"], ["LB/RB", "Sections"]],
     toolbox: [["A", "Install / reinstall"], ["B", "Back"], ["LB/RB", "Sections"], ["≡", "Settings"]],
   },
-  scheduled: {
-    homeTitle: "Home · scheduled",
-    homeBody:
-      "Home has to combine continue-playing, recently installed apps and a system status strip, which needs new data sources (launch history, storage capacity, battery estimate). This build ships the entry point and the shell; the page follows in a later milestone. Other pages are unaffected.",
-    downloadsTitle: "Downloads · scheduled",
-    downloadsBody:
-      "Downloads will show the task queue, mod install progress and pause / priority controls. That needs the installs which today live in separate places (OptiScaler, runtimes, frontend) folded into one shared task model. The entry point is here; mod progress is still shown in the game card menu.",
+  home: {
+    resumeChip: "Continue",
+    lastLaunched: (when) => `Last launched ${when}`,
+    resume: "Continue",
+    details: "Details",
+    recentTitle: "Continue playing",
+    recentSub: "Games launched recently",
+    viewAll: "See all",
+    appsTitle: "Recently installed apps",
+    installedOn: (date) => `Installed ${date}`,
+    statusTdp: "Power profile",
+    statusBattery: "Battery estimate",
+    statusStorage: "Storage",
+    statusDriver: "TDP driver",
+    statusNone: "—",
+    empty: "No launches recorded yet",
+    emptyBody:
+      "Launch a game from the library and it shows up here. The home page only shows what actually happened on this machine — no sample data.",
+    openLibrary: "Open the library",
+    today: "today",
+    yesterday: "yesterday",
+    daysAgo: (count) => `${count} days ago`,
+    batteryLeft: (time) => `about ${time}`,
+    charging: "charging",
+    freeOf: (free, total) => `${free} free of ${total}`,
+    tdpValue: (watts) => `Performance · ${watts} W`,
+    driverInstalled: (version) => `Installed ${version}`,
+    driverMissing: "Not installed",
+  },
+  downloads: {
+    title: "Downloads",
+    sub: (running, done) => `${running} running · ${done} finished`,
+    statRate: "Total speed",
+    statEta: "Time left",
+    statBytes: "Transferred",
+    modSection: "Mods / tools",
+    modRow: (percent, right) => `${percent}% · ${right}`,
+    empty: "Nothing running right now",
+    emptyBody: "File copies / moves and OptiScaler installs all show up here and survive a tab switch.",
+    note: "Steam's own downloads are not here",
+    noteBody:
+      "The launcher can't see Steam's download queue (Steam manages that itself). This page only covers what the launcher does: file transfers and mod installs.",
   },
   settings: {
     title: "Settings",
@@ -2096,6 +2213,7 @@ export const en: Catalog = {
     jobsClear: "Clear history",
     jobsEmpty: "No transfers right now",
     jobsEmptyBody: "Start one from the Tasks tab on the Files page",
+    jobsOpenFiles: "Go to Files",
     jobsPause: "Pause",
     jobsPauseHint: "Takes effect when the current file finishes",
     jobsPaused: "Paused",

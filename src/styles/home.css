@@ -1,0 +1,366 @@
+/*
+ * 首页（画板 K5）与下载（画板 K6）。
+ *
+ * K5 三块：hero（继续游玩）+ 两条横向货架（最近启动的游戏 / 最近安装的软件）+ 底部四格状态条。
+ * K6 三块：头部小标题 + 三格统计 + 任务列表（列表直接用任务中心那套 `.ft-jobs`）。
+ *
+ * 几何一律 `calc(N * var(--dp))`（和 games.css / apps.css 一个写法）；下面的数字取自
+ * 画板 K5 / K6 的实测（2× 图 ÷ 2）。
+ */
+.k5-page,
+.k6-page {
+  position: relative;
+  min-width: 0;
+  padding: var(--safe);
+  gap: var(--gutter);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ── K5 hero：名称 + 两个按钮，封面铺在后面压暗当背景 ── */
+.k5-hero {
+  position: relative;
+  flex: none;
+  min-height: calc(178 * var(--dp));
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.k5-hero-cover {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.28;
+  filter: blur(calc(12 * var(--dp)));
+}
+
+.k5-hero-text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--dp));
+  padding: calc(20 * var(--dp));
+  max-width: 70%;
+}
+
+.k5-chip {
+  align-self: flex-start;
+  padding: calc(2 * var(--dp)) calc(10 * var(--dp));
+  border-radius: var(--radius-tag);
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+  font-size: var(--font-caption);
+}
+
+.k5-hero-when,
+.k5-hero-path {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k5-hero-name {
+  margin: 0;
+  font-size: calc(30 * var(--dp));
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.k5-hero-actions {
+  display: flex;
+  gap: var(--stack);
+  margin-top: calc(6 * var(--dp));
+}
+
+.k5-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6 * var(--dp));
+  height: calc(40 * var(--dp));
+  padding: 0 calc(18 * var(--dp));
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line-soft);
+  background: var(--panel-3);
+  color: var(--ink);
+  font-size: var(--font-body);
+}
+
+.k5-btn.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.k5-btn:focus {
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+
+/* ── K5 两条横向货架 ── */
+.k5-shelf {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--dp));
+}
+
+.k5-shelf-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--stack);
+}
+
+.k5-shelf-head h3 {
+  margin: 0;
+  font-size: var(--font-h2);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.k5-shelf-sub {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k5-link {
+  flex: none;
+  height: calc(28 * var(--dp));
+  padding: 0 calc(10 * var(--dp));
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line-soft);
+  background: var(--panel-3);
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+}
+
+.k5-cards {
+  display: flex;
+  gap: var(--gutter);
+}
+
+.k5-card {
+  flex: 0 0 calc(220 * var(--dp));
+  display: grid;
+  gap: calc(6 * var(--dp));
+  padding: 0 0 calc(10 * var(--dp));
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+  overflow: hidden;
+}
+
+.k5-card-art {
+  display: grid;
+  place-items: center;
+  height: calc(96 * var(--dp));
+  overflow: hidden;
+  background: var(--panel-2);
+  color: var(--ink-4);
+}
+
+.k5-card-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.k5-card-name {
+  padding: 0 calc(12 * var(--dp));
+  font-size: var(--font-body);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k5-card-meta {
+  padding: 0 calc(12 * var(--dp));
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k5-card:focus {
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+.k5-apps {
+  display: flex;
+  gap: var(--gutter);
+}
+
+.k5-app {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  gap: calc(4 * var(--dp));
+  padding: calc(12 * var(--dp));
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.k5-app-name {
+  font-size: var(--font-body);
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k5-app-meta {
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── K5 底部四格状态条 ── */
+.k5-status {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: calc(8 * var(--dp));
+  margin-top: auto;
+  padding: calc(12 * var(--dp));
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+/* ── K6 下载 ── */
+.k6-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--stack);
+}
+
+.k6-head h2 {
+  margin: 0;
+  font-size: var(--font-h1);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.k6-sub {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k6-stats {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: calc(8 * var(--dp));
+  padding: calc(12 * var(--dp));
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.k6-stat {
+  display: grid;
+  gap: calc(4 * var(--dp));
+  min-width: 0;
+}
+
+.k6-stat-label {
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k6-stat-value {
+  color: var(--ink);
+  font-size: var(--font-body);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k6-mod {
+  flex: none;
+  display: grid;
+  gap: calc(6 * var(--dp));
+  padding: calc(12 * var(--dp));
+  border-radius: var(--radius-panel);
+  border: calc(2 * var(--dp)) solid var(--accent);
+  background: var(--panel);
+}
+
+.k6-mod h3 {
+  margin: 0;
+  font-size: var(--font-body);
+  color: var(--ink);
+}
+
+.k6-mod-row {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k6-track {
+  height: calc(6 * var(--dp));
+  border-radius: var(--radius-tag);
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.k6-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.k6-note {
+  flex: none;
+  display: grid;
+  gap: calc(4 * var(--dp));
+  padding: calc(12 * var(--dp));
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel-2);
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k6-note strong {
+  color: var(--ink-2);
+}
+
+.k5-status-cell {
+  display: grid;
+  gap: calc(4 * var(--dp));
+  min-width: 0;
+}
+
+.k5-status-label {
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k5-status-value {
+  color: var(--ink);
+  font-size: var(--font-body);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k5-note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}

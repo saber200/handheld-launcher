@@ -26,6 +26,8 @@ import "./styles/toolbox.css";
 // 画板 K3（设置抽屉）的样式：标题行 + 设置行 + 底部提示。同样，旧 `.setting-*` / `.switch`
 // 不能删 —— 独立前端的面板（FrontendPanel）也 import 了 global.css 并在用它们。
 import "./styles/settings.css";
+// 画板 K5（首页）+ K6（下载）：这一版起两页都是真数据，不再是「排期中」占位。
+import "./styles/home.css";
 import { watchUiScale } from "./styles/scale";
 
 // 设计画布是 1280×720，--dp 决定 1dp 等于几个物理 px（1080p→1.5、1440p→2.0）。

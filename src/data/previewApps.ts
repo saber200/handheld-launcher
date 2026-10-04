@@ -12,6 +12,8 @@ export type AppEntry = {
   version?: string;
   /** 占用空间（字节），注册表 `EstimatedSize`。0 / undefined = 不知道。 */
   sizeBytes?: number;
+  /** 安装日期（注册表 `InstallDate`，`YYYYMMDD`）。空 = 安装器没写。 */
+  installDate?: string;
 };
 
 export function displayAppMark(id: string, mark: string, locale: string): string {

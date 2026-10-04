@@ -54,6 +54,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--stack);
+  /* 右上那颗「清空记录」正好压在 `.ft-jobs`（overflow: hidden）的角上，焦点环会被裁 ——
+     头部整体往里收 7dp（环位），内容视觉上只挪了 7dp，看不出来。
+     不能用「padding 7 + 负 margin 7」那招：那样盒子大了、按钮位置没动，环照样被裁。
+     这一条不是下载页专属：文件页的任务中心用的也是这个面板。 */
+  padding: calc(7 * var(--dp));
 }
 
 .ft-section-head h2,
@@ -935,6 +940,11 @@
   align-items: center;
   justify-content: center;
   gap: var(--stack);
+  /* 和 `.ft-jobs-list` 同一个理由：`.ft-jobs` 是 `overflow: hidden`，空态里的按钮
+     （下载页那颗「去文件页」）贴到容器边时焦点环（4dp 外扩 + 3dp 描边）会被裁 ——
+     补一圈 7dp 内边距再用负外边距收回来：几何一个像素不变，环装得进去。 */
+  padding: calc(7 * var(--dp));
+  margin: calc(-7 * var(--dp));
 }
 
 .ft-empty-title {
