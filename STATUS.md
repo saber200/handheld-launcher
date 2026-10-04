@@ -9,6 +9,14 @@
 
 **上一版（0.1.56）装了四件事**（下面「0.1.56 这一版」四节是那一版的内容，除文件管理器外都是 0.1.55 之后积压的）：① 文件管理器深度优化（功能 12 三批）；② 独立前端改成 Game Bar 小组件后台（**首次随包装出去**）；③ 驱动状态与窗口快照诊断补充；④ 输入链路与显示调度修正。这些**都没在真机上验过**，验证边界各节末尾都写了。
 
+## 未发布（下一版）：小组件删掉「自启」行；设置页那行改名「安装前端」（2026-10-04，用户要求）
+
+用户提的两条，都不动 Rust、也没验过真机。
+
+- 小组件不再有自启开关：原来那行只在 UWP 本地设置里记一个 `disableAutostartRequested` 意图，真实自启是启动器的计划任务，小组件根本改不了 —— 用户原话「那个没用，不需要」。删掉的东西：`WidgetPage.xaml` 里整张卡片、`WidgetPage.xaml.cs` 的文案赋值与 `StartupClick`、`Strings.cs` 的 `Startup` / `StartupHint`；`using Windows.Storage;` 一并去掉（那两行是它在这个文件仅有的用处）；契约文档 `frontend/gamebar/HANDOFF.txt` 第 67 行同步改写。启动器自己设置页的「开机自启」（Rust `set_autostart` + 托盘开关）不受影响。
+- 启动器设置页里装小组件那行改叫「**安装前端**」（英文 `Install frontend`），提示改成「前端界面就是 Game Bar 小组件；随启动器自动装，点这里重装一次」，预览提示里的「小组件」也改成「前端」—— 原来的「装 Game Bar 小组件」用户看不出是装什么。名字和工具箱那张「前端（独立程序）」卡片（装的是托盘常驻的后台 exe）有重叠，按用户要求就这么叫。
+- 本机验证：`python3 frontend/gamebar/check-static.py` PASS（XAML 里 6 条事件处理器的名字都能在 `.cs` 里找到 —— 删掉 `StartupClick` 后没有悬空事件）；`npm run build` 通过。**C# / XAML 的真编只能靠 CI 的 `gamebar.yml`（本机 macOS 编不了），且这一版还没发。**
+
 ## 0.1.57 这一版（一）：装了 0.1.56 之后提的第一轮真机反馈（4 条）
 
 本机全改完了（`npm run build` / `cargo clippy --workspace --all-targets` / `cargo test -p handheld-launcher --lib` 30 项全过），**Windows 上 CI 已真编过（见下面「状态」），但真机一次都没装** —— 0.1.56 就是「CI 全绿、装到掌机上才发现问题」，要装 0.1.57 的包复测。
@@ -48,9 +56,9 @@
 - **仍未验证**：包没签名（`AppxPackageSigningEnabled=false`，产物是 `_Test` 侧载目录）、没装过、没在真机跑过；Game Bar 里能否显示小组件、同包 AppService 能否通到 Bridge、以及 Rust↔C# 联调全部未做。另有 MSB3245 警告说 `System.Runtime.WindowsRuntime` 没被旧式解析器找到（csc 用了 NuGet 的 ref 副本，编译过；该程序集没进包，运行期是否够用未知）。
 - 新增 `.github/workflows/gamebar.yml`（钉 `windows-2022`：工程要 SDK 10.0.22621.0，`windows-latest` 只有 26100）：静态检查是硬闸门；Debug 真编在 `65728b6` 首次全绿（`check-static.py` + 0 error 的 msix），**2026-10-03 已转硬闸门**（删掉 `continue-on-error`，见下面那条代价昂贵的教训）。
 - **`continue-on-error` 的代价（2026-10-03，本轮）**：第三轮界面改动给 `Grid` 写了 `IsEnabled="False"`（`Grid` 是 `Panel`，UWP 的 `IsEnabled` 在 `Control` 上，只有 WPF 放在 `UIElement`），CI 报 `XamlCompiler WMC0011: Unknown member 'IsEnabled' on element 'Grid'`；可这一步带着 `continue-on-error`，作业照样报 **success**，于是 `Build Windows` 打出来的启动器包**整块少了小组件** —— 体积从 30.22 MB 掉到 7.8 MB，release 里也只有一条成功记录。**症状与根因**：安装包体积是「payload 有没有带上」的可靠信号（差 ~22 MB 就是 msix + 三个框架依赖）；`gamebar-payload` 作业上传的 artifact 大小同样能一眼看出来（正常十几 MB，空转时只有 885 字节）。**教训写进 workflow 注释**：带 `continue-on-error` 的构建步骤，绿颜色什么都说明不了；判断小组件到底编没编，得在日志里找 `Build succeeded` / `error WMC|CS|XLS`，或者看安装包体积。已改为硬闸门，并且 `SetPresetsEnabled` 改成逐个按钮设 `IsEnabled`（容器只负责变暗）。
-- **尚未闭环**：Bridge 白名单没有 `set_autostart`，小组件的「自启」只存本地意图并提示手动关，不能称迁移完成；旧界面代码（`overlay/chord/shot/topmost/library/games`、`src/frontend/*`、`frontend.html`）已接不上但全部保留，等真机验证后单独一次提交清理。
+- **尚未闭环**：~~Bridge 白名单没有 `set_autostart`，小组件的「自启」只存本地意图并提示手动关，不能称迁移完成~~ —— 2026-10-04 按用户要求把小组件那行自启**整行删掉**了（见开头「未发布（下一版）」一节），白名单里始终没有 `set_autostart` 也就不再有出口；旧界面代码（`overlay/chord/shot/topmost/library/games`、`src/frontend/*`、`frontend.html`）已接不上但全部保留，等真机验证后单独一次提交清理。
 - 版本号多了第 6 处：`frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段，如本版的 `0.1.56.0`），不在原五处联动里，发版必须手动跟上。
-- **小组件改成「随启动器一起装」（本轮新做，未验证）**：CI 现打一张自签证书给 msix 签名，把「msix + 证书 + 三个框架依赖」摆进 `src-tauri/payload/gamebar/`，由启动器安装包带上；装的时候 NSIS 钩子跑一行等价命令、启动器每次启动再幂等补一次（`src-tauri/gamebar/register-widget.ps1`），设置页也加了「装 Game Bar 小组件」。证书只进当前用户「受信任人」，所以目标机**不需要管理员、也不需要开发者模式**。没在真机验证：普通机器能否装上、Game Bar 重启后能否立刻看到、CI 的 `signtool verify /pa` 是否稳定。
+- **小组件改成「随启动器一起装」（本轮新做，未验证）**：CI 现打一张自签证书给 msix 签名，把「msix + 证书 + 三个框架依赖」摆进 `src-tauri/payload/gamebar/`，由启动器安装包带上；装的时候 NSIS 钩子跑一行等价命令、启动器每次启动再幂等补一次（`src-tauri/gamebar/register-widget.ps1`），设置页也加了「装 Game Bar 小组件」（2026-10-04 改名「安装前端」，见开头「未发布（下一版）」一节）。证书只进当前用户「受信任人」，所以目标机**不需要管理员、也不需要开发者模式**。没在真机验证：普通机器能否装上、Game Bar 重启后能否立刻看到、CI 的 `signtool verify /pa` 是否稳定。
 - **真机第一轮（2026-10-03，x64 掌机，安装包 28.28 MiB）：证书这条路是通的，栽在依赖架构上**。启动器装上了，小组件没出现在 Win+G；`%APPDATA%\handheld-launcher\widget-last-error.txt` 给出根因：随包的 `Microsoft.NET.CoreRuntime.2.2` 与 `Microsoft.NET.CoreFramework.Debug.2.2` 是 **ARM 版**，`Add-AppxPackage` 报 `0x80073D10 此程序包需要体系结构 ARM，但此计算机是 x64`，紧接着小组件报 `0x80073CF3 找不到框架`。原因：MSBuild 的 `Dependencies\` 下 x64/ARM/ARM64 三份**同名**共存，而这两个包的文件名里不带架构，`package-payload.ps1` 按名字取第一个命中了 ARM（`Microsoft.VCLibs.x64.Debug.14.00.appx` 的名字自带 x64，所以只有它一直是对的 —— 这正好解释了为什么只有那两个包报错）。已改成读每个候选包内 `AppxManifest.xml` 的 `Identity/ProcessorArchitecture`，只收 x64/neutral，找不到 x64 就带着候选架构列表报错，另外每带一个依赖打一行 `arch=`、并把小组件清单声明的依赖一并打出来；`register-widget.ps1` 装依赖前也先比架构，不一致直接点名是 payload 带错了。**同一轮确认**：`Import-Certificate` 进当前用户「受信任人」成功、AppxDeployment 正常处理我们签的包，所以「不需要开发者模式、不需要管理员」这个前提成立；仍未验证的是 Game Bar 重启后是否立刻枚举到、以及 Debug 框架包会不会和目标机已装版本打架。
 
 - 小组件 payload 由 `build-windows.yml` 新增的 `gamebar-payload` 作业（`windows-2022`）产出、以 artifact 交给主作业；主作业带 `if: always()`，**小组件编挂了照样发版**（资源路径上有 0 字节占位兜底，那个安装包只是不带小组件）。`gamebar.yml` 同样传一份 artifact，方便单独下载验证。

@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Gaming.XboxGameBar;
 using Windows.Data.Json;
-using Windows.Storage;
 using Windows.System;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
@@ -103,11 +102,8 @@ namespace FantasyHub.GameBar
             DriverHelpText.Text = text.DriverHelp;
             FanButton.Content = text.Pick("风扇控制 · 暂未开放", "Fan control · Coming later");
             QuitButton.Content = text.Quit;
-            StartupButton.Content = text.Startup;
             HelpText.Text = text.Help;
             TdpSlider.Header = text.Pick("调整功耗（瓦）", "Adjust power (watts)");
-            StartupText.Text = ApplicationData.Current.LocalSettings.Values.ContainsKey("disableAutostartRequested")
-                ? text.StartupHint : text.Pick("仅记录意图；实际自启开关请在启动器设置中关闭。", "Intent only; change actual autostart in launcher settings.");
             if (queryError != null) RenderQueryError();
             else if (status != null) RenderStatus(false);
         }
@@ -466,14 +462,6 @@ namespace FantasyHub.GameBar
                     if (status != null) RenderStatus(false);
                 }
             }
-        }
-
-        private void StartupClick(object sender, RoutedEventArgs e)
-        {
-            if (closing) return;
-            Play("click");
-            ApplicationData.Current.LocalSettings.Values["disableAutostartRequested"] = true;
-            StartupText.Text = text.StartupHint;
         }
 
         private async void CloseClick(object sender, RoutedEventArgs e) { await CloseAsync(); }

@@ -222,7 +222,9 @@
     <TextBlock x:Name="DriverHelpText" FontSize="13" Foreground="{StaticResource FhMuted}"
       TextWrapping="Wrap" />
 
-    <!-- 设置行：风扇（暂不可用）、运行中的游戏 + 退出、自启意图 -->
+    <!-- 设置行：风扇（暂不可用）、运行中的游戏 + 退出。
+         原来这里还有一行「请求禁用启动器自启」：它只往 UWP 本地设置记一个意图，
+         真正的计划任务谁也改不了，用户说没用 —— 2026-10-04 整行删掉（含 Strings 文案）。 -->
     <Button x:Name="FanButton" IsEnabled="False" Style="{StaticResource FhRowButton}" />
     <Border Style="{StaticResource FhCardStyle}">
      <StackPanel Spacing="10">
@@ -230,13 +232,6 @@
       <ComboBox x:Name="GamesBox" HorizontalAlignment="Stretch" CornerRadius="10" MinHeight="44" />
       <Button x:Name="QuitButton" Click="QuitClick" IsEnabled="False" Style="{StaticResource FhRowButton}"
         Foreground="{StaticResource FhDanger}" />
-     </StackPanel>
-    </Border>
-    <Border Style="{StaticResource FhCardStyle}">
-     <StackPanel Spacing="10">
-      <Button x:Name="StartupButton" Click="StartupClick" Style="{StaticResource FhRowButton}" />
-      <TextBlock x:Name="StartupText" FontSize="13" Foreground="{StaticResource FhMuted}"
-        TextWrapping="Wrap" />
      </StackPanel>
     </Border>
    </StackPanel>
