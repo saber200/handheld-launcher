@@ -48,8 +48,10 @@
     "allow-set-tdp",
     "allow-toolbox-runtimes",
     "allow-toolbox-install-runtime",
-    "allow-toolbox-optiscaler-installed",
+    "allow-toolbox-optiscaler-status",
     "allow-toolbox-install-optiscaler",
+    "allow-toolbox-uninstall-optiscaler",
+    "allow-toolbox-cancel-mod",
     "allow-toolbox-tdp-driver-status",
     "allow-toolbox-install-tdp-driver",
     "allow-file-places",
@@ -69,6 +71,8 @@
     "allow-file-dir-sizes",
     "allow-file-search",
     "allow-file-transfer",
-    "allow-file-cancel"
+    "allow-file-cancel",
+    "allow-file-extract",
+    "allow-files-show-keyboard"
   ]
 }

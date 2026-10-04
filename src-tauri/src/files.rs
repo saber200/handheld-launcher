@@ -301,38 +301,42 @@ pub async fn file_extract(archive: String) -> Result<ExtractOutcome, FileError> 
 /// 掌机上用虚拟键盘敲路径 / 文件名太慢，直接把系统那把叫出来。先试 `TabTip.exe`
 /// （Windows 8+ 的触摸键盘，有输入法联想），它不在再退到 `osk.exe`（老式屏幕键盘，
 /// 任何 Windows 都有）；两个都起不来就如实报错，不要静默什么也没发生。
+///
+/// 走 `worker`（不是同步命令）：里面要 stat 两个候选路径，按 0.1.44 的教训，
+/// 任何碰盘的事都别占主线程 —— 那会连累所有窗口的消息循环。
 #[tauri::command]
-pub fn files_show_keyboard() -> Result<(), FileError> {
-    #[cfg(windows)]
-    {
-        for candidate in [
-            r"C:\Program Files\Common Files\microsoft shared\ink\TabTip.exe",
-            r"C:\Program Files (x86)\Common Files\microsoft shared\ink\TabTip.exe",
-        ] {
-            if Path::new(candidate).is_file()
-                && std::process::Command::new(candidate).spawn().is_ok()
-            {
-                return Ok(());
-            }
-        }
-        if std::process::Command::new("osk.exe").spawn().is_ok() {
+pub async fn files_show_keyboard() -> Result<(), FileError> {
+    worker(show_keyboard_now).await
+}
+
+#[cfg(windows)]
+fn show_keyboard_now() -> Result<(), FileError> {
+    for candidate in [
+        r"C:\Program Files\Common Files\microsoft shared\ink\TabTip.exe",
+        r"C:\Program Files (x86)\Common Files\microsoft shared\ink\TabTip.exe",
+    ] {
+        if Path::new(candidate).is_file() && std::process::Command::new(candidate).spawn().is_ok() {
             return Ok(());
         }
-        return Err(FileError::new(
-            "other",
-            pick(
-                "没能打开触摸键盘：可以在「设置 → 时间和语言 → 输入」里打开触摸键盘",
-                "Couldn't open the touch keyboard; turn it on in Settings → Time & language → Typing.",
-            ),
-        ));
     }
-    #[cfg(not(windows))]
-    {
-        Err(FileError::rule(pick(
-            "触摸键盘只在 Windows 上有",
-            "The touch keyboard only exists on Windows.",
-        )))
+    if std::process::Command::new("osk.exe").spawn().is_ok() {
+        return Ok(());
     }
+    Err(FileError::new(
+        "other",
+        pick(
+            "没能打开触摸键盘：可以在「设置 → 时间和语言 → 输入」里打开触摸键盘",
+            "Couldn't open the touch keyboard; turn it on in Settings → Time & language → Typing.",
+        ),
+    ))
+}
+
+#[cfg(not(windows))]
+fn show_keyboard_now() -> Result<(), FileError> {
+    Err(FileError::rule(pick(
+        "触摸键盘只在 Windows 上有",
+        "The touch keyboard only exists on Windows.",
+    )))
 }
 
 fn extract_archive(archive: String) -> Result<ExtractOutcome, FileError> {

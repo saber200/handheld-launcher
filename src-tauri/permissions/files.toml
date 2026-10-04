@@ -87,3 +87,13 @@ commands.allow = ["file_transfer"]
 identifier = "allow-file-cancel"
 description = "Cancel a running copy, move or search."
 commands.allow = ["file_cancel"]
+
+[[permission]]
+identifier = "allow-file-extract"
+description = "Extract a zip or 7z archive next to itself."
+commands.allow = ["file_extract"]
+
+[[permission]]
+identifier = "allow-files-show-keyboard"
+description = "Open the Windows touch keyboard."
+commands.allow = ["files_show_keyboard"]

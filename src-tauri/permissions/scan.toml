@@ -124,14 +124,24 @@ description = "Download and install a redistributable from the toolbox."
 commands.allow = ["toolbox_install_runtime"]
 
 [[permission]]
-identifier = "allow-toolbox-optiscaler-installed"
-description = "Check whether OptiScaler is already installed for a game."
-commands.allow = ["toolbox_optiscaler_installed"]
+identifier = "allow-toolbox-optiscaler-status"
+description = "Check where OptiScaler would go and whether it is installed (folder, hook, conflicts)."
+commands.allow = ["toolbox_optiscaler_status"]
 
 [[permission]]
 identifier = "allow-toolbox-install-optiscaler"
 description = "Download and install OptiScaler into a game folder."
 commands.allow = ["toolbox_install_optiscaler"]
+
+[[permission]]
+identifier = "allow-toolbox-uninstall-optiscaler"
+description = "Remove OptiScaler and restore the files it overwrote."
+commands.allow = ["toolbox_uninstall_optiscaler"]
+
+[[permission]]
+identifier = "allow-toolbox-cancel-mod"
+description = "Cancel the OptiScaler download in progress."
+commands.allow = ["toolbox_cancel_mod"]
 
 [[permission]]
 identifier = "allow-toolbox-tdp-driver-status"
