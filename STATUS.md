@@ -11,6 +11,8 @@
 
 把「能用」做到「手柄上真的好用」。后端 `files.rs` 从 11 个命令扩到 17 个，文件页整体重做。
 
+- **状态：已随 `v0.1.56` 发布（2026-10-04）** —— Windows CI 的 Lint（clippy + 测试）与打包全绿，两个安装包已挂在 Releases。**但一次真机都没跑过**，下面写的都是本机与 CI 能证明的部分。
+
 - **传输引擎（这批最要紧）**：`file_transfer` 分块复制（1 MiB）+ 每 100 ms 进度事件 + 随时可取消，命令**立刻返回**、活儿在独立线程 —— 原来的 `file_copy` / `file_move` 要等整个复制完才回话，拷一个 20 GB 游戏时前端连取消键都按不动（和 0.1.44 修过的是同一类卡死）。同名三选一（覆盖 / 跳过 / 保留两者，默认保留两者）；跨盘移动才退化成「先整份复制成功，再删源」；写目标先落 `.fantasyhub-part` 再改名，取消 / 断电不会留下顶着正式名字的半成品。
 - **失败给原因**：新增 `FileError { reason, message }`，`reason` 是机器码（`denied` / `busy` / `space` / `toolong` / `missing` / `exists` / `name` / `rule` / `cancelled`），前端据此给「先关掉占用它的程序」「以管理员身份重开 FantasyHub」这类**具体**建议，而不是笼统一句失败。
 - **新增命令**：`file_rename`（只改名不搬家）、`file_rename_many`（先全改临时名再落地 —— `1.txt` 和 `2.txt` 对调这种互相占位的换名才做得成；发现冲突整体拒绝，不做一半）、`file_properties`（大小 / 时间 / 只读 / **真的能不能写** / 系统目录提示）、`file_search`（可取消，深度 6 层、300 条、15 秒封顶）、`file_cancel`。
@@ -25,6 +27,8 @@
 - 顺手补一个契约缺口：`status` 响应缺 `locale`，小组件因此读不到语言（`set_locale` 只影响当次会话），已补。
 - 本机验证：工作区 Clippy 退出 0；`python3 frontend/gamebar/check-static.py` PASS（XML/PNG/WAV/XAML handler/工程输入/NuGet 版本）。
 - **CI 真编已过关（2026-10-03，`windows-2022`）**：Bridge 与 Widget 的 C# + XAML 都 `Build succeeded`，产出 `FantasyHub.GameBar.Widget_0.1.55.0_x64_Debug.msix`（31 个条目 / 10.6 MB）：`Bridge/FantasyHub.GameBar.Bridge.exe` + `.exe.config` 落在 `Bridge\`，`Assets\*.png`(4)、`Assets\Sounds\*.wav`(9)、`GameBar\index.txt`、`Properties\Default.rd.xml` 各一份且无重复。这一次真编暴露并修掉了一个只有 Windows 才能看见的打包错误（首次运行 `63414f7` 报 15 个 `APPX1111`：csproj 在 target 里对 `Content` 写了未限定的 `%(...)`，详见 `frontend/gamebar/Widget/FantasyHub.GameBar.Widget.csproj` 的注释），修完 `65728b6` 转绿 0 error。**本版（0.1.56）清单已改成 `0.1.56.0`，下次构建产出的包名随之变成 `FantasyHub.GameBar.Widget_0.1.56.0_x64_Debug.msix`。**
+
+- **发布结果（2026-10-04，标签 `v0.1.56`）**：`gamebar-payload` 与 `windows` 两个作业都 success，Release 里两个安装包齐了 —— `FantasyHub_0.1.56_x64-setup.exe` **30.27 MB**（这个体积本身就是「小组件 payload 带上了」的判据：漏了会掉到约 7.8 MB，见上面 `continue-on-error` 那条教训）、`FantasyHubFrontend_0.1.56_x64-setup.exe` 3.19 MB。**装到掌机上这一步还没做。**
 - **仍未验证**：包没签名（`AppxPackageSigningEnabled=false`，产物是 `_Test` 侧载目录）、没装过、没在真机跑过；Game Bar 里能否显示小组件、同包 AppService 能否通到 Bridge、以及 Rust↔C# 联调全部未做。另有 MSB3245 警告说 `System.Runtime.WindowsRuntime` 没被旧式解析器找到（csc 用了 NuGet 的 ref 副本，编译过；该程序集没进包，运行期是否够用未知）。
 - 新增 `.github/workflows/gamebar.yml`（钉 `windows-2022`：工程要 SDK 10.0.22621.0，`windows-latest` 只有 26100）：静态检查是硬闸门；Debug 真编在 `65728b6` 首次全绿（`check-static.py` + 0 error 的 msix），**2026-10-03 已转硬闸门**（删掉 `continue-on-error`，见下面那条代价昂贵的教训）。
 - **`continue-on-error` 的代价（2026-10-03，本轮）**：第三轮界面改动给 `Grid` 写了 `IsEnabled="False"`（`Grid` 是 `Panel`，UWP 的 `IsEnabled` 在 `Control` 上，只有 WPF 放在 `UIElement`），CI 报 `XamlCompiler WMC0011: Unknown member 'IsEnabled' on element 'Grid'`；可这一步带着 `continue-on-error`，作业照样报 **success**，于是 `Build Windows` 打出来的启动器包**整块少了小组件** —— 体积从 30.22 MB 掉到 7.8 MB，release 里也只有一条成功记录。**症状与根因**：安装包体积是「payload 有没有带上」的可靠信号（差 ~22 MB 就是 msix + 三个框架依赖）；`gamebar-payload` 作业上传的 artifact 大小同样能一眼看出来（正常十几 MB，空转时只有 885 字节）。**教训写进 workflow 注释**：带 `continue-on-error` 的构建步骤，绿颜色什么都说明不了；判断小组件到底编没编，得在日志里找 `Build succeeded` / `error WMC|CS|XLS`，或者看安装包体积。已改为硬闸门，并且 `SetPresetsEnabled` 改成逐个按钮设 `IsEnabled`（容器只负责变暗）。
@@ -264,7 +268,7 @@
 
 ## 近期改动备忘
 
-- 0.1.56：**文件管理器按 `FUTURE.md` 功能 12 三批全做** —— 传输引擎（进度 + 取消 + 同名策略 + 失败原因分类）、改名 / 批量改名 / 属性 / 搜索、双栏与选择模式。细节与「验证到哪一步 / 没验证什么」见开头那一节。同版还第一次把 Game Bar 小组件后台打进安装包（见「0.1.56 这一版（二）」）。
+- 0.1.56：**文件管理器按 `FUTURE.md` 功能 12 三批全做** —— 传输引擎（进度 + 取消 + 同名策略 + 失败原因分类）、改名 / 批量改名 / 属性 / 搜索、双栏与选择模式。细节与「验证到哪一步 / 没验证什么」见开头那一节。同版还第一次把 Game Bar 小组件后台打进安装包（见「0.1.56 这一版（二）」）。**已发布**：`v0.1.56`，启动器包 30.27 MB / 前端包 3.19 MB，等真机装包。
 
 - 0.1.53：**「FSE 里前端不是被杀，是没被启动」+「前端其实活着，是浮层上不去」—— 两条结论都是你的真机观察给的**。你补的现场是：「桌面模式能正常唤出；全屏模式（FSE）唤不出，**哪怕先在桌面模式把它启动了**再回全屏也一样；切回桌面模式又好了」。前半句的解释在日志里现成：启动器是 **Win11「Xbox 模式（全屏体验）」的主页应用**（`fse register: 已登记。请打开 Windows 设置 → 游戏 → Xbox 模式(全屏体验)…`），而那个会话里**没有桌面 shell（explorer）**；前端的开机自启用的是 **HKCU Run 键**，Run 键正是由 explorer 在登录时处理的 —— 于是 FSE 里它根本不会被执行（OneXConsole 那类厂商程序用**服务/计划任务**，任务计划程序拉起、不依赖 explorer，这就是它「死不了」的真正原因）。后半句更有价值：进程若已死，切回桌面不可能自己恢复 —— 所以是**浮层上不去**；日志里 10-01 那次测试演得清清楚楚：`frontend show end … is_visible=true` 紧跟 `frontend hide end … is_visible=false`（第二次按键把它**关掉**了，人什么都没看见）。四条改动：**一、自启改计划任务**（新模块 `crates/fh-core/src/autostart.rs`，用 Windows 自带的 `schtasks /create /xml`：登录后延迟 10 秒、**普通权限**运行 `--autostart`、`IgnoreNew`、`ExecutionTimeLimit=PT0S`（**永不超时结束** —— 托盘常驻程序缺这条会被任务计划程序三天后杀掉）、`RestartOnFailure` 1 分钟×2 次 —— 于是「崩溃/被杀会被拉回、托盘退出（exit code 0）不重启」，保命与尊重用户意图用同一套机制拿到；启动器启动时建任务（不存在才建）、补启动改成 `schtasks /run`（**不再继承启动器的管理员权限**）、这一轮登录里用户主动退过就不补启动（`frontend-stopped` 标记，下次登录由任务清掉）；托盘「开机自启」勾选框改为驱动任务并清掉老的 Run 值）；**二、浮层判据从「系统说可见」改成「真的没被压住」**（`overlay.rs::toggle` 用 `visible && topmost::on_top`，可见但被压住 → **再顶一次、绝不 hide**）；**三、大屏模式壳体常态让位**（`overlay_watch::set_big_screen`，由 `startup.rs` 的进/出大屏模式与 `lib.rs` 启动处调用：大屏里壳体根本不进置顶层、回桌面按原样还回；前端侧加 `topmost::hard_raise`（抢前台+再顶）与上屏后 8×350ms 的短看护 `keep_on_top`）；**四、托盘不再是致命依赖**（`tray::install(...)?` → 失败只记一行继续跑；FSE/无 shell 的会话里 `Shell_NotifyIcon` 可能建不起来，而浮层、手柄、热键都不依赖它）。验证：本机 `cargo clippy --workspace --all-targets` 零错误、未新增警告；Windows 侧 `cargo check -p fantasyhub-frontend --target x86_64-pc-windows-msvc` 编过整套前端（含 `fh_core::autostart` 的 schtasks 实现），启动器侧新代码搬进 `/tmp/win-probe5`（补 `Win32_UI_WindowsAndMessaging`）交叉编译通过 —— 启动器整包仍受 `ring` 的 C 代码限制（见 0.1.47）
 
