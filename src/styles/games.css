@@ -97,6 +97,26 @@
     );
 }
 
+/* hero 底边再垫一层 bg-deep → 透明的渐变，把那条硬边化开。
+   为什么需要：压暗渐变的最后一档是**不透明**的 bg-deep，等于把 hero 的底边钉死成 #0a101b；
+   而背后是页面自己的背景（global.css 的 160deg 全局渐变），只有在 1280×720 画布上那一带
+   才刚好也是 #0a101b。窗口比 720dp 高的时候（实测用户 1493×1225，--dp=1.166）页面背景
+   在那里是 #121a2c，hero 底边就成了一条 1px 的硬边（用户 2026-10-04 截图：「整个边没过渡」，
+   实测那一行 RGB 从 (10,16,27) 跳到 (18,28,45)）。
+   为什么不用 mask 罩 hero：mask 会把卡条下面那截背景也一起淡掉；这里只补底边这一条，
+   画布尺寸下这层和页面背景同色，等于看不见。z-index 0 + 放在 ::after：盖住 hero、
+   但在 .k1-head / .k1-strip-wrap / .k1-foot（z-index 1）下面。 */
+.k1-page::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(436 * var(--dp));
+  height: calc(48 * var(--dp));
+  background: linear-gradient(180deg, var(--bg-deep), transparent);
+  pointer-events: none;
+}
+
 
 /* ── 标题行：标题在左、工具栏在右，分组 chip 行在下面 ── */
 .k1-head {
@@ -398,13 +418,17 @@
 }
 
 /* ── 信息面板 + 操作区（画板 y=482 起，面板 430×138，操作区从 x=712 起） ── */
-/* 卡片条盒底 = 158+108+12+190+12 = 480，面板要落在 482，所以这里补 2。 */
+/* 卡片条盒底 = 158+108+12+190+12 = 480，画板的面板落在 482（补 2dp）。这里改成 494：
+   用户 2026-10-04 反馈「没有距离」—— 聚焦卡的焦点环画在盒子外面（4dp 外扩 + 3dp 描边 = 7dp），
+   环的底边落在 475，离画板的 482 只剩 7dp，看着像卡片条和面板贴在一起。往下让 12dp 之后
+   环下面是 19dp，才算有间隔。顶到 720dp 窗口的下限：面板高 168dp，494 + 168 = 662，
+   提示条从 672 起，还剩 10dp。 */
 .k1-foot {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: flex-start;
-  margin-top: calc(2 * var(--dp));
+  margin-top: calc(12 * var(--dp));
   padding: 0 var(--safe);
 }
 

@@ -275,9 +275,24 @@ const run = async (width, height) => {
     note(g.hero.bottom >= g.strip.bottom - 0.5, `hero 盖住卡片条盒底（hero 底 ${g.hero.bottom} ≥ 卡条盒底 ${g.strip.bottom}）`);
     note(Math.abs(g.card.y - 278 * dp) < 2, `聚焦卡顶边落在画板值 278dp=${278 * dp}（实测 ${g.card.y}）`);
     note(Math.abs(g.card.w - 158 * dp) < 2 && Math.abs(g.card.h - 190 * dp) < 2, `聚焦卡 158×190dp（实测 ${g.card.w}×${g.card.h}）`);
-    note(Math.abs(g.panel.y - 482 * dp) < 3, `信息面板顶边 482dp=${482 * dp}（实测 ${g.panel.y}）`);
+    note(Math.abs(g.panel.y - 494 * dp) < 3, `信息面板顶边 494dp=${494 * dp}（实测 ${g.panel.y}）`);
     note(Math.abs(g.chip.y - 174 * dp) < 3, `分组 chip 顶边 174dp=${174 * dp}（实测 ${g.chip.y}）`);
     note(Math.abs(g.navFirst.y - 166 * dp) < 3, `侧栏首行 166dp=${166 * dp}（实测 ${g.navFirst.y}）`);
+
+    // 侧栏相邻两行之间必须容得下焦点环（4dp 外扩 + 3dp 描边 = 7dp）：否则当前页那一行和
+    // 焦点停的那一行同时高亮时会连成一坨、环还会压到下一行背景上（用户 2026-10-04 截图）
+    const rail = await page.eval(`
+      const rows = [...document.querySelectorAll('.rail-items .nav-item')];
+      const cur = rows.findIndex((r) => r.classList.contains('is-current'));
+      if (cur < 0 || !rows[cur + 1]) return null;
+      const a = rows[cur].getBoundingClientRect();
+      const b = rows[cur + 1].getBoundingClientRect();
+      return { gap: +(b.top - a.bottom).toFixed(2), rowH: +a.height.toFixed(2) };
+    `);
+    note(
+      rail !== null && rail.gap >= 7 * dp,
+      `侧栏行间距容得下焦点环（间距 ${rail ? rail.gap : "-"} ≥ 环 ${(7 * dp).toFixed(2)}）`,
+    );
 
     // 聚焦项居中：前几张卡因为条的内容从那儿起、滚不过去，所以往右挪 5 张再看
     for (let i = 0; i < 5; i++) await arrow(page, "ArrowRight");

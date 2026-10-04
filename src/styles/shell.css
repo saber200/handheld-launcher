@@ -160,7 +160,9 @@
 .rail-items {
   display: flex;
   flex-direction: column;
-  gap: calc(2 * var(--dp));
+  /* 行间距要容得下焦点环：4dp 外扩 + 3dp 描边 = 7dp，留 1dp 余量（见 tokens.css 的
+     --h-rail-row，行高从 40 让到 34 就是给这 8dp 让的位）。 */
+  gap: calc(8 * var(--dp));
   overflow-y: auto;
   min-height: 0;
   /* 焦点环画在行的盒子外面（4dp 间隔 + 3dp 环 = 7dp），而 overflow 容器按内边距盒裁切 ——
