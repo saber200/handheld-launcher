@@ -1,0 +1,793 @@
+/*
+ * 文件页（画板 K7）：面包屑行 + 左「位置」栏 + 右文件表 + 底部操作条。
+ *
+ * 为什么单开一个文件：global.css 里那套 `.file-*`（14px 圆角行、36px 图标块、胶囊 chip）从 M3 起
+ * 只剩「选择程序」对话框（FilePicker）在用 —— 这一页换成 K7 的形状（30dp 面包屑 chip、39dp 行盒、
+ * 表头三列），跟旧写法差得远，所以新页面单独一份，旧选择器一个都不动。
+ * 写法与 games.css / apps.css 一致：几何一律 `calc(N * var(--dp))`，数字取自改造包 §7 / §2.2
+ * 与画板 K7 的实测（每条都写了实测值，方便以后核对）。
+ */
+
+/* ── 页面骨架（画板实测：面包屑行 52..83.5，位置栏与表头同起于 98，底部操作条 610..656） ── */
+.k7-page {
+  position: relative;
+  /* 和 K1/K2 同样的理由：`.page` 是 flex column，横向滚动内容的 min-content 会顶宽内容区 */
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* ── 头部：面包屑在左，工具在右，一行 30dp ── */
+/* 上内边距 8dp（顶栏 44 + 8 = 52，画板 chip 顶边实测 53 —— 差的 1dp 是 1px 描边） */
+.k7-head {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  height: calc(38 * var(--dp)); /* 8 上内边距 + 30 行高 */
+  padding: calc(8 * var(--dp)) var(--safe) 0;
+}
+
+/* 面包屑：24dp 安全边起（画板实测第一片 chip 左缘 260）。
+   `overflow: hidden` 是为了路径太深时截断 —— 但焦点环（4 外扩 + 3 描边 = 7dp）会被内边距盒裁掉，
+   所以补一圈 7dp 内边距再用负外边距收回去（和 .k2-grid / .rail-items 一个套路，探针盯着这条）。 */
+.k7-crumbs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+  padding: calc(7 * var(--dp));
+  margin: calc(-7 * var(--dp));
+}
+
+/* chip 30dp 圆角 8（画板实测 53..83.5）。片间距 20dp —— 这 20dp 里放的是「›」分隔符，
+   分隔符自己有 20dp 宽，所以左右各留 10dp（画板实测片间空档 20dp、分隔符宽 5dp） */
+.k7-crumb {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: calc(30 * var(--dp));
+  max-width: calc(220 * var(--dp));
+  padding: 0 calc(12 * var(--dp));
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: var(--font-body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 一片面包屑 = 「›分隔符 + chip」，片与片之间空 20dp（画板实测 20dp，分隔符居中） */
+.k7-crumbs-item {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.k7-crumbs-item + .k7-crumbs-item {
+  margin-left: calc(10 * var(--dp));
+}
+
+.k7-crumb-sep {
+  flex: none;
+  margin-right: calc(10 * var(--dp));
+  color: var(--ink-4);
+  font-size: var(--font-body);
+  line-height: 1;
+}
+
+/* 当前目录：accent 描边 + panel-2 底（画板实测当前片底 #202b42、描边 #3dd6c6），字色转 ink */
+.k7-crumb.is-here {
+  border: calc(2 * var(--dp)) solid var(--accent);
+  padding: 0 calc(11 * var(--dp)); /* 描边多吃 1dp，内边距补回来，文字位置不动 */
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
+.k7-crumb-sep {
+  flex: none;
+  width: calc(20 * var(--dp));
+  display: grid;
+  place-items: center;
+  color: var(--ink-4);
+  font-size: var(--font-body);
+  line-height: 1;
+}
+
+.k7-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--dp));
+}
+
+/* 30dp 高的小控件（列表 / 网格 / 双栏 / 显示隐藏 / 软键盘 / 返回上级都用它）。
+   画板这一行只有「搜索 + 排序」两颗大按钮，多出来的这几颗是**既有能力**不能丢
+   （视图切换、隐藏文件、软键盘、返回上级），收成同样 30dp 的小按钮排在搜索左边。 */
+.k7-tool {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--stack);
+  height: calc(30 * var(--dp));
+  min-width: calc(30 * var(--dp));
+  padding: 0 calc(8 * var(--dp));
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k7-tool .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
+}
+
+.k7-tool.is-current {
+  border-color: transparent;
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+.k7-tool:disabled {
+  opacity: 0.4;
+}
+
+/* 搜索 104×30 / 排序 96×30（画板实测 1046..1150 / 1160..1256，排序贴右侧安全边） */
+.k7-search,
+.k7-sort {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--stack);
+  height: calc(30 * var(--dp));
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--font-body);
+}
+
+.k7-search {
+  width: calc(104 * var(--dp));
+}
+
+.k7-sort {
+  width: calc(96 * var(--dp));
+  border-color: var(--line-strong);
+}
+
+.k7-search:disabled,
+.k7-sort:disabled {
+  opacity: 0.4;
+}
+
+.k7-search .icon,
+.k7-sort .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
+}
+
+.k7-tool:focus,
+.k7-search:focus,
+.k7-sort:focus,
+.k7-crumb:focus,
+.k7-sort-key:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+.k7-crumb.is-here:focus {
+  border-color: var(--accent);
+}
+
+/* 排序展开行：点「排序」才出现（画板只画了一颗按钮，四个排序键 + 升降序得有地方去）。
+   形状跟分组 chip 行同一套语言：高 30、圆角 10。 */
+.k7-sort-row {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--stack);
+  padding: var(--stack) var(--safe) 0;
+}
+
+.k7-sort-key {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(4 * var(--dp));
+  height: calc(30 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: var(--font-body);
+}
+
+.k7-sort-key.is-current {
+  border-color: transparent;
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+
+/* ── 主体：左 200 位置栏 + 右文件列（表头 / 列表 / 底部操作条） ── */
+/* 上边距 16dp：面包屑行盒底 82 + 16 = 98（画板实测位置栏顶边、表头文字区同起于 98）。
+   位置栏与文件列等高（默认 stretch）—— 画板里位置栏一直垂到 652，比操作条（610..656）还低。 */
+.k7-body {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--gutter);
+  margin-top: calc(16 * var(--dp));
+  padding: 0 var(--safe) calc(var(--safe) * 0.75);
+}
+
+/* 位置栏：画板实测 260..460（宽 200）、98..652；内边距上下 16、左右 8
+   （选中行底色实测 268..450.5 = 面板内边距盒）。 */
+.k7-places {
+  flex: none;
+  width: calc(200 * var(--dp));
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--pad-card) calc(8 * var(--dp));
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.k7-places-title {
+  flex: none;
+  margin: 0;
+  padding: 0 calc(8 * var(--dp));
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--ink-4);
+}
+
+.k7-places-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 行盒 25 + 间距 7 = 步进 32（画板实测每行步进 32）。为什么不是「高 32 步进 32」：
+     焦点环要 4 外扩 + 3 描边 = 7dp，行挨行地放会环压环 —— 和侧栏行（见 tokens.css 里
+     --h-rail-row 的说明）同一个坑，从行高里让出这 7dp，步进保持住。
+     那一圈 7dp 内边距 + 负外边距是给焦点环的：行盒的左右位置一个像素不动（还是 268..452），
+     环却装得进滚动容器（探针的「环被裁」检查盯着这条）。 */
+  gap: calc(7 * var(--dp));
+  overflow-y: auto;
+  padding: calc(7 * var(--dp));
+  margin: 0 calc(-7 * var(--dp));
+}
+
+.k7-place {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--dp));
+  height: calc(25 * var(--dp));
+  padding: 0 0 0 calc(12 * var(--dp));
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-size: var(--font-body);
+  text-align: left;
+  scroll-margin: calc(12 * var(--dp));
+}
+
+/* 选中行：面板二级底 + 左侧 3dp 竖条（画板实测竖条 270..273.5、底色 268..450.5） */
+.k7-place.is-current {
+  background: var(--panel-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.k7-place.is-current::before {
+  content: "";
+  position: absolute;
+  left: calc(2 * var(--dp));
+  top: 50%;
+  width: calc(3 * var(--dp));
+  height: calc(18 * var(--dp));
+  transform: translateY(-50%);
+  border-radius: calc(2 * var(--dp));
+  background: var(--accent);
+}
+
+.k7-place .icon {
+  flex: none;
+  width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
+  color: var(--ink-3);
+}
+
+.k7-place.is-current .icon {
+  color: var(--accent);
+}
+
+.k7-place-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k7-place:focus {
+  background: var(--panel-2);
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+.k7-places-note {
+  flex: none;
+  margin: 0;
+  padding: calc(8 * var(--dp));
+  color: var(--ink-4);
+  font-size: var(--font-caption);
+}
+
+/* 右列：表头 + 列表 + 操作条 */
+.k7-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 单栏时 FilePane 直接是右列的子元素；双栏时两栏并排（每栏各带自己的面包屑与表头）。
+   双栏是既有能力，画板没画 —— 每栏宽 490，行的三列要能收窄，见 .k7-row 的 minmax。 */
+.k7-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 单栏时 FilePane 的容器（双栏时换成 .k7-panes） */
+.k7-main-single {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.k7-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--gutter);
+}
+
+.k7-panes .k7-pane.is-active {
+  position: relative;
+}
+
+.k7-pane-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  margin-bottom: calc(6 * var(--dp));
+}
+
+.k7-pane-tag {
+  flex: none;
+  padding: calc(3 * var(--dp)) calc(8 * var(--dp));
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line-soft);
+  color: var(--ink-4);
+  font-size: var(--font-caption);
+}
+
+.k7-pane-tag.is-current {
+  border-color: transparent;
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+.k7-pane-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-4);
+  font-size: var(--font-caption);
+}
+
+.k7-empty {
+  flex: 1;
+  margin: 0;
+  padding: var(--pad-card);
+  color: var(--ink-4);
+  font-size: var(--font-body);
+}
+
+
+/* ── 文件表 ── */
+/* 表头三列的 x 是画板实测值（相对表格左缘 476）：名称 +16、大小 +396、修改时间 +506。
+   表头有 16dp 左右内边距，所以首列宽 = 396 - 16 = 380，第二列 110（396..506），其余给时间。 */
+.k7-table-head {
+  flex: none;
+  display: grid;
+  /* 三列与下面的行对齐（名称 +16 / 大小 +396 / 修改时间 +506）。双栏时每栏只有 490 宽，
+     minmax 让首列与「大小」能收窄，单栏（780）下永远是 380 / 110 / 剩余。 */
+  grid-template-columns: minmax(0, calc(380 * var(--dp))) minmax(calc(96 * var(--dp)), calc(110 * var(--dp))) minmax(0, 1fr);
+  align-items: center;
+  height: calc(34 * var(--dp)); /* 98..132.5，文字实测 115..124 */
+  padding: 0 var(--pad-card);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--font-micro);
+  color: var(--ink-3);
+}
+
+.k7-table-head span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 当前排序列：字色提一档（画板没画，但排序得看得出「现在按哪一列排」） */
+.k7-table-head .is-current {
+  color: var(--ink-2);
+}
+
+
+
+.k7-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 行盒 39 + 间距 7 = 步进 46（画板实测：第一行盒 146..186、第二行 192..232，步进 46）。
+     和位置栏同理 —— 从行高里让 1dp 给焦点环。 */
+  gap: calc(7 * var(--dp));
+  /* 首行顶边 = 表头分隔线 133 + 6 + 7 = 146（画板实测 146）。
+     左右那 7dp 是给焦点环的：行盒仍占满 476..1256（宽 780），环却装得进滚动容器。 */
+  margin: calc(6 * var(--dp)) calc(-7 * var(--dp)) 0;
+  padding: calc(7 * var(--dp));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.k7-row-wrap {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+}
+
+/* 勾选框：鼠标也能点（手柄走「选择模式」，见 FilesPage 的 selectMode） */
+.k7-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  /* 同 .k7-row：按钮有 UA 默认内边距，会把 ✓ 挤歪 */
+  padding: 0;
+  width: calc(22 * var(--dp));
+  height: calc(22 * var(--dp));
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line-strong);
+  color: var(--on-accent);
+  background: transparent;
+  font-size: var(--font-caption);
+}
+
+.k7-check.on {
+  border-color: transparent;
+  background: var(--accent);
+}
+
+/* 行：三列与表头对齐。行不带表头那 16dp 内边距，所以首列宽 = 396，第一格自己留 13dp。
+   画板实测：文件夹图标 489..507.5（行左 +13，宽 18）、名称 521.5（+45.5）、大小 +396、时间 +506。 */
+.k7-row {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  /* UA 给 button 的默认内边距是 1px 6px：不写 0 的话整行内容会右移 7dp，
+     行的图标 / 名称 / 大小就跟表头对不上（探针量出来 496 vs 489）。 */
+  padding: 0;
+  grid-template-columns: minmax(0, calc(396 * var(--dp))) minmax(calc(96 * var(--dp)), calc(110 * var(--dp))) minmax(0, 1fr);
+  align-items: center;
+  height: calc(39 * var(--dp));
+  border-radius: var(--radius-sm);
+  /* 画板里行是 1px 银色细线（0.5dp 渲染），令牌里没有这个色，取最接近的 --line-strong */
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  text-align: left;
+  scroll-margin: calc(12 * var(--dp));
+  transition:
+    border-color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft);
+}
+
+.k7-row-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(14 * var(--dp));
+  padding-left: calc(13 * var(--dp));
+}
+
+.k7-row-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
+  color: var(--ink-3);
+}
+
+/* 文件夹图标是强调色（画板实测 #3dd6c6），普通文件是 ink-3 */
+.k7-row.is-dir .k7-row-icon {
+  color: var(--accent);
+}
+
+.k7-row-icon .icon {
+  width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
+}
+
+.k7-row-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  font-size: var(--font-body);
+}
+
+.k7-row-size {
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.k7-row-time {
+  color: var(--ink-4);
+  font-size: var(--font-caption);
+}
+
+.k7-row-size,
+.k7-row-time {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.k7-row.is-picked {
+  border-color: var(--accent);
+}
+
+/* 焦点态：panel-2 底 + accent 描边 + 焦点环（改造包 §7 / §13.1）。
+   描边用 inset 阴影而不是 border：改 border 宽度会让行内容抖 1dp。 */
+.k7-row:focus {
+  border-color: var(--accent);
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 calc(1 * var(--dp)) var(--accent);
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+/* 网格视图（画板没画，但这是既有能力）：方形磁贴，形状沿用文件页自己的令牌 */
+.k7-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(132 * var(--dp)), 1fr));
+  gap: calc(11 * var(--dp));
+  align-content: start;
+  margin: calc(6 * var(--dp)) calc(-7 * var(--dp)) 0;
+  padding: calc(7 * var(--dp));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.k7-tile-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  min-width: 0;
+}
+
+.k7-tile {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--stack);
+  padding: var(--pad-card) var(--stack);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+  scroll-margin: calc(12 * var(--dp));
+}
+
+.k7-tile-face {
+  display: grid;
+  place-items: center;
+  width: calc(44 * var(--dp));
+  height: calc(44 * var(--dp));
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--ink-3);
+}
+
+.k7-tile-face.is-dir {
+  color: var(--accent);
+}
+
+.k7-tile-face .icon {
+  width: calc(24 * var(--dp));
+  height: calc(24 * var(--dp));
+}
+
+.k7-tile-name {
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-size: var(--font-caption);
+  color: var(--ink);
+}
+
+.k7-tile.is-picked {
+  border-color: var(--accent);
+}
+
+.k7-tile:focus {
+  border-color: var(--accent);
+  background: var(--panel-2);
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+/* ── 底部操作条（画板实测 476..1256 × 610..656，即右栏宽 780 × 高 46） ── */
+/* 为什么不是改造包 §7 写的 996 宽：画板量出来左边缘在 476（文件表左缘），不是 260。
+   左边是这一栏的当前状态（已选哪几项 / 上一步干了什么），右边是能真按下去的操作 chip。 */
+.k7-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--dp));
+  height: calc(46 * var(--dp));
+  margin-top: calc(4 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.k7-bar-note {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--font-body);
+  color: var(--ink-3);
+}
+
+/* chip：高 28 圆角 6（画板实测 619.5..647.5，底 #2a3650 = panel-3、描边 line-soft） */
+.k7-chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(28 * var(--dp));
+  padding: 0 calc(10 * var(--dp));
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line-soft);
+  background: var(--panel-3);
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+  white-space: nowrap;
+}
+
+.k7-chip:disabled {
+  opacity: 0.4;
+}
+
+.k7-chip:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+.k7-check:focus,
+.k7-tile-wrap .k7-check:focus {
+  border-color: var(--accent);
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+}
+
+/* 传输进度条：画板没画（它要真在传才出现），沿用旧形状但换成 K7 令牌 */
+.k7-progress {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  margin: calc(6 * var(--dp)) calc(-7 * var(--dp)) calc(4 * var(--dp));
+  padding: var(--stack-lg) var(--pad-card);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.k7-progress-row {
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+}
+
+.k7-progress-name {
+  flex: none;
+  max-width: calc(240 * var(--dp));
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-caption);
+  color: var(--ink);
+}
+
+.k7-progress-bar {
+  flex: 1;
+  min-width: 0;
+  height: calc(6 * var(--dp));
+  border-radius: var(--radius-tag);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.k7-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.k7-progress-meta {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+/* 传输进度条里的取消按钮沿用旧工具按钮形状（它在页面里，不在弹窗里） */
+.k7-progress .library-tool {
+  height: calc(28 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-tag);
+  font-size: var(--font-caption);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k7-list > *,
+  .k7-grid > * {
+    animation: none;
+  }
+}
+

@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { playSfx } from "../audio/sfx";
 import { setFileActions } from "../files/actions";
-import { FilePane, formatBytes, formatTime, type FileLayout } from "../files/FilePane";
+import { FileCrumbs, FilePane, formatBytes, formatTime, type FileLayout } from "../files/FilePane";
+import {
+  EyeIcon,
+  FolderIcon,
+  KeyboardIcon,
+  SearchIcon,
+  SortIcon,
+  UpIcon,
+} from "../components/NavIcons";
 import {
   jobId,
   toFileError,
@@ -98,6 +106,16 @@ function splitName(name: string): [string, string] {
 }
 
 /**
+ * 两个路径是不是同一个位置。只给「位置栏高亮哪一项」用：
+ * 后端给的 `C:\Users\qubo\Downloads` 和当前目录可能是大小写 / 结尾斜杠的差别，
+ * 直接字符串比较会出现「明明就在下载里，左边却没高亮」。
+ */
+function samePath(a: string, b: string): boolean {
+  const norm = (v: string) => v.replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
  * 批量改名的计划。**算法只有这一份**：预览显示什么，后端就按什么落地
  * （Rust 的 `file_rename_many` 只负责安全地改名），免得「预览 X、执行成 Y」。
  */
@@ -129,6 +147,8 @@ export function FilesPage() {
   const [layout, setLayout] = useState<FileLayout>(loadLayout);
   const [picked, setPicked] = useState<Record<PaneId, string[]>>({ left: [], right: [] });
   const [selectMode, setSelectMode] = useState(false);
+  // 排序：画板 K7 的头部只有一颗「排序」按钮，四个排序键收在它展开的那一行里。
+  const [sortOpen, setSortOpen] = useState(false);
 
   const [menu, setMenu] = useState<FileEntry | null>(null);
   const [naming, setNaming] = useState<Naming>(null);
@@ -139,7 +159,10 @@ export function FilesPage() {
   const [batch, setBatch] = useState<BatchForm | null>(null);
   const [props, setProps] = useState<PropsState | null>(null);
   const [search, setSearch] = useState<SearchForm | null>(null);
-  const [places, setPlaces] = useState<PlacesState | null>(null);
+  // 位置有两个落点：单栏时是左边的常驻一栏（画板 K7），双栏时那栏没地方放，仍旧走弹窗。
+  // 两者分开存 —— 弹窗那个 null 表示「没开」，栏里那个永远是对象（有 busy / error 要显示）。
+  const [placesDialog, setPlacesDialog] = useState<PlacesState | null>(null);
+  const [places, setPlaces] = useState<PlacesState>({ rows: [], busy: true, error: "" });
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [formError, setFormError] = useState("");
 
@@ -220,11 +243,37 @@ export function FilesPage() {
     batch !== null ||
     props !== null ||
     search !== null ||
-    places !== null ||
+    placesDialog !== null ||
     conflict !== null;
 
   const jobs = useFileJobs();
   const running = jobs.filter((job) => job.phase === "scan" || job.phase === "run");
+
+  /**
+   * 左栏「位置」（画板 K7 的常驻左栏）：进页面取一次，切回单栏时再取一次。
+   *
+   * 为什么不跟着当前目录重取：这六个位置是固定的（下载 / 文档 / 图片 / ROM / Steam 库 / U 盘），
+   * 换目录只影响「哪一个高亮」，那是本地比一下 path 就知道的事，不该每次都问一遍后端。
+   * 双栏时左栏被两栏顶掉了（位置改从头部那颗按钮进弹窗），所以这时不取。
+   */
+  useEffect(() => {
+    if (dual) return;
+    let alive = true;
+    setPlaces((current) => ({ ...current, busy: current.rows.length === 0, error: "" }));
+    void left
+      .listPlaces()
+      .then((rows) => {
+        if (alive) setPlaces({ rows, busy: false, error: "" });
+      })
+      .catch((err) => {
+        if (alive) setPlaces({ rows: [], busy: false, error: describeError(toFileError(err)) });
+      });
+    return () => {
+      alive = false;
+    };
+    // listPlaces 是个 useCallback（依赖 preview/tree），换页面不会重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dual]);
 
   // 手柄回调在 rAF 里读，闭包会旧：要用的东西都过一遍 ref（老代码也是这样）。
   const actionsRef = useRef({ dialogOpen, selectMode, dual, activePane });
@@ -421,8 +470,13 @@ export function FilesPage() {
       setConflict(null);
       return true;
     }
-    if (places) {
-      setPlaces(null);
+    // 排序行是页面自己展开的一层，B 先收它（再按 B 才是「返回上一层」）
+    if (sortOpen) {
+      setSortOpen(false);
+      return true;
+    }
+    if (placesDialog) {
+      setPlacesDialog(null);
       return true;
     }
     if (search) {
@@ -487,8 +541,9 @@ export function FilesPage() {
     setBatch(null);
     setProps(null);
     setSearch(null);
-    setPlaces(null);
+    setPlacesDialog(null);
     setConflict(null);
+    setSortOpen(false);
     setDraft("");
     setFormError("");
     setSelectMode(false);
@@ -577,12 +632,12 @@ export function FilesPage() {
 
   async function openPlaces() {
     setMenu(null);
-    setPlaces({ rows: [], busy: true, error: "" });
+    setPlacesDialog({ rows: [], busy: true, error: "" });
     try {
       const rows = await active.listPlaces();
-      setPlaces({ rows, busy: false, error: "" });
+      setPlacesDialog({ rows, busy: false, error: "" });
     } catch (err) {
-      setPlaces({ rows: [], busy: false, error: describeError(toFileError(err)) });
+      setPlacesDialog({ rows: [], busy: false, error: describeError(toFileError(err)) });
     }
   }
 
@@ -737,8 +792,8 @@ export function FilesPage() {
   }, [props]);
 
   useEffect(() => {
-    if (places) document.querySelector<HTMLElement>(".file-places [data-focusable]")?.focus();
-  }, [places]);
+    if (placesDialog) document.querySelector<HTMLElement>(".file-places [data-focusable]")?.focus();
+  }, [placesDialog]);
 
   useEffect(() => {
     if (conflict) document.querySelector<HTMLElement>(".file-conflict [data-focusable]")?.focus();
@@ -785,6 +840,34 @@ export function FilesPage() {
   const batchPairs = batch ? batchPlan(batch) : [];
   const targets = menu ? targetsFor(menu, activePane) : [];
 
+  /**
+   * 底部操作条作用于**当前选中的那些项**（画板 K7 那条左边写的就是「已选 N 项 · 名字」）。
+   *
+   * 为什么不回退到「焦点那一项」：焦点不触发 React 重渲染，按 chip 的可用状态会停在上一帧，
+   * 出现「按钮亮着但点了没反应」。选中是 state，状态和动作一定同步。
+   */
+  const barTargets = useMemo(
+    () => entries.filter((row) => pickedNow.includes(row.path)),
+    [entries, pickedNow],
+  );
+  const barNames = barTargets
+    .slice(0, 2)
+    .map((row) => row.name)
+    .join("、");
+  const barNote =
+    barTargets.length > 0
+      ? `${text().files.selectedCount(barTargets.length)}${
+          barNames ? ` · ${barNames}${barTargets.length > 2 ? " …" : ""}` : ""
+        }`
+      : hint;
+
+  /** 剪切 / 复制：和 Y 菜单里那两颗按钮同一个动作（都只是装进剪贴板）。 */
+  function stageSelection(mode: "copy" | "move") {
+    if (barTargets.length === 0) return;
+    if (mode === "copy") active.stageCopy(barTargets);
+    else active.stageMove(barTargets);
+  }
+
   /** 跳到这条结果所在的文件夹，并把它自己选上（比「打开」有用：先看清它在哪）。 */
   function jumpToHit(hit: SearchHit) {
     const parent = hit.path.slice(0, Math.max(0, hit.path.length - hit.name.length - 1));
@@ -821,165 +904,97 @@ export function FilesPage() {
 
 
   return (
-    <main className="page library-page">
-      <div className="library-head">
-        <div className="files-title-row">
-          <div className="file-view-toggle" data-focus-zone="files-view" role="group" aria-label={text().files.viewMode}>
-            <button
-              type="button"
-              className={layout === "list" ? "file-view is-current" : "file-view"}
-              data-focusable
-              aria-label={text().files.list}
-              aria-pressed={layout === "list"}
-              onClick={() => {
-                setLayout("list");
-                try {
-                  localStorage.setItem(LAYOUT_KEY, "list");
-                } catch {
-                  /* private mode */
-                }
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-                <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className={layout === "grid" ? "file-view is-current" : "file-view"}
-              data-focusable
-              aria-label={text().files.grid}
-              aria-pressed={layout === "grid"}
-              onClick={() => {
-                setLayout("grid");
-                try {
-                  localStorage.setItem(LAYOUT_KEY, "grid");
-                } catch {
-                  /* private mode */
-                }
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-                <rect x="2" y="2" width="5.5" height="5.5" rx="1" fill="currentColor" />
-                <rect x="10.5" y="2" width="5.5" height="5.5" rx="1" fill="currentColor" />
-                <rect x="2" y="10.5" width="5.5" height="5.5" rx="1" fill="currentColor" />
-                <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1" fill="currentColor" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className={dual ? "file-view file-view-wide is-current" : "file-view file-view-wide"}
-              data-focusable
-              aria-label={text().files.dual}
-              aria-pressed={dual}
-              onClick={() => {
-                const next = !dual;
-                setDual(next);
-                if (!next) setActivePane("left");
-                try {
-                  localStorage.setItem(DUAL_KEY, next ? "1" : "0");
-                } catch {
-                  /* private mode */
-                }
-              }}
-            >
-              <svg width="20" height="18" viewBox="0 0 20 18" aria-hidden>
-                <rect x="1" y="3" width="8" height="12" rx="1.5" fill="currentColor" />
-                <rect x="11" y="3" width="8" height="12" rx="1.5" fill="currentColor" opacity="0.45" />
-              </svg>
-            </button>
-          </div>
-          <div className="file-sort-group" data-focus-zone="files-sort" role="group" aria-label={text().files.sortBy}>
-            {(["name", "size", "time", "type"] as SortKey[]).map((key) => (
-              <button
-                key={key}
-                type="button"
-                className={active.sortKey === key ? "file-sort is-current" : "file-sort"}
-                data-focusable
-                aria-pressed={active.sortKey === key}
-                aria-label={sortLabel(key)}
-                onClick={() => active.chooseSort(key)}
-              >
-                {sortLabel(key)}
-                {active.sortKey === key ? (active.sortDir === "asc" ? " ↑" : " ↓") : ""}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="library-tools" data-focus-zone="files-tools">
+    <main className="page k7-page">
+      {/* 头部（画板 K7）：面包屑在左，搜索 / 排序在右，一行 30dp。
+          额外那几颗 30dp 小按钮是既有能力（视图切换 / 隐藏文件 / 软键盘 / 返回上级）——
+          画板这一行只有两颗大按钮，但能力不能丢，收成同高的小按钮排在搜索左边。 */}
+      <div className="k7-head">
+        {!dual ? (
+          <FileCrumbs browser={active} zone={activePane === "left" ? "files-list" : "files-target"} />
+        ) : (
+          <span className="k7-crumbs" />
+        )}
+        <div className="k7-tools" data-focus-zone="files-tools">
           <button
             type="button"
-            className="library-tool"
+            className={layout === "list" ? "k7-tool is-current" : "k7-tool"}
             data-focusable
-            disabled={active.location == null}
+            aria-label={text().files.list}
+            aria-pressed={layout === "list"}
             onClick={() => {
-              setDraft("");
-              setFormError("");
-              setNaming("dir");
+              setLayout("list");
+              try {
+                localStorage.setItem(LAYOUT_KEY, "list");
+              } catch {
+                /* private mode */
+              }
             }}
           >
-            {text().files.newFolder}
+            <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden>
+              <path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
           </button>
           <button
             type="button"
-            className="library-tool"
+            className={layout === "grid" ? "k7-tool is-current" : "k7-tool"}
             data-focusable
-            disabled={active.location == null}
+            aria-label={text().files.grid}
+            aria-pressed={layout === "grid"}
             onClick={() => {
-              setDraft("");
-              setFormError("");
-              setNaming("file");
+              setLayout("grid");
+              try {
+                localStorage.setItem(LAYOUT_KEY, "grid");
+              } catch {
+                /* private mode */
+              }
             }}
           >
-            {text().files.newFile}
+            <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden>
+              <rect x="2" y="2" width="5.5" height="5.5" rx="1" fill="currentColor" />
+              <rect x="10.5" y="2" width="5.5" height="5.5" rx="1" fill="currentColor" />
+              <rect x="2" y="10.5" width="5.5" height="5.5" rx="1" fill="currentColor" />
+              <rect x="10.5" y="10.5" width="5.5" height="5.5" rx="1" fill="currentColor" />
+            </svg>
           </button>
           <button
             type="button"
-            className="library-tool"
+            className={dual ? "k7-tool is-current" : "k7-tool"}
             data-focusable
-            disabled={(active.clip?.items.length ?? 0) === 0}
-            onClick={() => void pasteInto(activePane, active.location)}
+            aria-label={text().files.dual}
+            aria-pressed={dual}
+            onClick={() => {
+              const next = !dual;
+              setDual(next);
+              if (!next) setActivePane("left");
+              try {
+                localStorage.setItem(DUAL_KEY, next ? "1" : "0");
+              } catch {
+                /* private mode */
+              }
+            }}
           >
-            {text().files.paste}
-            {active.clip ? ` (${active.clip.items.length})` : ""}
+            <svg width="17" height="16" viewBox="0 0 20 18" aria-hidden>
+              <rect x="1" y="3" width="8" height="12" rx="1.5" fill="currentColor" />
+              <rect x="11" y="3" width="8" height="12" rx="1.5" fill="currentColor" opacity="0.45" />
+            </svg>
           </button>
-          {/* 「全选 / 取消全选」是一颗按钮：已经选了东西就是取消（清空 + 退出选择模式），
-              什么都没选才是全选。标签和动作必须说同一件事 —— 以前 Y 菜单里写着「取消全选」、
-              按下去却是全选，用户会以为自己把整个目录选中了。 */}
+
           <button
             type="button"
-            className="library-tool"
+            className={showHidden ? "k7-tool is-current" : "k7-tool"}
             data-focusable
-            disabled={entries.length === 0}
-            onClick={() => (pickedNow.length > 0 ? dropSelection(activePane) : selectAll(activePane))}
-          >
-            {pickedNow.length > 0 ? text().files.clearSelection : text().files.selectAll}
-          </button>
-          <button
-            type="button"
-            className="library-tool"
-            data-focusable
-            disabled={active.location == null}
-            onClick={() => void active.up()}
-          >
-            {text().files.up}
-          </button>
-          <button type="button" className="library-tool" data-focusable onClick={() => void openPlaces()}>
-            {text().files.places}
-          </button>
-          <button
-            type="button"
-            className={`library-tool${showHidden ? " is-current" : ""}`}
-            data-focusable
+            aria-pressed={showHidden}
+            aria-label={showHidden ? text().files.hideHidden : text().files.showHidden}
             onClick={toggleHidden}
           >
-            {showHidden ? text().files.hideHidden : text().files.showHidden}
+            <EyeIcon off={!showHidden} />
           </button>
           {/* 掌机上打字：与其让用户用手柄一格一格挪虚拟键盘，不如把系统那把叫出来。 */}
           <button
             type="button"
-            className="library-tool"
+            className="k7-tool"
             data-focusable
+            aria-label={text().files.keyboard}
             title={text().files.keyboardHint}
             onClick={() =>
               void showSoftKeyboard().then((problem) => {
@@ -987,113 +1002,287 @@ export function FilesPage() {
               })
             }
           >
-            {text().files.keyboard}
+            <KeyboardIcon />
           </button>
           <button
             type="button"
-            className="library-tool"
+            className="k7-tool"
+            data-focusable
+            disabled={active.location == null}
+            aria-label={text().files.up}
+            onClick={() => void active.up()}
+          >
+            <UpIcon />
+          </button>
+          {/* 「位置」在单栏时是左边那一栏（画板 K7），只有双栏把它顶掉时才需要这颗按钮 */}
+          {dual && (
+            <button type="button" className="k7-tool" data-focusable onClick={() => void openPlaces()}>
+              {text().files.places}
+            </button>
+          )}
+          <button
+            type="button"
+            className="k7-search"
             data-focusable
             disabled={active.location == null}
             onClick={openSearch}
           >
+            <SearchIcon />
             {text().files.search}
           </button>
+          <button
+            type="button"
+            className="k7-sort"
+            data-focusable
+            aria-expanded={sortOpen}
+            onClick={() => setSortOpen((open) => !open)}
+          >
+            <SortIcon />
+            {text().files.sortBy}
+          </button>
         </div>
-        <p className="preview-note">{hint}</p>
       </div>
-
-      <div className={dual ? "file-panes is-dual" : "file-panes"}>
-        <FilePane
-          browser={left}
-          pane="left"
-          zone="files-list"
-          active={activePane === "left"}
-          dual={dual}
-          layout={layout}
-          picked={picked.left}
-          sizes={left.dirSizes}
-          selectMode={selectMode}
-          firstRef={leftFirst}
-          listRef={leftList}
-          onActivatePane={() => setActivePane("left")}
-          onFocusRow={(index) => focusRowFor("left", index)}
-          onPick={(index, options) => pick("left", index, options)}
-          onOpen={(entry) => openEntry(entry, "left")}
-          onMenu={(entry) => {
-            setActivePane("left");
-            setMenu(entry);
-          }}
-          onDragStart={(entry) => onDragStart(entry, "left")}
-          onDrop={(folder) => onDrop(folder, "left")}
-        />
-        {dual && (
+      {/* 四个排序键 + 升降序收在「排序」按钮下面这一行（画板头部只有一颗按钮） */}
+      {sortOpen && (
+        <div className="k7-sort-row" data-focus-zone="files-sort" role="group" aria-label={text().files.sortBy}>
+          {(["name", "size", "time", "type"] as SortKey[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={active.sortKey === key ? "k7-sort-key is-current" : "k7-sort-key"}
+              data-focusable
+              aria-pressed={active.sortKey === key}
+              aria-label={sortLabel(key)}
+              onClick={() => active.chooseSort(key)}
+            >
+              {sortLabel(key)}
+              {active.sortKey === key ? (active.sortDir === "asc" ? " ↑" : " ↓") : ""}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="k7-body">
+        {/* 左栏「位置」：单栏时的常驻一栏（画板实测 200×554，顶边与表头同起于 98） */}
+        {!dual && (
+          <aside className="k7-places" aria-label={text().files.places}>
+            <p className="k7-places-title">{text().files.places}</p>
+            {places.busy ? (
+              <p className="k7-places-note">{text().files.propsReading}</p>
+            ) : places.error ? (
+              <p className="k7-places-note">{places.error}</p>
+            ) : (
+              <div className="k7-places-list" data-focus-zone="files-places">
+                {places.rows.map((row) => {
+                  const here = !!active.location && samePath(row.path, active.location);
+                  return (
+                    <button
+                      key={row.path}
+                      type="button"
+                      className={here ? "k7-place is-current" : "k7-place"}
+                      data-focusable
+                      aria-current={here ? "true" : undefined}
+                      onClick={() => active.jump(row.path)}
+                    >
+                      <FolderIcon />
+                      <span className="k7-place-name">{row.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </aside>
+        )}
+        <div className="k7-main">
+          <div className={dual ? "k7-panes" : "k7-main-single"}>
           <FilePane
-            browser={right}
-            pane="right"
-            zone="files-target"
-            active={activePane === "right"}
+            browser={left}
+            pane="left"
+            zone="files-list"
+            active={activePane === "left"}
             dual={dual}
             layout={layout}
-            picked={picked.right}
-            sizes={right.dirSizes}
+            sortKey={left.sortKey}
+            picked={picked.left}
+            sizes={left.dirSizes}
             selectMode={selectMode}
-            firstRef={rightFirst}
-            listRef={rightList}
-            onActivatePane={() => setActivePane("right")}
-            onFocusRow={(index) => focusRowFor("right", index)}
-            onPick={(index, options) => pick("right", index, options)}
-            onOpen={(entry) => openEntry(entry, "right")}
+            firstRef={leftFirst}
+            listRef={leftList}
+            onActivatePane={() => setActivePane("left")}
+            onFocusRow={(index) => focusRowFor("left", index)}
+            onPick={(index, options) => pick("left", index, options)}
+            onOpen={(entry) => openEntry(entry, "left")}
             onMenu={(entry) => {
-              setActivePane("right");
+              setActivePane("left");
               setMenu(entry);
             }}
-            onDragStart={(entry) => onDragStart(entry, "right")}
-            onDrop={(folder) => onDrop(folder, "right")}
+            onDragStart={(entry) => onDragStart(entry, "left")}
+            onDrop={(folder) => onDrop(folder, "left")}
           />
-        )}
+          {dual && (
+            <FilePane
+              browser={right}
+              pane="right"
+              zone="files-target"
+              active={activePane === "right"}
+              dual={dual}
+              layout={layout}
+              sortKey={right.sortKey}
+              picked={picked.right}
+              sizes={right.dirSizes}
+              selectMode={selectMode}
+              firstRef={rightFirst}
+              listRef={rightList}
+              onActivatePane={() => setActivePane("right")}
+              onFocusRow={(index) => focusRowFor("right", index)}
+              onPick={(index, options) => pick("right", index, options)}
+              onOpen={(entry) => openEntry(entry, "right")}
+              onMenu={(entry) => {
+                setActivePane("right");
+                setMenu(entry);
+              }}
+              onDragStart={(entry) => onDragStart(entry, "right")}
+              onDrop={(folder) => onDrop(folder, "right")}
+            />
+          )}
+          </div>
+
+          {running.length > 0 && (
+            <section className="k7-progress" data-focus-zone="files-progress" aria-live="polite">
+              {running.map((job) => {
+                const scanning = job.phase === "scan";
+                const percent =
+                  job.totalBytes > 0 ? Math.min(100, Math.round((job.bytes / job.totalBytes) * 100)) : 0;
+                return (
+                  <div key={job.id} className="k7-progress-row">
+                    <span className="k7-progress-name">{job.name || text().files.folder}</span>
+                    <span className="k7-progress-bar" aria-hidden>
+                      <span className="k7-progress-fill" style={{ width: `${scanning ? 0 : percent}%` }} />
+                    </span>
+                    <span className="k7-progress-meta">
+                      {scanning
+                        ? text().files.transferScan
+                        : text().files.transferMeta(
+                            job.itemIndex + 1,
+                            job.itemTotal,
+                            formatBytes(job.bytes),
+                            formatBytes(job.totalBytes),
+                          )}
+                    </span>
+                    {!scanning && job.rate > 0 && (
+                      <span className="k7-progress-meta">
+                        {text().files.transferRate(formatBytes(job.rate), formatEta(job.eta))}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="library-tool"
+                      data-focusable
+                      onClick={() => void active.cancel(job.id)}
+                    >
+                      {text().files.transferCancel}
+                    </button>
+                  </div>
+                );
+              })}
+            </section>
+          )}
+
+
+          {/* 底部操作条（画板 K7：左「已选 N 项 · 名字」，右边一排能按的 chip）。
+              动作全部作用于**当前选中项**：没选东西时复制 / 移动 / 重命名 / 删除是灰的，
+              新建 / 粘贴 / 全选一直可用。画板那 6 个 chip 上还画着按键角标（X 复制 / Y 剪切
+              / LB 新建文件夹…），但本版没有改手柄绑定（M3 只换视觉），带上去就是假提示，
+              所以只留动作名。 */}
+          <div className="k7-bar" data-focus-zone="files-actions">
+            <p className="k7-bar-note">{barNote}</p>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={barTargets.length === 0}
+              onClick={() => stageSelection("copy")}
+            >
+              {text().files.copy}
+            </button>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={barTargets.length === 0}
+              onClick={() => stageSelection("move")}
+            >
+              {text().files.move}
+            </button>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={(active.clip?.items.length ?? 0) === 0 || active.location == null}
+              onClick={() => void pasteInto(activePane, active.location)}
+            >
+              {text().files.paste}
+              {active.clip ? ` (${active.clip.items.length})` : ""}
+            </button>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={barTargets.length !== 1}
+              onClick={() => {
+                setFormError("");
+                setRename({ entry: barTargets[0], draft: barTargets[0].name, pane: activePane });
+              }}
+            >
+              {text().files.rename}
+            </button>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={barTargets.length === 0}
+              onClick={() => setTrash(barTargets)}
+            >
+              {text().delete}
+            </button>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={active.location == null}
+              onClick={() => {
+                setDraft("");
+                setFormError("");
+                setNaming("dir");
+              }}
+            >
+              {text().files.newFolder}
+            </button>
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={active.location == null}
+              onClick={() => {
+                setDraft("");
+                setFormError("");
+                setNaming("file");
+              }}
+            >
+              {text().files.newFile}
+            </button>
+            {/* 全选 / 取消全选是一颗按钮：已选就清空，没选就全选（和旧工具栏一个口径） */}
+            <button
+              type="button"
+              className="k7-chip"
+              data-focusable
+              disabled={entries.length === 0}
+              onClick={() => (pickedNow.length > 0 ? dropSelection(activePane) : selectAll(activePane))}
+            >
+              {pickedNow.length > 0 ? text().files.clearSelection : text().files.selectAll}
+            </button>
+          </div>
+        </div>
       </div>
-
-
-
-      {running.length > 0 && (
-        <section className="file-progress" data-focus-zone="files-progress" aria-live="polite">
-          {running.map((job) => {
-            const scanning = job.phase === "scan";
-            const percent = job.totalBytes > 0 ? Math.min(100, Math.round((job.bytes / job.totalBytes) * 100)) : 0;
-            return (
-              <div key={job.id} className="file-progress-row">
-                <span className="file-progress-name">{job.name || text().files.folder}</span>
-                <span className="file-progress-bar" aria-hidden>
-                  <span className="file-progress-fill" style={{ width: `${scanning ? 0 : percent}%` }} />
-                </span>
-                <span className="file-progress-meta">
-                  {scanning
-                    ? text().files.transferScan
-                    : text().files.transferMeta(
-                        job.itemIndex + 1,
-                        job.itemTotal,
-                        formatBytes(job.bytes),
-                        formatBytes(job.totalBytes),
-                      )}
-                </span>
-                {!scanning && job.rate > 0 && (
-                  <span className="file-progress-meta">
-                    {text().files.transferRate(formatBytes(job.rate), formatEta(job.eta))}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="library-tool"
-                  data-focusable
-                  onClick={() => void active.cancel(job.id)}
-                >
-                  {text().files.transferCancel}
-                </button>
-              </div>
-            );
-          })}
-        </section>
-      )}
 
       {menu && (
         <div className="group-dialog focus-trap open">
@@ -1658,24 +1847,26 @@ export function FilesPage() {
         </div>
       )}
 
-      {places && (
+      {/* 位置弹窗只在双栏里出现：单栏时那一栏就在左边（画板 K7）。
+          这里读的是 placesDialog（弹窗自己的取数状态），别错写成左边那栏的 places。 */}
+      {placesDialog && (
         <div className="group-dialog focus-trap open">
           <button
             type="button"
             className="drawer-scrim"
             aria-label={text().close}
             tabIndex={-1}
-            onClick={() => setPlaces(null)}
+            onClick={() => setPlacesDialog(null)}
           />
           <div className="group-dialog-panel file-places" role="dialog" aria-label={text().files.placesTitle}>
             <h2>{text().files.placesTitle}</h2>
-            {places.busy ? (
+            {placesDialog.busy ? (
               <p className="group-empty">{text().files.propsReading}</p>
-            ) : places.error ? (
-              <p className="group-empty">{places.error}</p>
+            ) : placesDialog.error ? (
+              <p className="group-empty">{placesDialog.error}</p>
             ) : (
               <div className="file-places-list" data-focus-zone="files-places-list">
-                {places.rows.map((row) => (
+                {placesDialog.rows.map((row) => (
                   <button
                     key={row.path}
                     type="button"
@@ -1683,7 +1874,7 @@ export function FilesPage() {
                     data-focusable
                     onClick={() => {
                       active.jump(row.path);
-                      setPlaces(null);
+                      setPlacesDialog(null);
                     }}
                   >
                     <span className="file-mark is-dir" aria-hidden>
@@ -1696,7 +1887,7 @@ export function FilesPage() {
               </div>
             )}
             <div className="library-tools">
-              <button type="button" className="library-tool" data-focusable onClick={() => setPlaces(null)}>
+              <button type="button" className="library-tool" data-focusable onClick={() => setPlacesDialog(null)}>
                 {text().close}
               </button>
             </div>

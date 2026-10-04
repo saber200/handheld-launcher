@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import { text } from "../i18n";
-import type { DirSize, FileEntry, useFileBrowser } from "./useFileBrowser";
+import { FileIcon, FolderIcon } from "../components/NavIcons";
+import type { DirSize, FileEntry, SortKey, useFileBrowser } from "./useFileBrowser";
 
 export type FileLayout = "list" | "grid";
 
@@ -15,6 +16,8 @@ type Props = {
   active: boolean;
   dual: boolean;
   layout: FileLayout;
+  /** 当前排序列：表头要在对应那一列上显示箭头。 */
+  sortKey: SortKey;
   picked: string[];
   /** 文件夹大小（按路径索引；还没算出来的不在里面）。 */
   sizes: Record<string, DirSize>;
@@ -58,6 +61,35 @@ export function formatTime(ms: number) {
   }
 }
 
+/** 页面头部（单栏）与双栏每栏自己那一行共用的面包屑。 */
+export function FileCrumbs({ browser, zone }: { browser: Browser; zone: string }) {
+  return (
+    <nav className="k7-crumbs" data-focus-zone={`${zone}-crumbs`} aria-label={text().files.pathHere}>
+      {browser.crumbs.map((crumb, index) => {
+        const here = index === browser.crumbs.length - 1;
+        return (
+          <span key={`${crumb.path ?? "places"}-${index}`} className="k7-crumbs-item">
+            {index > 0 && (
+              <span className="k7-crumb-sep" aria-hidden>
+                ›
+              </span>
+            )}
+            <button
+              type="button"
+              className={here ? "k7-crumb is-here" : "k7-crumb"}
+              data-focusable
+              disabled={here}
+              onClick={() => browser.jump(crumb.path)}
+            >
+              {crumb.label}
+            </button>
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function FilePane({
   browser,
   pane,
@@ -65,6 +97,7 @@ export function FilePane({
   active,
   dual,
   layout,
+  sortKey,
   picked,
   sizes,
   selectMode,
@@ -79,9 +112,15 @@ export function FilePane({
   onDrop,
 }: Props) {
   const rows = browser.entries;
+  // 表头那三列显示的是「排序列」的名字：点开排序行才看得到四个键，表头得说明现在按哪一列排。
+  const columns = [
+    { key: "name" as const, label: text().files.sortName },
+    { key: "size" as const, label: text().files.sortSize },
+    { key: "time" as const, label: text().files.propModified },
+  ];
   return (
     <section
-      className={`file-pane${active ? " is-active" : ""}`}
+      className={dual && active ? "k7-pane is-active" : "k7-pane"}
       data-pane={pane}
       aria-label={browser.pathLabel}
       // 手柄移动焦点、鼠标点进来，都算「这一栏现在是当前栏」——
@@ -90,37 +129,31 @@ export function FilePane({
       onMouseDown={onActivatePane}
     >
       {dual && (
-        <div className="file-pane-head">
-          <span className={active ? "file-pane-tag is-current" : "file-pane-tag"}>
+        <div className="k7-pane-head">
+          <span className={active ? "k7-pane-tag is-current" : "k7-pane-tag"}>
             {pane === "left" ? text().files.leftPane : text().files.rightPane}
           </span>
-          <span className="file-pane-path" title={browser.pathLabel}>
+          <span className="k7-pane-path" title={browser.pathLabel}>
             {browser.pathLabel}
           </span>
         </div>
       )}
-      <nav className="file-crumbs" data-focus-zone={`${zone}-crumbs`} aria-label={text().files.pathHere}>
-        {browser.crumbs.map((crumb, index) => {
-          const here = index === browser.crumbs.length - 1;
-          return (
-            <button
-              key={`${crumb.path ?? "places"}-${index}`}
-              type="button"
-              className={here ? "file-crumb is-here" : "file-crumb"}
-              data-focusable
-              disabled={here}
-              onClick={() => browser.jump(crumb.path)}
-            >
-              {crumb.label}
-            </button>
-          );
-        })}
-      </nav>
+      {/* 单栏时面包屑在页面头部（画板 K7 的面包屑横跨内容区、位置栏在它下面）；
+          双栏时每栏各显示自己的，免得两栏看着像同一个目录。 */}
+      {dual && <FileCrumbs browser={browser} zone={zone} />}
+      <div className="k7-table-head" aria-hidden>
+        {columns.map(({ key, label }) => (
+          <span key={key} className={sortKey === key ? "is-current" : undefined}>
+            {label}
+            {sortKey === key ? (browser.sortDir === "asc" ? " ↑" : " ↓") : ""}
+          </span>
+        ))}
+      </div>
       {rows.length === 0 ? (
-        <p className="group-empty">{text().files.emptyHint}</p>
+        <p className="k7-empty">{text().files.emptyHint}</p>
       ) : (
         <div
-          className={layout === "grid" ? "library-grid file-grid motion-stagger" : "file-list motion-stagger"}
+          className={layout === "grid" ? "k7-grid motion-stagger" : "k7-list motion-stagger"}
           data-focus-zone={zone}
           ref={listRef}
         >
@@ -180,22 +213,28 @@ function FileRow({
   onDrop,
 }: RowProps) {
   const grid = layout === "grid";
+  const glyph = entry.kind === "dir" ? <FolderIcon /> : <FileIcon />;
   return (
-    <div className={grid ? "file-tile-wrap" : "file-line"}>
-      <button
-        type="button"
-        className={picked ? "file-check on" : "file-check"}
-        tabIndex={-1}
-        aria-label={picked ? text().files.unselect(entry.name) : text().files.select(entry.name)}
-        aria-pressed={picked}
-        onClick={() => onPick(index)}
-      >
-        {picked ? "✓" : ""}
-      </button>
+    <div className={grid ? "k7-tile-wrap" : "k7-row-wrap"}>
+      {/* 勾选框只在选择模式里出现：画板 K7 的行是「图标 + 名称 + 大小 + 时间」四列，
+          平时挂一个 22dp 的框会把图标从 x+13 顶到 x+43，行就跟表头对不上了。
+          鼠标多选没丢：Ctrl / Shift + 单击照样选（见下面 onClick）。 */}
+      {selectMode && (
+        <button
+          type="button"
+          className={picked ? "k7-check on" : "k7-check"}
+          tabIndex={-1}
+          aria-label={picked ? text().files.unselect(entry.name) : text().files.select(entry.name)}
+          aria-pressed={picked}
+          onClick={() => onPick(index)}
+        >
+          {picked ? "✓" : ""}
+        </button>
+      )}
       <button
         ref={index === 0 ? firstRef : undefined}
         type="button"
-        className={`${grid ? "file-tile" : "file-row"}${picked ? " is-picked" : ""}${
+        className={`${grid ? "k7-tile" : "k7-row"}${picked ? " is-picked" : ""}${
           entry.kind === "dir" ? " is-dir" : ""
         }`}
         data-focusable
@@ -233,22 +272,25 @@ function FileRow({
           onOpen(entry);
         }}
       >
-        <span
-          className={
-            grid
-              ? entry.kind === "dir"
-                ? "file-tile-face is-dir"
-                : "file-tile-face"
-              : entry.kind === "dir"
-                ? "file-mark is-dir"
-                : "file-mark"
-          }
-          aria-hidden
-        >
-          {entry.kind === "dir" ? text().files.dirMark : text().files.fileMark}
-        </span>
-        <span className={grid ? "library-name" : "file-name"}>{entry.name}</span>
-        {!grid && <span className="file-size">{formatSize(entry, size)}</span>}
+        {grid ? (
+          <>
+            <span className={entry.kind === "dir" ? "k7-tile-face is-dir" : "k7-tile-face"} aria-hidden>
+              {glyph}
+            </span>
+            <span className="k7-tile-name">{entry.name}</span>
+          </>
+        ) : (
+          <>
+            <span className="k7-row-main">
+              <span className="k7-row-icon" aria-hidden>
+                {glyph}
+              </span>
+              <span className="k7-row-name">{entry.name}</span>
+            </span>
+            <span className="k7-row-size tnum">{formatSize(entry, size)}</span>
+            <span className="k7-row-time tnum">{formatTime(entry.modified)}</span>
+          </>
+        )}
       </button>
     </div>
   );

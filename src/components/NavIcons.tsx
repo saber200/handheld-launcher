@@ -132,6 +132,65 @@ export function RefreshIcon() {
   );
 }
 
+/** 文件页（K7）的位置栏与文件行共用：文件夹与文件两枚线性图标。 */
+export function FolderIcon() {
+  return (
+    <svg {...base}>
+      <path d="M3.2 7.4A2.6 2.6 0 0 1 5.8 4.8h3.3l2 2.6h7.1a2.6 2.6 0 0 1 2.6 2.6v7.2a2.6 2.6 0 0 1-2.6 2.6H5.8a2.6 2.6 0 0 1-2.6-2.6z" />
+    </svg>
+  );
+}
+
+/** 文件（画板 K7 里是「田」字方块：外框 + 十字）。 */
+export function FileIcon() {
+  return (
+    <svg {...base}>
+      <rect x="4.2" y="4.2" width="15.6" height="15.6" rx="2.4" />
+      <path d="M12 4.2v15.6M4.2 12h15.6" />
+    </svg>
+  );
+}
+
+/** 排序（画板 K7 右上那颗按钮：三条递减的横线）。 */
+export function SortIcon() {
+  return (
+    <svg {...base}>
+      <path d="M3.6 6.6h16.8M6.4 12h11.2M9.2 17.4h5.6" />
+    </svg>
+  );
+}
+
+/** 键盘（软键盘入口）。 */
+export function KeyboardIcon() {
+  return (
+    <svg {...base}>
+      <rect x="2.6" y="6.4" width="18.8" height="11.2" rx="2.4" />
+      <path d="M7 10.2h.01M11 10.2h.01M15 10.2h.01M8.6 13.8h6.8" />
+    </svg>
+  );
+}
+
+/** 返回上一级。 */
+export function UpIcon() {
+  return (
+    <svg {...base}>
+      <path d="M12 19.4V5.2" />
+      <path d="m6.4 10.8 5.6-5.6 5.6 5.6" />
+    </svg>
+  );
+}
+
+/** 隐藏文件开关（睁眼 / 闭眼）。 */
+export function EyeIcon({ off }: { off?: boolean }) {
+  return (
+    <svg {...base}>
+      <path d="M2.4 12S6 6.2 12 6.2 21.6 12 21.6 12 18 17.8 12 17.8 2.4 12 2.4 12z" />
+      <circle cx="12" cy="12" r="2.8" />
+      {off && <path d="M4.4 4.4l15.2 15.2" />}
+    </svg>
+  );
+}
+
 export function BatteryIcon({ level }: { level: number }) {
   const safe = Math.max(0, Math.min(1, level));
   return (

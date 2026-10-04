@@ -12,8 +12,11 @@ import "./styles/shell.css";
 import "./styles/games.css";
 // 画板 K2（软件库）的样式：6 列卡片网格 + 每张卡自己的四段结构，和 K1 的 hero/卡片条差得远，
 // 单开一个文件。同样排在 global.css 之后（软件库换完之后 global.css 里那套 .library-* 就只剩
-// 文件页在用，M3 一起收）。
+// 弹窗在用）。
 import "./styles/apps.css";
+// 画板 K7（文件页）的样式：面包屑行 + 位置栏 + 文件表 + 底部操作条。旧 `.file-*` 现在只剩
+// 「选择程序」对话框（FilePicker）在用，所以这一份也是整页独立的。同样排在 global.css 之后。
+import "./styles/files.css";
 import { watchUiScale } from "./styles/scale";
 
 // 设计画布是 1280×720，--dp 决定 1dp 等于几个物理 px（1080p→1.5、1440p→2.0）。

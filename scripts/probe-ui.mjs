@@ -38,9 +38,10 @@ const RING = 7;
 /**
  * 已知「环会被裁」但**故意留到对应里程碑**再修的容器（旧页面还走旧 px 布局，现在改会和
  * 那一页的视觉改动撞在一起）。新出现的条目一律算失败 —— 这份名单只许变短。
- * 软件库 K2（M2）、文件页 K7（M3）迁完就删。
+ * M3 迁完文件页之后，六个可进入的页签实测都是「环都完整」；这里只剩 LibraryShelf 的旧网格
+ * （`.library-grid`，只出现在「添加卡片」那类弹窗里，巡检扫不到）。
  */
-const KNOWN_RING_CLIP = ["library-grid", "file-list", "page"];
+const KNOWN_RING_CLIP = ["library-grid"];
 
 function chromePath() {
   const candidates = [
@@ -447,6 +448,111 @@ const scanTabs = async () => {
           note(k2.title.length > 0, `K2 头部有标题（${k2.title}）`);
         }
       }
+      if (name === "文件") {
+        // 先进一个文件夹：一屏至少两行才量得出行距，面包屑也才有两片以上。
+        await page.eval(`
+          const row = document.querySelector('.k7-row');
+          if (row) row.click();
+          await new Promise((r) => setTimeout(r, 700));
+          return true;
+        `);
+        const k7 = await page.eval(`
+          const rect = (el) => { const r = el.getBoundingClientRect();
+            return { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2), right: +r.right.toFixed(2) }; };
+          const box = (sel) => { const el = document.querySelector(sel); return el ? rect(el) : null; };
+          const rows = [...document.querySelectorAll('.k7-row')];
+          const places = [...document.querySelectorAll('.k7-place')];
+          const head = document.querySelector('.k7-table-head');
+          const bar = document.querySelector('.k7-bar');
+          const left = (el) => (el ? +el.getBoundingClientRect().left.toFixed(2) : null);
+          return {
+            dp: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1,
+            crumb: box('.k7-crumbs .k7-crumb'),
+            crumbs: document.querySelectorAll('.k7-crumbs .k7-crumb').length,
+            places: box('.k7-places'),
+            place: box('.k7-place'),
+            placeStep: places.length > 1 ? +(places[1].getBoundingClientRect().top - places[0].getBoundingClientRect().top).toFixed(2) : null,
+            head: box('.k7-table-head'),
+            headX: head ? [...head.querySelectorAll('span')].map(left) : [],
+            row: rows[0] ? rect(rows[0]) : null,
+            rowStep: rows.length > 1 ? +(rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top).toFixed(2) : null,
+            iconX: left(document.querySelector('.k7-row-icon')),
+            nameX: left(document.querySelector('.k7-row-name')),
+            sizeX: left(document.querySelector('.k7-row-size')),
+            timeX: left(document.querySelector('.k7-row-time')),
+            bar: bar ? rect(bar) : null,
+            chip: box('.k7-chip'),
+            search: box('.k7-search'),
+            sort: box('.k7-sort'),
+            rows2: rows.length,
+          };
+        `);
+        const d = k7 ? k7.dp : 1;
+        if (!k7 || !k7.row || !k7.bar) {
+          note(false, "文件页是 K7：找不到 .k7-row / .k7-bar");
+        } else {
+          note(Math.abs(k7.crumb.y - 52 * d) < 2.5 && Math.abs(k7.crumb.h - 30 * d) < 1.5,
+            `K7 面包屑 chip：顶边 52dp、高 30dp（实测 ${k7.crumb.y} / ${k7.crumb.h}）`);
+          note(k7.crumbs >= 2, `K7 面包屑有分隔的层级（${k7.crumbs} 片）`);
+          note(Math.abs(k7.places.x - 260 * d) < 1.5 && Math.abs(k7.places.w - 200 * d) < 1.5 && Math.abs(k7.places.y - 98 * d) < 2.5,
+            `K7 位置栏 200dp 起于 260 / 98（实测 ${k7.places.x} / ${k7.places.y} / 宽 ${k7.places.w}）`);
+          note(k7.placeStep !== null && Math.abs(k7.placeStep - 32 * d) < 1.5,
+            `K7 位置行步进 32dp（实测 ${k7.placeStep}）`);
+          note(Math.abs(k7.head.y - 98 * d) < 2.5 && Math.abs(k7.head.h - 34 * d) < 2,
+            `K7 表头顶边 98dp、高 34dp（实测 ${k7.head.y} / ${k7.head.h}）`);
+          note(k7.headX.length === 3 && Math.abs(k7.headX[1] - 872 * d) < 4 && Math.abs(k7.headX[2] - 982 * d) < 4,
+            `K7 表头三列落在 492 / 872 / 982dp（实测 ${k7.headX.map((v) => Math.round(v)).join(" / ")}）`);
+          note(Math.abs(k7.row.y - 146 * d) < 3 && Math.abs(k7.row.h - 39 * d) < 2,
+            `K7 首行顶边 146dp、行盒 39dp（实测 ${k7.row.y} / ${k7.row.h}）`);
+          note(k7.rowStep !== null && Math.abs(k7.rowStep - 46 * d) < 1.5,
+            `K7 行步进 46dp（实测 ${k7.rowStep}）`);
+          note(Math.abs(k7.row.x - 476 * d) < 1.5 && Math.abs(k7.row.right - 1256 * d) < 1.5,
+            `K7 行盒横跨 476..1256（实测 ${k7.row.x}..${k7.row.right}）`);
+          note(Math.abs(k7.iconX - 489 * d) < 3 && Math.abs(k7.nameX - 521.5 * d) < 3.5,
+            `K7 行图标 489dp / 名称 521.5dp（实测 ${k7.iconX} / ${k7.nameX}）`);
+          note(Math.abs(k7.sizeX - 872 * d) < 4 && Math.abs(k7.timeX - 982 * d) < 4,
+            `K7 行内大小 872dp / 时间 982dp（实测 ${k7.sizeX} / ${k7.timeX}）`);
+          note(Math.abs(k7.bar.y - 610 * d) < 3 && Math.abs(k7.bar.h - 46 * d) < 1.5,
+            `K7 底部操作条顶边 610dp、高 46dp（实测 ${k7.bar.y} / ${k7.bar.h}）`);
+          note(Math.abs(k7.bar.x - 476 * d) < 1.5 && Math.abs(k7.bar.right - 1256 * d) < 1.5,
+            `K7 操作条宽度跟着文件栏走 476..1256（实测 ${k7.bar.x}..${k7.bar.right}）`);
+          note(k7.chip && Math.abs(k7.chip.h - 28 * d) < 1.5, `K7 操作 chip 高 28dp（实测 ${k7.chip ? k7.chip.h : "-"}）`);
+          note(Math.abs(k7.search.w - 104 * d) < 2 && Math.abs(k7.sort.w - 96 * d) < 2,
+            `K7 搜索 104dp / 排序 96dp（实测 ${k7.search.w} / ${k7.sort.w}）`);
+          note(Math.abs(k7.sort.right - 1256 * d) < 2,
+            `K7 排序按钮贴右侧安全边 1256dp（实测 ${k7.sort.right}）`);
+
+          // 交互冒烟：排序展开行、选中项驱动底部操作条（这两条是 K7 新加的联动，
+          // 只靠几何量不出来 —— 按钮在那儿但没接上，几何照样是绿的）。
+          const inter = await page.eval(`
+            const click = (sel) => { const el = document.querySelector(sel); if (el) el.click(); return !!el; };
+            const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+            const out = {};
+            click('.k7-sort');
+            await wait(250);
+            out.sortKeys = document.querySelectorAll('.k7-sort-key').length;
+            click('.k7-sort');
+            await wait(250);
+            out.sortClosed = document.querySelectorAll('.k7-sort-key').length;
+            const row = document.querySelector('.k7-row');
+            row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+            await wait(250);
+            out.picked = document.querySelectorAll('.k7-row.is-picked').length;
+            out.note = (document.querySelector('.k7-bar-note')?.textContent || '').trim().slice(0, 10);
+            const chips = [...document.querySelectorAll('.k7-chip')];
+            out.chips = chips.length;
+            out.copyOn = chips[0] ? !chips[0].disabled : false;
+            out.renameOn = chips[3] ? !chips[3].disabled : false;
+            return out;
+          `);
+          note(inter.sortKeys === 4 && inter.sortClosed === 0,
+            `K7「排序」展开 4 个键、再点收起（${inter.sortKeys} → ${inter.sortClosed}）`);
+          note(inter.chips === 8, `K7 底部操作条 8 个 chip（实测 ${inter.chips}）`);
+          note(inter.picked === 1 && inter.copyOn && inter.renameOn && inter.note.includes("已选"),
+            `K7 选中一项后操作条跟着变（选中 ${inter.picked} 项 / 复制${inter.copyOn ? "亮" : "灰"} / 提示「${inter.note}」）`);
+        }
+      }
+
       if (SHOTS) {
         const p = join(SHOTS, `tab-${name}-${width}x${height}.png`);
         await page.shot(p);
