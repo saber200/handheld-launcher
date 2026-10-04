@@ -24,7 +24,8 @@
 - **如实降级的四处**（都不摆假数据）：① 首页 / 下载 → 排期占位页并说明原因（需要最近启动记录、存储容量、把各处安装进度收成一个任务模型）；② 侧栏全局搜索框 → 只做视觉、不给 `data-focusable`；③ 存储卡 → 显示 `—` +「容量读取待接入」，只保留「打开管理器」（切到文件页）；④ 顶栏电量 → WebView2 有电池接口才显示，没有就整格不出现。侧栏徽标（库总数 / 已装数）也先没做：等游戏库那步把库状态提到共享层再加，现在做会多一次启动扫描。
 - **提示条**只列真的绑上了的键（设计稿里的 X 收藏 / Y 打开目录 / 快速菜单还没实现，等对应里程碑再加）。
 - **校验脚本**：改造包 `tools/` 那三个 `.py` **跑不起来** —— 开头 `import ds2` / `boards2`（设计工具内部的渲染库），包里没带，本机实测 `ModuleNotFoundError`。按同样的检查思路写了零依赖的 `scripts/audit-ui.mjs`（禁胶囊 / 禁椭圆 / 圆角六档 / 颜色与 design-tokens.json 对表 / 手写数值报告），已接进 pre-commit 与 CI 的 Lint 作业；旧页面的胶囊与手写数值列在「待迁移」里只报告不拦，全部迁完再切 `--strict`。
-- **本机验证**：`npx tsc --noEmit`、`npm run build`、`cargo clippy --workspace --all-targets`（退出 0，只有 macOS 编不到 Windows 段的既有告警）、`node scripts/audit-ui.mjs`（阻塞项 0）。另用本机 Chrome 无头截图 1920×1080 **实际看过**游戏库 / 文件 / 工具箱 / 首页占位四个页面在新壳里的样子（外壳比例、侧栏、提示条都正常）。**真机（Windows 掌机）没装过**；Game Bar 的 XAML 这轮没动。
+- **本机验证**：`npx tsc --noEmit`、`npm run build`、`cargo clippy --workspace --all-targets`（退出 0，只有 macOS 编不到 Windows 段的既有告警）、`node scripts/audit-ui.mjs`（阻塞项 0）。另用本机 Chrome 无头截图 1920×1080 **实际看过**游戏库 / 文件 / 工具箱 / 首页占位四个页面在新壳里的样子（外壳比例、侧栏、提示条都正常），截图存在 `docs/redesign/preview/`（没 Windows 真机时就用它核对）。**真机（Windows 掌机）没装过**；Game Bar 的 XAML 这轮没动。
+- **CI**：`Lint` 在 `windows-latest` 上跑。第一次推上去**红了**，原因就是新加的审计脚本 —— `new URL(...).pathname` 在 Windows 上给的是 `/D:/a/...`，`readdirSync` 直接 ENOENT（本机 macOS 完全看不出来）；改成 `fileURLToPath` + 路径分隔符归一后**绿了**（tsc、clippy、audit 三步都在 Windows 上过）。
 - **后续顺序（我定的）**：M1 游戏库（横向卡片条 + hero + 信息面板，保留分组 / 隐藏 / 改名 / 卡片菜单 / Mod）→ M3 文件页换视觉（逻辑一行不动）→ M4 工具箱（顺带给启动器补上 TDP 卡，命令都是现成的）+ 设置抽屉 7 行 → M5 前端浮层 K8 → 首页 / 下载 / 软件库预置这三块等数据源到位 → M6 硬化（空 / 错态、双语不溢出、audit 严格模式、版本号六处、发版）。
 
 ## 0.1.58 这一版（一）：小组件删掉「自启」行；设置页那行改名「安装前端」（2026-10-04，用户要求）
