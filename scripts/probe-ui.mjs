@@ -448,8 +448,53 @@ const scanTabs = async () => {
           note(k2.title.length > 0, `K2 头部有标题（${k2.title}）`);
         }
       }
+      // ── 左右键跨焦点域（用户 2026-10-04 报过「从内容区按左进不了侧栏 / 从侧栏按右出不来」）：
+      //    逐页把**每个**可聚焦元素都试一遍 —— 一直按左（至多 40 步）必须能进侧栏；
+      //    侧栏每一行一直按右必须能出到内容区。这比单测「最左那张卡」严得多：
+      //    M3 之前只在游戏库那一种布局上验过，软件库 / 文件页 / 工具箱是这次才扫的。
+      const navAll = await page.eval(`
+        const mod = await import('/src/hooks/useGamepadNav.ts');
+        const zoneOf = (el) => el.closest('[data-focus-zone]')?.getAttribute('data-focus-zone') ?? '-';
+        const isRail = (el) => !!el.closest('.nav-rail');
+        const vis = () => [...document.querySelectorAll('[data-focusable]')].filter((el) => el.offsetParent !== null);
+        const walk = (dir, ok) => {
+          let prev = null;
+          let step = 0;
+          while (step++ < 40) {
+            mod.moveDirectionalFocus(dir, 0);
+            const now = document.activeElement;
+            if (ok(now)) return step;
+            if (now === prev) break; // 原地不动 = 卡死
+            prev = now;
+          }
+          return 0;
+        };
+        const stuck = [];
+        let n = 0;
+        for (const el of vis()) {
+          if (isRail(el) || el.closest('.drawer-root')) continue;
+          n++;
+          el.focus();
+          if (document.activeElement !== el) continue;
+          if (!walk(-1, isRail)) stuck.push(zoneOf(el) + ':' + (el.className || '').split(' ')[0] + '|' + (el.textContent || '').trim().slice(0, 6));
+        }
+        const railStuck = [];
+        for (const item of [...document.querySelectorAll('.nav-item')]) {
+          if (!item.offsetParent) continue;
+          item.focus();
+          if (!walk(1, (el) => !isRail(el))) railStuck.push((item.textContent || '').trim().slice(0, 4));
+        }
+        return { n, stuck, railStuck };
+      `);
+      note(navAll.stuck.length === 0,
+        `${name}：内容区 ${navAll.n} 个可聚焦元素一直按左都能进侧栏${navAll.stuck.length ? "（卡住的：" + navAll.stuck.slice(0, 4).join("、") + "）" : ""}`);
+      // 首页 / 下载还是「排期中」占位页，内容区一个可聚焦元素都没有，按右没地方去 —— 这条不报错
+      if (navAll.n > 0) {
+        note(navAll.railStuck.length === 0,
+          `${name}：侧栏每行一直按右都能出到内容区${navAll.railStuck.length ? "（出不去的：" + navAll.railStuck.join("、") + "）" : ""}`);
+      }
+
       if (name === "文件") {
-        // 先进一个文件夹：一屏至少两行才量得出行距，面包屑也才有两片以上。
         await page.eval(`
           const row = document.querySelector('.k7-row');
           if (row) row.click();
