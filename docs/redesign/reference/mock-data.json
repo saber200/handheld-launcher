@@ -1,0 +1,844 @@
+{
+  "games": [
+    {
+      "id": "hk-silksong",
+      "title": "Hollow Knight: Silksong",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "42.6 小时",
+      "last": "今天",
+      "genre": "类银河恶魔城",
+      "size": "8.4 GB",
+      "status": "deck-verified",
+      "score": 96,
+      "tint": [
+        94,
+        234,
+        212
+      ],
+      "year": 2025,
+      "dev": "Team Cherry",
+      "updating": null,
+      "favorite": true
+    },
+    {
+      "id": "elden-ring",
+      "title": "Elden Ring",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "186.2 小时",
+      "last": "昨天",
+      "genre": "动作角色扮演",
+      "size": "60.1 GB",
+      "status": "deck-playable",
+      "score": 94,
+      "tint": [
+        250,
+        204,
+        21
+      ],
+      "year": 2022,
+      "dev": "FromSoftware"
+    },
+    {
+      "id": "cyberpunk",
+      "title": "Cyberpunk 2077",
+      "plat": "gog",
+      "installed": true,
+      "playtime": "97.4 小时",
+      "last": "3 天前",
+      "genre": "开放世界",
+      "size": "72.8 GB",
+      "status": "deck-playable",
+      "score": 86,
+      "tint": [
+        255,
+        209,
+        102
+      ],
+      "year": 2020,
+      "dev": "CD Projekt Red"
+    },
+    {
+      "id": "balatro",
+      "title": "Balatro",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "63.1 小时",
+      "last": "今天",
+      "genre": "卡牌 Roguelike",
+      "size": "0.2 GB",
+      "status": "deck-verified",
+      "score": 90,
+      "tint": [
+        248,
+        113,
+        113
+      ],
+      "year": 2024,
+      "dev": "LocalThunk"
+    },
+    {
+      "id": "hades2",
+      "title": "Hades II",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "28.9 小时",
+      "last": "上周",
+      "genre": "Roguelike 动作",
+      "size": "12.6 GB",
+      "status": "deck-verified",
+      "score": 92,
+      "tint": [
+        167,
+        139,
+        250
+      ],
+      "year": 2024,
+      "dev": "Supergiant"
+    },
+    {
+      "id": "stardew",
+      "title": "Stardew Valley 1.6",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "141.0 小时",
+      "last": "4 天前",
+      "genre": "模拟经营",
+      "size": "1.1 GB",
+      "status": "deck-verified",
+      "score": 89,
+      "tint": [
+        163,
+        230,
+        53
+      ],
+      "year": 2024,
+      "dev": "ConcernedApe"
+    },
+    {
+      "id": "bg3",
+      "title": "Baldur's Gate 3",
+      "plat": "steam",
+      "installed": true,
+      "updating": 0.62,
+      "playtime": "204.5 小时",
+      "last": "今天",
+      "genre": "CRPG",
+      "size": "122.4 GB",
+      "status": "deck-playable",
+      "score": 96,
+      "tint": [
+        251,
+        146,
+        60
+      ],
+      "year": 2023,
+      "dev": "Larian"
+    },
+    {
+      "id": "vampire",
+      "title": "Vampire Survivors",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "52.3 小时",
+      "last": "上周",
+      "genre": "弹幕生存",
+      "size": "0.9 GB",
+      "status": "deck-verified",
+      "score": 87,
+      "tint": [
+        129,
+        140,
+        248
+      ],
+      "year": 2022,
+      "dev": "poncle"
+    },
+    {
+      "id": "forza5",
+      "title": "Forza Horizon 5",
+      "plat": "xbox",
+      "installed": true,
+      "playtime": "71.8 小时",
+      "last": "2 周前",
+      "genre": "竞速",
+      "size": "110.2 GB",
+      "status": "deck-playable",
+      "score": 92,
+      "tint": [
+        45,
+        212,
+        191
+      ],
+      "year": 2021,
+      "dev": "Playground"
+    },
+    {
+      "id": "ds3",
+      "title": "Dark Souls III",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "88.0 小时",
+      "last": "1 个月前",
+      "genre": "动作角色扮演",
+      "size": "25.3 GB",
+      "status": "deck-verified",
+      "score": 89,
+      "tint": [
+        250,
+        204,
+        21
+      ],
+      "year": 2016,
+      "dev": "FromSoftware"
+    },
+    {
+      "id": "civ6",
+      "title": "Civilization VI",
+      "plat": "epic",
+      "installed": true,
+      "playtime": "116.7 小时",
+      "last": "1 个月前",
+      "genre": "策略",
+      "size": "23.9 GB",
+      "status": "deck-playable",
+      "score": 88,
+      "tint": [
+        96,
+        165,
+        250
+      ],
+      "year": 2016,
+      "dev": "Firaxis"
+    },
+    {
+      "id": "zelda-totk",
+      "title": "塞尔达传说 王国之泪",
+      "plat": "emu",
+      "installed": true,
+      "playtime": "46.2 小时",
+      "last": "5 天前",
+      "genre": "开放世界 · 模拟",
+      "size": "16.4 GB",
+      "status": "emu-fine",
+      "score": 96,
+      "tint": [
+        56,
+        189,
+        248
+      ],
+      "year": 2023,
+      "dev": "任天堂（模拟器）"
+    },
+    {
+      "id": "gtav",
+      "title": "GTA V",
+      "plat": "epic",
+      "installed": true,
+      "playtime": "133.4 小时",
+      "last": "3 周前",
+      "genre": "开放世界",
+      "size": "105.0 GB",
+      "status": "deck-playable",
+      "score": 92,
+      "tint": [
+        244,
+        114,
+        182
+      ],
+      "year": 2013,
+      "dev": "Rockstar"
+    },
+    {
+      "id": "signalis",
+      "title": "SIGNALIS",
+      "plat": "gog",
+      "installed": true,
+      "playtime": "12.5 小时",
+      "last": "2 个月前",
+      "genre": "生存恐怖",
+      "size": "3.2 GB",
+      "status": "deck-verified",
+      "score": 88,
+      "tint": [
+        248,
+        113,
+        113
+      ],
+      "year": 2022,
+      "dev": "rose-engine"
+    },
+    {
+      "id": "apex",
+      "title": "Apex Legends",
+      "plat": "steam",
+      "installed": true,
+      "playtime": "204.1 小时",
+      "last": "上周",
+      "genre": "战术竞技",
+      "size": "68.0 GB",
+      "status": "deck-playable",
+      "score": 80,
+      "tint": [
+        251,
+        146,
+        60
+      ],
+      "year": 2020,
+      "dev": "Respawn"
+    },
+    {
+      "id": "slay",
+      "title": "Slay the Spire",
+      "plat": "steam",
+      "installed": false,
+      "playtime": null,
+      "last": "2 个月前",
+      "genre": "卡牌构筑",
+      "size": "1.0 GB",
+      "status": "deck-verified",
+      "score": 91,
+      "tint": [
+        167,
+        139,
+        250
+      ],
+      "year": 2019,
+      "dev": "Mega Crit"
+    },
+    {
+      "id": "rdr2",
+      "title": "Red Dead Redemption 2",
+      "plat": "steam",
+      "installed": false,
+      "playtime": "76.3 小时",
+      "last": "半年以前",
+      "genre": "开放世界",
+      "size": "150.0 GB",
+      "status": "deck-playable",
+      "score": 97,
+      "tint": [
+        251,
+        146,
+        60
+      ],
+      "year": 2019,
+      "dev": "Rockstar"
+    },
+    {
+      "id": "hollow",
+      "title": "Hollow Knight",
+      "plat": "steam",
+      "installed": false,
+      "playtime": "61.2 小时",
+      "last": "半年以前",
+      "genre": "类银河恶魔城",
+      "size": "9.0 GB",
+      "status": "deck-verified",
+      "score": 95,
+      "tint": [
+        129,
+        140,
+        248
+      ],
+      "year": 2017,
+      "dev": "Team Cherry"
+    },
+    {
+      "id": "nioh2",
+      "title": "Nioh 2",
+      "plat": "epic",
+      "installed": false,
+      "playtime": "9.8 小时",
+      "last": "1 年前",
+      "genre": "动作角色扮演",
+      "size": "85.0 GB",
+      "status": "deck-playable",
+      "score": 85,
+      "tint": [
+        250,
+        204,
+        21
+      ],
+      "year": 2021,
+      "dev": "Team Ninja"
+    },
+    {
+      "id": "mhw",
+      "title": "Monster Hunter Wilds",
+      "plat": "steam",
+      "installed": false,
+      "playtime": null,
+      "last": "未游玩",
+      "genre": "狩猎动作",
+      "size": "140.0 GB",
+      "status": "deck-unsupported",
+      "score": 78,
+      "tint": [
+        52,
+        211,
+        153
+      ],
+      "year": 2025,
+      "dev": "Capcom"
+    },
+    {
+      "id": "p5r",
+      "title": "Persona 5 Royal",
+      "plat": "xbox",
+      "installed": false,
+      "playtime": "58.9 小时",
+      "last": "4 个月前",
+      "genre": "JRPG",
+      "size": "40.0 GB",
+      "status": "deck-verified",
+      "score": 95,
+      "tint": [
+        248,
+        113,
+        113
+      ],
+      "year": 2022,
+      "dev": "Atlus"
+    },
+    {
+      "id": "dead-cells",
+      "title": "Dead Cells",
+      "plat": "steam",
+      "installed": false,
+      "playtime": "34.5 小时",
+      "last": "5 个月前",
+      "genre": "Roguelike 动作",
+      "size": "1.4 GB",
+      "status": "deck-verified",
+      "score": 89,
+      "tint": [
+        45,
+        212,
+        191
+      ],
+      "year": 2018,
+      "dev": "Motion Twin"
+    },
+    {
+      "id": "isaac",
+      "title": "以撒的结合：忏悔",
+      "plat": "steam",
+      "installed": false,
+      "playtime": "97.2 小时",
+      "last": "8 个月前",
+      "genre": "Roguelike",
+      "size": "1.2 GB",
+      "status": "deck-verified",
+      "score": 90,
+      "tint": [
+        250,
+        204,
+        21
+      ],
+      "year": 2021,
+      "dev": "Nicalis"
+    },
+    {
+      "id": "fc25",
+      "title": "EA SPORTS FC 25",
+      "plat": "steam",
+      "installed": false,
+      "playtime": "23.0 小时",
+      "last": "3 个月前",
+      "genre": "体育",
+      "size": "52.0 GB",
+      "status": "deck-playable",
+      "score": 64,
+      "tint": [
+        52,
+        211,
+        153
+      ],
+      "year": 2024,
+      "dev": "EA"
+    },
+    {
+      "id": "outer-wilds",
+      "title": "Outer Wilds",
+      "plat": "steam",
+      "installed": false,
+      "playtime": "21.4 小时",
+      "last": "7 个月前",
+      "genre": "解谜探索",
+      "size": "8.6 GB",
+      "status": "deck-verified",
+      "score": 94,
+      "tint": [
+        129,
+        140,
+        248
+      ],
+      "year": 2020,
+      "dev": "Mobius"
+    }
+  ],
+  "recent": [
+    "hk-silksong",
+    "bg3",
+    "balatro",
+    "elden-ring",
+    "hades2",
+    "stardew",
+    "cyberpunk",
+    "vampire"
+  ],
+  "softwareLocal": [
+    {
+      "id": "sw-edge",
+      "name": "Microsoft Edge",
+      "vendor": "Microsoft",
+      "cat": "浏览器",
+      "ver": "131.0.2903.86",
+      "size": "1.8 GB",
+      "path": "C:\\Program Files (x86)\\Microsoft\\Edge",
+      "installed": true,
+      "update": "有新版本 131.0.2903.99",
+      "running": true,
+      "icon": "browser"
+    },
+    {
+      "id": "sw-steam",
+      "name": "Steam 客户端",
+      "vendor": "Valve",
+      "cat": "游戏平台",
+      "ver": "1738021142",
+      "size": "2.4 GB",
+      "path": "C:\\Program Files (x86)\\Steam",
+      "installed": true,
+      "update": null,
+      "running": true,
+      "icon": "cart"
+    },
+    {
+      "id": "sw-heroic",
+      "name": "Heroic Launcher",
+      "vendor": "Heroic Games",
+      "cat": "游戏平台",
+      "ver": "2.15.2",
+      "size": "312 MB",
+      "path": "D:\\Apps\\Heroic",
+      "installed": true,
+      "update": "有新版本 2.16.0",
+      "running": false,
+      "icon": "grid"
+    },
+    {
+      "id": "sw-emu-deck",
+      "name": "EmuDeck",
+      "vendor": "EmuDeck",
+      "cat": "模拟器",
+      "ver": "2.7.0",
+      "size": "86 MB",
+      "path": "D:\\Emulation\\EmuDeck",
+      "installed": true,
+      "update": null,
+      "running": false,
+      "icon": "gamepad"
+    },
+    {
+      "id": "sw-retroarch",
+      "name": "RetroArch",
+      "vendor": "Libretro",
+      "cat": "模拟器",
+      "ver": "1.19.1",
+      "size": "248 MB",
+      "path": "D:\\Emulation\\RetroArch",
+      "installed": true,
+      "update": "有新版本 1.20.0",
+      "running": false,
+      "icon": "app"
+    },
+    {
+      "id": "sw-7zip",
+      "name": "7-Zip",
+      "vendor": "Igor Pavlov",
+      "cat": "工具",
+      "ver": "24.09",
+      "size": "5.2 MB",
+      "path": "C:\\Program Files\\7-Zip",
+      "installed": true,
+      "update": null,
+      "running": false,
+      "icon": "folder"
+    },
+    {
+      "id": "sw-hwinfo",
+      "name": "HWiNFO64",
+      "vendor": "REALiX",
+      "cat": "工具",
+      "ver": "8.16",
+      "size": "42 MB",
+      "path": "D:\\Apps\\HWiNFO",
+      "installed": true,
+      "update": "有新版本 8.20",
+      "running": true,
+      "icon": "bolt"
+    },
+    {
+      "id": "sw-vlc",
+      "name": "VLC media player",
+      "vendor": "VideoLAN",
+      "cat": "影音",
+      "ver": "3.0.21",
+      "size": "178 MB",
+      "path": "C:\\Program Files\\VideoLAN\\VLC",
+      "installed": true,
+      "update": null,
+      "running": false,
+      "icon": "play"
+    }
+  ],
+  "softwarePreset": [
+    {
+      "id": "ps-chat",
+      "name": "NEXUS 语音与派对",
+      "vendor": "NEXUS 内置",
+      "cat": "通讯",
+      "ver": "1.4.0",
+      "size": "96 MB",
+      "desc": "低延迟语音、派对房间、跨设备邀请；安装后可被游戏内覆盖层直接调用。",
+      "tag": "官方",
+      "icon": "chat",
+      "essential": false
+    },
+    {
+      "id": "ps-clip",
+      "name": "剪辑与分享工具",
+      "vendor": "NEXUS 内置",
+      "cat": "创作",
+      "ver": "1.2.1",
+      "size": "240 MB",
+      "desc": "录制最近 30 秒片段、一键裁剪竖屏并分享到手机；依赖覆盖层截图权限。",
+      "tag": "官方",
+      "icon": "expand",
+      "essential": false
+    },
+    {
+      "id": "ps-stream",
+      "name": "串流助手",
+      "vendor": "NEXUS 内置",
+      "cat": "网络",
+      "ver": "1.0.6",
+      "size": "64 MB",
+      "desc": "把掌机画面以 1080p60 / 低延迟推到电视或另一台掌机；支持手柄直通。",
+      "tag": "官方",
+      "icon": "wifi",
+      "essential": false
+    },
+    {
+      "id": "ps-perf",
+      "name": "性能与功耗面板（进阶）",
+      "vendor": "NEXUS 内置",
+      "cat": "系统",
+      "ver": "2.1.0",
+      "size": "18 MB",
+      "desc": "开放 TDP 曲线、逐游戏风扇策略与帧率上限；需管理员权限。",
+      "tag": "推荐",
+      "icon": "bolt",
+      "essential": false
+    },
+    {
+      "id": "ps-emu",
+      "name": "模拟器运行库合集",
+      "vendor": "NEXUS 内置",
+      "cat": "游戏",
+      "ver": "3.4.2",
+      "size": "1.2 GB",
+      "desc": "预置 BIOS 替代方案、着色器缓存与手柄映射模板，装完即可识别 ROM 目录。",
+      "tag": "推荐",
+      "icon": "gamepad",
+      "essential": false
+    },
+    {
+      "id": "ps-codec",
+      "name": "视频解码扩展",
+      "vendor": "NEXUS 内置",
+      "cat": "系统",
+      "ver": "1.1.0",
+      "size": "24 MB",
+      "desc": "补齐 HEVC / AV1 硬件解码，修复部分游戏内录屏花屏与掉帧。",
+      "tag": "基础",
+      "icon": "play",
+      "essential": true
+    },
+    {
+      "id": "ps-compat",
+      "name": "兼容层组件 (Proton 运行库)",
+      "vendor": "NEXUS 内置",
+      "cat": "游戏",
+      "ver": "9.0-4",
+      "size": "420 MB",
+      "desc": "为 Windows 掌机预置 Linux 侧兼容层与常用运行库；多数游戏无需手动配置。",
+      "tag": "基础",
+      "icon": "grid",
+      "essential": true
+    },
+    {
+      "id": "ps-cloud",
+      "name": "云存档同步代理",
+      "vendor": "NEXUS 内置",
+      "cat": "系统",
+      "ver": "1.3.4",
+      "size": "36 MB",
+      "desc": "在 Steam / Epic / GOG 之间对齐存档时间戳，退出游戏后自动上传。",
+      "tag": "基础",
+      "icon": "cloud",
+      "essential": true
+    }
+  ],
+  "downloadsActive": [
+    {
+      "id": "bg3",
+      "title": "Baldur's Gate 3",
+      "plat": "steam",
+      "pct": 0.62,
+      "speed": "48.2 MB/s",
+      "eta": "12 分 30 秒",
+      "size": "122.4 GB",
+      "done": "75.6 GB",
+      "phase": "正在下载",
+      "note": "更新补丁 4"
+    },
+    {
+      "id": "forza5",
+      "title": "Forza Horizon 5",
+      "plat": "xbox",
+      "pct": 0.18,
+      "speed": "22.6 MB/s",
+      "eta": "58 分 12 秒",
+      "size": "110.2 GB",
+      "done": "19.8 GB",
+      "phase": "正在下载",
+      "note": "首次安装"
+    },
+    {
+      "id": "shader",
+      "title": "着色器预编译缓存",
+      "plat": "steam",
+      "pct": 0.84,
+      "speed": "—",
+      "eta": "约 2 分钟",
+      "size": "3.8 GB",
+      "done": "3.2 GB",
+      "phase": "正在处理",
+      "note": "Elden Ring · 预编译"
+    }
+  ],
+  "downloadsQueue": [
+    {
+      "id": "mhw",
+      "title": "Monster Hunter Wilds",
+      "plat": "steam",
+      "pct": 0.0,
+      "size": "140.0 GB",
+      "note": "等待前面任务完成"
+    },
+    {
+      "id": "rdr2",
+      "title": "Red Dead Redemption 2",
+      "plat": "steam",
+      "pct": 0.0,
+      "size": "150.0 GB",
+      "note": "已暂停"
+    },
+    {
+      "id": "zelda-totk",
+      "title": "塞尔达传说 王国之泪",
+      "plat": "emu",
+      "pct": 0.0,
+      "size": "16.4 GB",
+      "note": "等待 · 需要密钥"
+    }
+  ],
+  "friends": [
+    {
+      "name": "老陈",
+      "game": "Baldur's Gate 3",
+      "state": "在游戏中",
+      "tint": [
+        52,
+        211,
+        153
+      ]
+    },
+    {
+      "name": "Kai",
+      "game": "Balatro",
+      "state": "在游戏中",
+      "tint": [
+        248,
+        113,
+        113
+      ]
+    },
+    {
+      "name": "小南",
+      "game": "Hollow Knight: Silksong",
+      "state": "在游戏中",
+      "tint": [
+        94,
+        234,
+        212
+      ]
+    },
+    {
+      "name": "Yuki",
+      "game": "Apex Legends",
+      "state": "在线",
+      "tint": [
+        251,
+        146,
+        60
+      ]
+    },
+    {
+      "name": "阿泽",
+      "game": "离线 2 小时",
+      "state": "离线",
+      "tint": [
+        124,
+        138,
+        154
+      ]
+    }
+  ],
+  "fpsSeries": [
+    58,
+    61,
+    59,
+    60,
+    60,
+    58,
+    57,
+    59,
+    60,
+    60,
+    61,
+    60,
+    59,
+    60,
+    60,
+    58,
+    57,
+    56,
+    58,
+    60,
+    60,
+    59,
+    60,
+    61,
+    60,
+    60,
+    59,
+    58,
+    60,
+    60
+  ]
+}

@@ -1,0 +1,302 @@
+{
+  "meta": {
+    "project": "FantasyHub 掌机前端",
+    "version": "1.0",
+    "logicalCanvas": {
+      "shell": [
+        1280,
+        720
+      ],
+      "frontendOverlay": [
+        440,
+        620
+      ]
+    },
+    "uiScaleRule": "uiScale = min(physicalHeight/1080, physicalWidth/1280)",
+    "note": "本文件与项目 src/styles/global.css 的 :root 令牌一一对应"
+  },
+  "color": {
+    "bg0": "#0B1220",
+    "bg1": "#121C2E",
+    "bgDeep": "#0A101B",
+    "panel": "#182236",
+    "panel2": "#202B42",
+    "panel3": "#2A3650",
+    "sunken": "#0E1525",
+    "line": "#2E3A54",
+    "lineSoft": "#232D43",
+    "lineStrong": "#445474",
+    "ink": "#F3F6FB",
+    "ink2": "#CED8E8",
+    "ink3": "#9AA8BD",
+    "ink4": "#748298",
+    "accent": "#3DD6C6",
+    "accent2": "#5B8CFF",
+    "accentDeep": "#104A48",
+    "accentHi": "#7EEEE0",
+    "onAccent": "#062420",
+    "danger": "#FF6B7A",
+    "warning": "#F5BF5A",
+    "success": "#3DD6C6",
+    "steam": "#66C0F4",
+    "epic": "#BEBEC8",
+    "gog": "#A776FF",
+    "xbox": "#16B74A",
+    "emu": "#FB923C"
+  },
+  "radius": {
+    "tag": 6,
+    "sm": 8,
+    "chip": 10,
+    "btn": 12,
+    "card": 14,
+    "panel": 16,
+    "shell": 18,
+    "rule": "可点面一律矩形圆角；仅状态圆点(≤9dp)与手柄按键角标(26dp)为正圆；禁止 999px / h/2"
+  },
+  "spacing": {
+    "cardPad": 16,
+    "panelPad": 20,
+    "gutter": 16,
+    "stack": 8,
+    "stackLg": 12,
+    "rowPadX": 12,
+    "safe": 24,
+    "rules": [
+      "卡片内元素距边缘 ≥16dp",
+      "同组 8dp / 不同组 ≥16dp",
+      "文字距容器边缘 ≥3dp",
+      "列表行内容不贴边"
+    ]
+  },
+  "type": [
+    {
+      "token": "h1",
+      "size": 23,
+      "weight": "bold",
+      "use": "页面标题"
+    },
+    {
+      "token": "h2",
+      "size": 16,
+      "weight": "bold",
+      "use": "区块标题"
+    },
+    {
+      "token": "h3",
+      "size": 13,
+      "weight": "semibold",
+      "use": "卡片组标题"
+    },
+    {
+      "token": "body",
+      "size": 12.5,
+      "weight": "medium",
+      "use": "正文 / 列表主行"
+    },
+    {
+      "token": "caption",
+      "size": 11,
+      "weight": "regular",
+      "use": "辅助信息"
+    },
+    {
+      "token": "micro",
+      "size": 9.5,
+      "weight": "regular",
+      "use": "角标与注释"
+    }
+  ],
+  "typeRule": {
+    "lineHeightRatio": 1.4,
+    "minBodySize": 11,
+    "numeric": "tabular-nums",
+    "fontStack": [
+      "Segoe UI Variable",
+      "Segoe UI",
+      "PingFang SC",
+      "Microsoft YaHei",
+      "sans-serif"
+    ]
+  },
+  "layout": {
+    "topbar": 44,
+    "sidebar": 236,
+    "hintbar": 48,
+    "sidebarPad": 16,
+    "sidebarRowW": 204,
+    "sidebarRowH": 40,
+    "sidebarRowStep": 42,
+    "sidebarBadgeInset": 12,
+    "sidebarRightGutter": 32,
+    "contentX": 260,
+    "contentW": 996,
+    "shelf": {
+      "tileW": 116,
+      "tileH": 146,
+      "focusScale": 1.36,
+      "gap": 16,
+      "focusGap": 20,
+      "top": 300,
+      "shelfPadX": 24
+    },
+    "appGrid": {
+      "cols": 6,
+      "gap": 16,
+      "cardW": 152.7,
+      "cardH": 176,
+      "iconBlockH": 58,
+      "headerRowH": 20,
+      "pad": 16
+    },
+    "drawer": {
+      "w": 440,
+      "padX": 24,
+      "padTop": 28,
+      "rowH": 52,
+      "rowStep": 62,
+      "ctrlW": 170
+    },
+    "files": {
+      "placesW": 200,
+      "rowH": 46,
+      "iconBlock": 46
+    }
+  },
+  "focus": {
+    "stroke": 3,
+    "glow": 14,
+    "glowAlpha": 0.51,
+    "offset": 4,
+    "badgeDiameter": 26
+  },
+  "icon": {
+    "sizes": [
+      11,
+      13,
+      15,
+      18,
+      22,
+      26,
+      30
+    ],
+    "stroke": "1.6~2dp",
+    "set": [
+      "home",
+      "grid",
+      "app",
+      "download",
+      "folder",
+      "tool",
+      "cart",
+      "chat",
+      "lock",
+      "play",
+      "pause",
+      "search",
+      "sort",
+      "filter",
+      "check",
+      "x",
+      "chev-l",
+      "chev-r",
+      "chev-u",
+      "chev-d",
+      "gamepad",
+      "battery",
+      "wifi",
+      "volume",
+      "user",
+      "star",
+      "heart",
+      "cloud",
+      "bolt",
+      "clock",
+      "info",
+      "plus",
+      "expand",
+      "terminal"
+    ]
+  },
+  "controller": {
+    "A": "确认 / 启动 / 安装",
+    "B": "返回上一层",
+    "X": "次要操作（收藏/更新/复制）",
+    "Y": "上下文（卡片菜单/打开目录/剪切）",
+    "LB/RB": "切换一级分区（必须跳过锁定项）",
+    "LT/RT": "切换分组 / 来源",
+    "Back双击": "呼出设置抽屉",
+    "长按A600ms": "游戏快速菜单",
+    "长按方向键400ms": "加速滚动（约 8 项/秒）"
+  },
+  "nav": [
+    {
+      "key": "home",
+      "icon": "home",
+      "label": "首页",
+      "locked": false
+    },
+    {
+      "key": "games",
+      "icon": "grid",
+      "label": "游戏库",
+      "locked": false
+    },
+    {
+      "key": "apps",
+      "icon": "app",
+      "label": "软件库",
+      "locked": false
+    },
+    {
+      "key": "downloads",
+      "icon": "download",
+      "label": "下载",
+      "locked": false
+    },
+    {
+      "key": "files",
+      "icon": "folder",
+      "label": "文件",
+      "locked": false
+    },
+    {
+      "key": "toolbox",
+      "icon": "tool",
+      "label": "工具箱",
+      "locked": false
+    },
+    {
+      "key": "store",
+      "icon": "cart",
+      "label": "商店",
+      "locked": true,
+      "lockNote": "即将开放"
+    },
+    {
+      "key": "community",
+      "icon": "chat",
+      "label": "社区",
+      "locked": true,
+      "lockNote": "即将开放"
+    }
+  ],
+  "lockedState": {
+    "style": "图标与文字 ink4；右侧 12dp lock 图标；不得使用 accent",
+    "focus": "不可进入 [data-focusable]；LB/RB 循环跳过",
+    "a11y": "读屏播报「<名称>，即将开放，不可用」",
+    "forbidden": "不得弹「敬请期待」弹窗"
+  },
+  "preservedCapabilities": [
+    "Steam/Epic 游戏扫描与启动",
+    "已安装软件扫描与启动",
+    "文件管理：浏览/新建/复制/粘贴/移动/打开/编辑保存/搜索",
+    "工具箱：运行库/Mod 工具/OptiScaler/前端安装",
+    "焦点域机制(data-focus-zone + LT/RT)",
+    "手柄屏上键盘",
+    "游戏分组/隐藏/改名",
+    "中英双语 i18n",
+    "独立前端浮层(Game Bar 小组件 + Back+Start/Ctrl+H)",
+    "TDP(提权留在启动器，前端走回环 IPC)"
+  ]
+}

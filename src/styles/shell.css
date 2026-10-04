@@ -1,0 +1,408 @@
+/*
+ * 新外壳：顶栏(44dp) + 左侧栏(236dp) + 内容区 + 底部提示条(48dp)。
+ *
+ * 这一层是"骨架"，各页内部仍按老写法（旧页面按里程碑逐页迁到令牌），所以这里**只用令牌**，
+ * 不写手感数字 —— 见 tokens.css 顶部说明。旧的顶部胶囊标签条（.tab-bar / .tab-list / .tab）
+ * 已在 global.css 里删掉：设计稿里它被侧栏取代了。
+ */
+
+/* 数字（时间/体积/速度/版本）必须等宽，否则会跟着数字跳动左右抖 */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.icon {
+  width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
+  flex: none;
+}
+
+/* ── 顶栏 ── */
+.top-bar {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  height: var(--h-topbar);
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  padding: 0 var(--safe);
+}
+
+.top-clock {
+  font-size: calc(13 * var(--dp));
+  font-weight: 650;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.top-date {
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.top-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: calc(13 * var(--dp));
+  font-weight: 600;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.top-bar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+}
+
+.top-chip {
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--dp));
+  height: calc(24 * var(--dp));
+  padding: 0 calc(8 * var(--dp));
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+}
+
+.top-chip .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
+}
+
+/* ── 侧栏骨架 ── */
+.shell-body {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.nav-rail {
+  flex: none;
+  width: var(--w-rail);
+  display: flex;
+  flex-direction: column;
+  padding: var(--rail-pad);
+  gap: var(--gutter);
+  min-height: 0;
+}
+
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+}
+
+.rail-brand-mark {
+  width: calc(40 * var(--dp));
+  height: calc(40 * var(--dp));
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-btn);
+  background: var(--accent-deep);
+  color: var(--accent-hi);
+}
+
+.rail-brand-mark .icon {
+  width: calc(22 * var(--dp));
+  height: calc(22 * var(--dp));
+}
+
+.rail-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  min-width: 0;
+}
+
+.rail-brand-text strong {
+  font-size: calc(19 * var(--dp));
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.rail-brand-text small {
+  font-size: calc(10 * var(--dp));
+  color: var(--ink-4);
+}
+
+/* 全局搜索框：本版只是"看得见、按不动"的占位 —— 全局搜索要跨库/跨文件聚合，
+   等对应里程碑接上真能力再给它 data-focusable（不做按了没反应的假按钮）。 */
+.rail-search {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--dp));
+  height: var(--h-rail-search);
+  padding: 0 var(--row-pad-x);
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line-soft);
+  background: var(--sunken);
+  color: var(--ink-4);
+  font-size: calc(11.5 * var(--dp));
+}
+
+.rail-search .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
+}
+
+.rail-items {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--dp));
+  height: var(--h-rail-row);
+  /* 徽标右缘再往里 12dp —— 上一版徽标贴着行右缘，看着像溢出（改造包 §1.2 的坑） */
+  padding: 0 calc(12 * var(--dp)) 0 var(--rail-pad);
+  border-radius: var(--radius-chip);
+  border: 1px solid transparent;
+  color: var(--ink-2);
+  font-size: calc(13 * var(--dp));
+  text-align: left;
+}
+
+.nav-item .icon {
+  color: var(--ink-3);
+}
+
+.nav-item:focus {
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+  border-color: transparent;
+  background: var(--panel-2);
+  box-shadow: 0 0 var(--focus-glow) var(--focus-glow-color);
+}
+
+.nav-item.is-current {
+  background: var(--panel-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.nav-item.is-current .icon {
+  color: var(--accent);
+}
+
+/* 选中行左侧 3dp × 24dp 竖条（矩形圆角，不是胶囊） */
+.nav-item.is-current::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(3 * var(--dp));
+  height: calc(24 * var(--dp));
+  border-radius: calc(2 * var(--dp));
+  background: var(--accent);
+}
+
+.nav-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-badge {
+  margin-left: auto;
+  height: var(--h-rail-badge);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--stack);
+  border-radius: var(--radius-tag);
+  background: var(--panel-3);
+  color: var(--ink-2);
+  font-size: calc(10.5 * var(--dp));
+  font-weight: 600;
+}
+
+.nav-item.is-current .nav-badge {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* 锁定态（商店 / 社区）：一律 ink-4、右侧小锁、不可聚焦、LB/RB 跳过。
+   注意 CSS 里**不要**给 .is-locked 加 hover / active 反馈 —— 禁用入口不该有任何可交互感。 */
+.nav-item.is-locked,
+.nav-item.is-locked .icon,
+.nav-item.is-locked:focus,
+.nav-item.is-locked:focus .icon {
+  color: var(--ink-4);
+  cursor: default;
+}
+
+
+/* ── 侧栏底部存储卡 ── */
+.storage-card {
+  margin-top: auto;
+  flex: none;
+  min-height: var(--h-storage-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  padding: var(--pad-card);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.storage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--stack);
+  font-size: var(--font-body);
+  color: var(--ink-2);
+}
+
+.storage-head strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.storage-track {
+  height: calc(6 * var(--dp));
+  border-radius: calc(6 * var(--dp));
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.storage-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.storage-meta {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--dp));
+  font-size: calc(10.5 * var(--dp));
+  color: var(--ink-4);
+}
+
+.storage-action {
+  margin: auto 0 0 calc(-6 * var(--dp));
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--dp));
+  padding: calc(4 * var(--dp)) calc(6 * var(--dp));
+  border-radius: var(--radius-sm);
+  color: var(--accent-hi);
+  font-size: calc(10.5 * var(--dp));
+  font-weight: 600;
+}
+
+.storage-action:focus {
+  outline: calc(2 * var(--dp)) solid var(--accent);
+  outline-offset: calc(2 * var(--dp));
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.storage-action .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
+}
+
+/* ── 底部提示条（整宽，跨到侧栏下方） ── */
+.shell-hint {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  height: var(--h-hintbar);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: calc(18 * var(--dp));
+  padding: 0 var(--safe);
+  border-top: 1px solid var(--line-soft);
+  animation: fade-in var(--dur-ui) var(--ease-soft) both;
+}
+
+.hint-pair {
+  display: flex;
+  align-items: center;
+  gap: calc(7 * var(--dp));
+  font-size: var(--font-caption);
+  color: var(--ink-3);
+}
+
+/* 按键角标：单个按键（A/B/X/Y）是正圆 26dp —— 规范里允许的两类正圆之一；
+   多字符的键（LT/RT、LB/RB、≡）用矩形圆角 + 左右内边距，否则字会从圆里溢出来。 */
+.hint-key {
+  min-width: var(--focus-badge);
+  height: var(--focus-badge);
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0 calc(7 * var(--dp));
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: calc(11.5 * var(--dp));
+  font-weight: 600;
+}
+
+.hint-key.is-round {
+  width: var(--focus-badge);
+  padding: 0;
+  border-radius: calc(var(--focus-badge) / 2);
+}
+
+/* ── 排期中的页面（首页 / 下载） ── */
+.scheduled-page {
+  gap: var(--gutter);
+}
+
+.scheduled-panel {
+  max-width: calc(680 * var(--dp));
+}
+
+.scheduled-panel h2 {
+  font-size: var(--font-h2);
+}
+
+.scheduled-panel p {
+  font-size: var(--font-body);
+  color: var(--ink-3);
+}
+
+.nav-item.is-locked:focus {
+  outline: none;
+  background: none;
+  box-shadow: none;
+}
+
+.nav-lock {
+  margin-left: auto;
+  display: flex;
+}
+
+.nav-lock .icon {
+  width: calc(12 * var(--dp));
+  height: calc(12 * var(--dp));
+}

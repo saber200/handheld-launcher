@@ -15,6 +15,7 @@
     "lint": "tsc --noEmit && cargo clippy --workspace --all-targets",
     "lint:web": "tsc --noEmit",
     "lint:rust": "cargo clippy --workspace --all-targets",
+    "audit:ui": "node scripts/audit-ui.mjs",
     "hooks": "git config core.hooksPath .githooks"
   },
   "dependencies": {

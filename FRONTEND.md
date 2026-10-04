@@ -3,6 +3,18 @@
 > 状态：**独立前端已改成无窗口的 Game Bar 后台（未验证），界面由 `frontend/gamebar` 的原生小组件承担**。这一套已经随 **0.1.56** 的安装包第一次发出去（0.1.57 原样带着；**0.1.58 删了小组件的「自启」行、设置页那行改名「安装前端」**，见下面第一节），真机上一次都没验过。下文保留最初拆分设计与 0.1.46–0.1.55 的浮层排查记录；那些窗口已经从代码里接不上，历史归因不能替代本节的验证边界。
 > 相关文档：`STATUS.md`（当前进度）、`FUTURE.md`（功能 2 / 功能 3 是本前端的由来）。
 
+## 未发布：界面大改 M0（设计令牌 + 左侧栏外壳，2026-10-04）
+
+设计材料归档在 `docs/redesign/`（规格书 + 9 张画板 + design-tokens / mock-data / ui-strings）。**外壳这层已落地，页面内部按里程碑逐页迁** —— 所以现在库里同时有「新令牌写法」和「旧 px 写法」，这是有意为之，不是漏改。
+
+- **一份令牌**：`src/styles/tokens.css` 是唯一落点（与 `reference/design-tokens.json` 对表，`scripts/audit-ui.mjs` 逐项比）。`global.css` 的 `:root` 只剩别名（`--muted` → `--ink-3`、`--radius` → `--radius-shell`）。**别在页面里再写一份颜色值**。
+- **几何走 `--dp`**：写成 `calc(N * var(--dp))`，`--dp` 由 `src/styles/scale.ts` 按窗口算（设计画布 1280×720）。为什么不用规格书 §11 表里那个公式，见 `scale.ts` 顶部注释。前端的画布是 440×620（K8），所以 `src/frontend/main.tsx` **不调用** `watchUiScale()`，`--dp` 保持 1px，只共用令牌与别名。
+- **页面迁移顺序**：旧页面先原样放在新壳里（旧 px 在新壳里仍然能看能用），轮到那一页时把视觉与令牌一起换。别为了「整齐」提前改 —— 那会让功能回归和视觉改动混在一起，出问题分不清是谁的锅。
+- **旧代码里的胶囊**（`.library-tool` / `.switch` / `.group-switch` / `.group-name-input` / `.file-pane-tag` 的 `border-radius: 999px`）：规格书 §2.1 要求全仓清零，但它们是各页面的活，跟那一页一起改。`audit-ui.mjs` 现在把它们列在「待迁移」，改完一个删一个 `LEGACY` 条目，最后切 `--strict`。
+- **改造包的 `tools/*.py` 不能跑**：依赖设计工具的 `ds2` / `boards2`（包里没带，本机实测 ModuleNotFoundError）。要加界面校验就扩 `scripts/audit-ui.mjs`，别再引那两个模块。
+- **锁定态（商店 / 社区）**：能不能被手柄走到由 `src/types.ts` 的 `NAV_ROUTES` 决定，`App.tsx` 里锁定项不给 `data-focusable`。加新区块时**别把它塞进 `NAV_ROUTES`**，否则 LB/RB 会停在禁用项上。
+- **焦点域**：侧栏是 `data-focus-zone="shell-rail"`。`moveDirectionalFocus` 的规则是「左右在域内走、上下跨域」，所以在侧栏里一直往下按会从最后一行（存储卡的「打开管理器」）进到内容区 —— 这是现有内核的行为，没改。
+
 ## 0.1.58（一）：小组件删掉「自启」行；设置页那行改名「安装前端」（2026-10-04，已随 `v0.1.58` 发布）
 
 - 小组件不再提供自启开关：那行只在 UWP 本地设置里记 `disableAutostartRequested`，真实自启（启动器的计划任务）它改不了，用户说「没用、不需要」。删了 `WidgetPage.xaml` 的整张卡片、`WidgetPage.xaml.cs` 的文案赋值与 `StartupClick`、`Strings.cs` 的 `Startup` / `StartupHint`；`using Windows.Storage;` 一并去掉（那两行是它在本文件仅有的用处）。契约文档 `frontend/gamebar/HANDOFF.txt` 第 67 行同步改写。启动器设置页自己的「开机自启」不受影响（那是 Rust `set_autostart` 在管）。

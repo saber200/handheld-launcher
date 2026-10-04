@@ -1,0 +1,92 @@
+/*
+ * 设计令牌 —— 与 docs/redesign/reference/design-tokens.json 一一对应。
+ *
+ * 为什么单独一个文件：global.css 有 1790 行，旧页面（LibraryShelf / FilesPage…）正按里程碑
+ * 逐页迁到新规范，迁移期两套写法并存。令牌集中在这里，审计脚本（scripts/audit-ui.mjs）
+ * 才能拿 design-tokens.json 跟它逐项比对，不会漏项。
+ *
+ * 几何一律写成 calc(N * var(--dp))：--dp 由 src/styles/scale.ts 按窗口尺寸写进根元素，
+ * 1080p 上是 1.5px、1440p 上 2px、1280×800 上 1px。**不要在这里写死 px 数字** ——
+ * 写死之后 1080p 与 1440p 上会出现"外壳跟着缩放、这个元素不跟着"的错位。
+ */
+:root {
+  /* ── 色彩 ── */
+  --bg0: #0b1220;
+  --bg1: #121c2e;
+  --bg-deep: #0a101b;
+  --panel: #182236;
+  --panel-2: #202b42;
+  --panel-3: #2a3650;
+  --sunken: #0e1525;
+  --line: #2e3a54;
+  --line-soft: #232d43;
+  --line-strong: #445474;
+  --ink: #f3f6fb;
+  --ink-2: #ced8e8;
+  --ink-3: #9aa8bd;
+  --ink-4: #748298;
+  --accent: #3dd6c6;
+  --accent-2: #5b8cff;
+  --accent-deep: #104a48;
+  --accent-hi: #7eeee0;
+  /* on-accent 是强调底上的字色：设计稿明确不用纯白（纯白在 #3DD6C6 上对比度反而刺眼） */
+  --on-accent: #062420;
+  --danger: #ff6b7a;
+  --warning: #f5bf5a;
+  --success: #3dd6c6;
+  --platform-steam: #66c0f4;
+  --platform-epic: #bebec8;
+  --platform-gog: #a776ff;
+  --platform-xbox: #16b74a;
+  --platform-emu: #fb923c;
+
+  /* ── 缩放基准（运行时被 scale.ts 覆盖；浏览器预览下是 1px） ── */
+  --dp: 1px;
+
+  /* ── 圆角六档。禁止胶囊 / 椭圆：可点面一律矩形圆角，只有状态圆点(≤9dp)与
+     手柄按键角标(--focus-badge)是正圆。 ── */
+  --radius-tag: calc(6 * var(--dp));
+  --radius-sm: calc(8 * var(--dp));
+  --radius-chip: calc(10 * var(--dp));
+  --radius-btn: calc(12 * var(--dp));
+  --radius-card: calc(14 * var(--dp));
+  --radius-panel: calc(16 * var(--dp));
+  --radius-shell: calc(18 * var(--dp));
+
+  /* ── 间距 ── */
+  --pad-card: calc(16 * var(--dp));
+  --pad-panel: calc(20 * var(--dp));
+  --gutter: calc(16 * var(--dp));
+  --stack: calc(8 * var(--dp));
+  --stack-lg: calc(12 * var(--dp));
+  --row-pad-x: calc(12 * var(--dp));
+  --safe: calc(24 * var(--dp));
+
+  /* ── 外壳几何 ── */
+  --h-topbar: calc(44 * var(--dp));
+  --w-rail: calc(236 * var(--dp));
+  --h-hintbar: calc(48 * var(--dp));
+  --rail-pad: calc(16 * var(--dp));
+  --rail-row-w: calc(204 * var(--dp));
+  --h-rail-row: calc(40 * var(--dp));
+  --step-rail-row: calc(42 * var(--dp));
+  --h-rail-badge: calc(18 * var(--dp));
+  --h-rail-search: calc(32 * var(--dp));
+  --h-storage-card: calc(132 * var(--dp));
+
+  /* ── 字阶（正文下限 11dp；数字一律 tabular-nums，见 shell.css 的 .tnum） ── */
+  --font-h1: calc(23 * var(--dp));
+  --font-h2: calc(16 * var(--dp));
+  --font-h3: calc(13 * var(--dp));
+  --font-body: calc(12.5 * var(--dp));
+  --font-caption: calc(11 * var(--dp));
+  --font-micro: calc(9.5 * var(--dp));
+  --line-ratio: 1.4;
+
+  /* ── 焦点 ── */
+  --focus-stroke: calc(3 * var(--dp));
+  --focus-glow: calc(14 * var(--dp));
+  --focus-glow-color: rgba(61, 214, 198, 0.51);
+  --focus-offset: calc(4 * var(--dp));
+  --focus-badge: calc(26 * var(--dp));
+}

@@ -1,5 +1,11 @@
 export type Locale = "zh" | "en";
 
+/** 底部提示条有内容的页面（首页 / 下载本版只有占位，但仍要给条上留开关抽屉那两条）。 */
+export type HintPage = "home" | "games" | "apps" | "downloads" | "files" | "toolbox";
+
+/** 提示条的一格：手柄按键 + 短标签。改造包 ui-strings.json 里就是这个结构。 */
+export type HintPair = [string, string];
+
 export type Catalog = {
   productName: string;
   about: string;
@@ -10,7 +16,31 @@ export type Catalog = {
   save: string;
   edit: string;
   open: string;
-  tabs: { menu: string; games: string; apps: string; files: string; toolbox: string };
+  tabs: {
+    menu: string;
+    home: string;
+    games: string;
+    apps: string;
+    downloads: string;
+    files: string;
+    toolbox: string;
+    store: string;
+    community: string;
+  };
+  /** 外壳（顶栏 / 侧栏 / 存储卡）固定文案。 */
+  shell: {
+    brandTagline: string;
+    searchPlaceholder: string;
+    storageTitle: string;
+    /** 存储容量还没有数据源（要新的系统信息命令），如实说明，不摆假数字。 */
+    storagePending: string;
+    storageAction: string;
+    /** 锁定项给读屏的播报：「商店，即将开放，不可用」。 */
+    lockedAria: (name: string) => string;
+  };
+  hintPairs: Record<HintPage, HintPair[]>;
+  /** 首页 / 下载：需要新数据源的页面，本版先占位并把话说清楚。 */
+  scheduled: { homeTitle: string; homeBody: string; downloadsTitle: string; downloadsBody: string };
   hints: {
     filesNav: string;
     filesMulti: string;
@@ -411,7 +441,17 @@ export const zh: Catalog = {
   save: "保存",
   edit: "编辑",
   open: "打开",
-  tabs: { menu: "主菜单", games: "游戏库", apps: "软件库", files: "文件管理", toolbox: "工具箱" },
+  tabs: {
+    menu: "主菜单",
+    home: "首页",
+    games: "游戏库",
+    apps: "软件库",
+    downloads: "下载",
+    files: "文件",
+    toolbox: "工具箱",
+    store: "商店",
+    community: "社区",
+  },
   hints: {
     filesNav: "方向键选择",
     filesMulti: "X 多选（进选择模式）",
@@ -427,6 +467,32 @@ export const zh: Catalog = {
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
     frontend: "前端是独立软件：装好后托盘常驻，Ctrl+H / 手柄 Back+Start 开关",
+  },
+  shell: {
+    brandTagline: "掌机前端",
+    searchPlaceholder: "搜索游戏 / 软件 / 文件",
+    storageTitle: "存储空间",
+    storagePending: "容量读取待接入",
+    storageAction: "打开管理器",
+    lockedAria: (name) => `${name}，即将开放，不可用`,
+  },
+  // 提示条只写**真的绑上了**的按键 —— 设计稿里的 X 收藏 / Y 打开目录 / 快速菜单还没做，
+  // 现在写上去就是骗用户（按了没反应），等对应里程碑实现后再加。
+  hintPairs: {
+    home: [["LB/RB", "切换分区"], ["≡", "设置抽屉"]],
+    games: [["A", "启动"], ["B", "卡片菜单"], ["LT/RT", "切分组"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
+    apps: [["A", "启动 / 安装"], ["B", "卡片菜单"], ["LT/RT", "切分组"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
+    downloads: [["LB/RB", "切换分区"], ["≡", "设置抽屉"]],
+    files: [["A", "打开"], ["B", "返回"], ["X", "多选"], ["Y", "菜单"], ["LT/RT", "换栏"], ["LB/RB", "切分区"]],
+    toolbox: [["A", "安装 / 重装"], ["B", "返回"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
+  },
+  scheduled: {
+    homeTitle: "首页 · 排期中",
+    homeBody:
+      "首页要把「继续游玩 + 最近安装的软件 + 系统状态条」拼起来，需要新的数据源（最近启动记录、存储容量、续航读数）。这一版先把入口和外壳做出来，页面按里程碑补上；其它页面不受影响。",
+    downloadsTitle: "下载 · 排期中",
+    downloadsBody:
+      "下载页要展示任务队列、Mod 安装进度、暂停与优先级，需要先把现在分散各处的安装进度（OptiScaler、运行库、前端）收进一个统一的任务模型。这一版先留入口；装 Mod 的进度现在仍在游戏卡片菜单里看。",
   },
   settings: {
     title: "设置",
@@ -815,7 +881,17 @@ export const en: Catalog = {
   save: "Save",
   edit: "Edit",
   open: "Open",
-  tabs: { menu: "Main menu", games: "Games", apps: "Apps", files: "Files", toolbox: "Toolbox" },
+  tabs: {
+    menu: "Main menu",
+    home: "Home",
+    games: "Games",
+    apps: "Apps",
+    downloads: "Downloads",
+    files: "Files",
+    toolbox: "Toolbox",
+    store: "Store",
+    community: "Community",
+  },
   hints: {
     filesNav: "D-pad to move",
     filesMulti: "X select mode",
@@ -831,6 +907,32 @@ export const en: Catalog = {
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
     frontend: "The frontend is a separate app: tray-resident, toggle with Ctrl+H / Back+Start",
+  },
+  shell: {
+    brandTagline: "Handheld shell",
+    searchPlaceholder: "Search games / apps / files",
+    storageTitle: "Storage",
+    storagePending: "Capacity readout pending",
+    storageAction: "Open manager",
+    lockedAria: (name) => `${name}, coming soon, unavailable`,
+  },
+  // Only bindings that actually work are listed: the design's X favourite / Y open folder /
+  // quick menu are not implemented yet, so promising them here would just break the promise.
+  hintPairs: {
+    home: [["LB/RB", "Sections"], ["≡", "Settings"]],
+    games: [["A", "Launch"], ["B", "Card menu"], ["LT/RT", "Groups"], ["LB/RB", "Sections"], ["≡", "Settings"]],
+    apps: [["A", "Launch / install"], ["B", "Card menu"], ["LT/RT", "Groups"], ["LB/RB", "Sections"], ["≡", "Settings"]],
+    downloads: [["LB/RB", "Sections"], ["≡", "Settings"]],
+    files: [["A", "Open"], ["B", "Back"], ["X", "Select"], ["Y", "Menu"], ["LT/RT", "Pane"], ["LB/RB", "Sections"]],
+    toolbox: [["A", "Install / reinstall"], ["B", "Back"], ["LB/RB", "Sections"], ["≡", "Settings"]],
+  },
+  scheduled: {
+    homeTitle: "Home · scheduled",
+    homeBody:
+      "Home has to combine continue-playing, recently installed apps and a system status strip, which needs new data sources (launch history, storage capacity, battery estimate). This build ships the entry point and the shell; the page follows in a later milestone. Other pages are unaffected.",
+    downloadsTitle: "Downloads · scheduled",
+    downloadsBody:
+      "Downloads will show the task queue, mod install progress and pause / priority controls. That needs the installs which today live in separate places (OptiScaler, runtimes, frontend) folded into one shared task model. The entry point is here; mod progress is still shown in the game card menu.",
   },
   settings: {
     title: "Settings",

@@ -1,14 +1,11 @@
 :root {
   color-scheme: dark;
-  --bg0: #0b1220;
-  --bg1: #121c2e;
-  --ink: #f3f6fb;
-  --muted: #9aa8bd;
-  --line: rgba(255, 255, 255, 0.1);
-  --accent: #3dd6c6;
-  --accent-2: #5b8cff;
-  --danger: #ff6b7a;
-  --radius: 18px;
+  /* 颜色 / 圆角 / 间距 / 字阶 / 焦点令牌统一在 styles/tokens.css（与 docs/redesign/reference/
+     design-tokens.json 一一对应）。这里**只留旧页面还在用的别名**，别再各写一份值 ——
+     两处各写一定会走偏。--radius 变成 --radius-shell 的别名后，旧页面也跟着 --dp 缩放了。
+     --muted 同理，指向新的 --ink-3。 */
+  --muted: var(--ink-3);
+  --radius: var(--radius-shell);
   /* Quiet motion: short, soft easing — presence without noise */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
@@ -70,47 +67,6 @@ button {
   pointer-events: none;
 }
 
-.tab-bar {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 28px 24px 8px;
-}
-
-.tab-list {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.28);
-}
-
-.tab {
-  min-width: 112px;
-  padding: 12px 22px;
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 16px;
-  font-weight: 650;
-  transition:
-    color var(--dur-ui) var(--ease-soft),
-    background-color var(--dur-ui) var(--ease-soft),
-    transform var(--dur-fast) var(--ease-out);
-}
-
-.tab[aria-selected="true"] {
-  color: #06241f;
-  background: var(--accent);
-}
-
-.tab:active {
-  transform: scale(0.97);
-}
-
 .tab-panel {
   position: relative;
   z-index: 1;
@@ -125,7 +81,8 @@ button {
 
 .page {
   height: 100%;
-  padding: clamp(24px, 4vw, 48px);
+  /* 侧栏已经占掉左边，内容区左右是安全边距 24dp；底部留给整宽提示条，不需要额外大留白 */
+  padding: var(--safe) var(--safe) calc(var(--safe) * 0.75);
   display: flex;
   flex-direction: column;
 }
@@ -379,20 +336,6 @@ button {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-}
-
-.shell-hint {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 18px;
-  flex-shrink: 0;
-  padding: 0 24px 20px;
-  color: var(--muted);
-  font-size: 13px;
-  animation: fade-in var(--dur-ui) var(--ease-soft) both;
 }
 
 [data-focusable] {

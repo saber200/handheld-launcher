@@ -33,6 +33,14 @@ jobs:
           npm ci
           npx tsc --noEmit
 
+      # 界面规范审计（改造包 §14）：禁胶囊 / 禁椭圆 / 颜色与设计令牌对表。
+      # 改造包自带的 tools/*.py 跑不起来 —— 它们 import 的是设计工具内部的 ds2 / boards2，
+      # 包里没带（本机实测 ModuleNotFoundError），所以按同样的检查思路写了零依赖的
+      # scripts/audit-ui.mjs。旧的胶囊形状（页面里的 .library-tool / .switch 等）在迁移清单里
+      # 只报告不拦；迁移完成、--strict 全绿之后把它改成严格模式。
+      - name: UI spec audit
+        run: node scripts/audit-ui.mjs
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:

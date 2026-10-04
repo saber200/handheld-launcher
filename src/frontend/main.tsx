@@ -8,6 +8,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nProvider } from "../i18n";
 import { FrontendShell } from "./FrontendShell";
+// tokens.css 与 global.css 共用（global.css 里的 :root 只剩别名，颜色/圆角值都在 tokens.css）。
+// **不调用 watchUiScale()**：前端的画布是 440×620（K8），不是 1280×720，--dp 保持 1px ——
+// 440 宽的窗口 1:1 就是设计稿尺寸。浮层自己的缩放规则等 M5 重做 K8 时再定。
+import "../styles/tokens.css";
 import "../styles/global.css";
 import "./frontend.css";
 
