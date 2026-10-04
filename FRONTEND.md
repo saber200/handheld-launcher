@@ -281,3 +281,38 @@
    - **已知边界**：两次点按间隔超过 450 ms 就变成两次单击，设置不开 —— 预期如此。
 
 前端侧一行未改（`chord.rs` 只更新了说明它为什么现在仍然需要两边配合的注释）。
+
+## 11. 文件管理器（功能 12）：设计与坑
+
+启动器壳里的文件页（不是独立前端）。写在这里是因为它属于「掌机手柄体验」这一层的设计记录。
+
+### 传输：命令立刻回来，进度走事件
+- `file_transfer(id, items, destDir, mode, conflict)` 只做**能立刻拒绝**的检查（目标是不是文件夹、清单空不空），登记一个可取消的 token、`std::thread::spawn` 干重活，自己马上返回。
+- **为什么不用 `off_main`**：它是「丢进 blocking pool 再 `.await` 等结果」的，拷 20 GB 时前端还是只能干等（正是 0.1.44 修过的那类卡死）；而这条路径要活到拷完，还得能中途取消。
+- 进度事件 `files-transfer`，payload 带 `id`：同一时间可能有两个任务（双栏各一个），前端按 id 认领。**最多每 100 ms 报一次** —— 按块报的话一堆小文件就能把事件塞爆，而每条事件都会唤醒一次前端。
+- 总量（`total_bytes`）是**先扫一遍算出来的**：没有总量，进度条只能一直转圈，用户看不出「还要 3 分钟还是 30 分钟」。扫的时候照常可取消。
+- 写目标先落 `.<名字>.fantasyhub-part` 再 `rename`：拷到一半被取消 / 断电时，目标目录里不会留下一个**顶着正式名字**的半截文件（那会让人以为已经拷好了）。
+- 跨卷移动 = 先整份复制成功 → 再删源；中途断电最多「两边各一份」，绝不会「两边都没有」。同卷仍然是瞬时的 `rename`。
+- 失败用 `FileError { reason, message }`（`impl Serialize`，Tauri 把对象直接交给前端）。**为什么不继续用 `Err(String)`**：前端只能把整句原文照贴，而占用 / 权限 / 盘满该给的建议完全不同。`reason` 取值：`denied` / `busy` / `space` / `toolong` / `missing` / `exists` / `name` / `notdir` / `notempty` / `big` / `binary` / `rule`（业务规则拒绝）/ `cancelled` / `other`。
+- Windows 的原始错误码比 `ErrorKind` 细：占用(32/33)、盘满(39/112)、路径过长(206) 全落在 `Other` 里 → `io_reason()` 先看 `raw_os_error()` 再看 `kind()`。
+
+### 批量改名的两步落地
+新名字由**前端算**（预览和执行必须是同一份算法，免得「预览 X、执行成 Y」），Rust 只负责安全落地：
+1. 整体校验（只改名、新名合法、没有两个源撞同一个目标、目标没被外人占着）；
+2. 全部先改成 `.fantasyhub-rename-<pid>-<n>` 临时名，再改成目标名 —— `1.txt` 和 `2.txt` **对调**这种互相占位的换名，按顺序直接改是改不动的；
+3. 中途失败就把还没落地的改回原名，并如实报出是哪个、为什么（失败之前已经改好的保持新名字，不假装全部回滚）。
+
+### 前端（`src/files/`、`src/pages/FilesPage.tsx`）
+- `useFileBrowser({ cacheKey })`：**每栏一份**（`left` / `right`），会话缓存也按栏分开 —— 双栏时两栏各看各的目录，共用一个 key 会互相覆盖（0.1.44 那套「回页即出」的缓存原来只有一份）。
+- 任务状态放在 `useFileJobs.ts` 的**模块级** store（`useSyncExternalStore`）：拷 20 GB 时按 LB 去看游戏库是正常的，文件页一切标签就被卸载（`App.tsx` 的 `key={tab}`），状态放组件里那一趟回来进度就没了 —— 而后端线程还在老老实实拷。
+- 手柄选择模式：X 进模式并把当前项选上（一个动作做两件事 —— 手柄上拆成两次按键是纯负担）；**之后移动焦点就自动选上**，手柄没有 Shift，这就是「区间选择」；A 在模式里是「单选 / 取消」；B 退出并清空；选择模式里 `blocksTabs` 返回 true，免得误按 LB 把选好的丢了。
+- 双栏：`LT / RT` 换栏（`fileActions().switchPane`），Y 菜单给「复制 / 移动到另一栏」；焦点池按栏分开（`files-list` / `files-target`）。
+- 同名冲突**先在前端比一次**（拿当前列表比名字），有冲突才弹「覆盖 / 跳过 / 保留两者」；后端还会独立再判一次。拖到文件夹上的移动看不见目标目录里的同名，所以直接用「保留两者」—— 宁可多出「副本」，也不覆盖。
+- **焦点别抢**：hook 每次渲染都返回新对象，所以自动聚焦的 `useEffect` 依赖里**不能放整个 browser 对象**（否则每次渲染都跑一遍，用户按排序按钮时焦点被拉走，看起来像按键没反应）。依赖只写 `activePane` / `dialogOpen` / `location` / `pendingFocus` 这些真会改变焦点的东西，并且「焦点已经在任何 `[data-focus-zone]` 里」就直接返回。
+- **已知缺口**：搜索 / 批量重命名的输入框要借系统键盘（手柄没有文字输入）；`GamepadKeyboard.tsx` 现在只够数字（TDP 滑条那套），要文字得另加一套字母键盘。
+
+### 本机怎么验证
+- `cargo test -p handheld-launcher --lib`：`Runner` 的进度改成**注入的 sink**（`&mut dyn FnMut(&TransferProgress)`），于是复制 / 移动 / 三种同名策略 / 取消这些最容易出人命的路径在 macOS 上就能断言，不必等 Windows 真机。
+- 单测的临时目录要带唯一序号：并行跑的用例拿到同一个目录会互相删文件（新用例 `hl-move-<pid>` 正好撞上老的 `moves_a_file_into_another_folder`，报出来的错像是「移动」本身坏了）。
+- **本机没有 Windows 目标检查**：`cargo check --target x86_64-pc-windows-msvc` 会卡在 `ring` 的 C 代码（要 Windows SDK / clang-cl），不是缺 `llvm-rc` 的问题 —— 所以 `cfg(windows)` 的东西越少越好：这轮只动了 `is_hidden` / `is_reparse` 三个小分支，用的都是文件里已有的 API 形状。
+

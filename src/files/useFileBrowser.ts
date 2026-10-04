@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { playSfx } from "../audio/sfx";
 import { currentLocale, text, useI18n } from "../i18n";
 
@@ -8,8 +8,45 @@ export type FileEntry = {
   path: string;
   kind: "dir" | "file";
   bytes: number;
+  /** 修改时间（Unix 毫秒，0 = 未知）。 */
+  modified: number;
   editable: boolean;
 };
+
+export type SortKey = "name" | "size" | "time" | "type";
+export type SortDir = "asc" | "desc";
+/** 同名怎么处理：覆盖 / 跳过 / 保留两者。默认保留两者 —— 不删用户的东西才安全。 */
+export type Conflict = "replace" | "skip" | "keep";
+
+export type SearchHit = {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+  bytes: number;
+  modified: number;
+  relative: string;
+};
+
+export type FileProperties = {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+  bytes: number;
+  sizeComplete: boolean;
+  modified: number;
+  created: number;
+  extension: string;
+  readonly: boolean;
+  hidden: boolean;
+  writable: boolean;
+  writeReason: string;
+  protected: boolean;
+};
+
+/** Rust 侧把失败拆成「机器码 + 人话」，前端按码给不同的建议（见 files.rs::FileError）。 */
+export type FileErrorInfo = { reason: string; message: string };
+
+export type Crumb = { label: string; path: string | null };
 
 type ClipItem = {
   path: string;
@@ -22,6 +59,9 @@ type Clip = {
   mode: "copy" | "move";
 };
 
+/** 传输只关心这三样：路径、名字、是不是文件夹。FileEntry 和剪贴板里的项都符合。 */
+export type TransferItem = { path: string; name: string; kind: "dir" | "file" };
+
 type PreviewNode = {
   name: string;
   kind: "dir" | "file";
@@ -31,6 +71,24 @@ type PreviewNode = {
 };
 
 const PREVIEW_ROOT = "preview:";
+
+/** 每次任务一个编号：进度事件按它认领，取消也按它找。 */
+export function jobId(prefix = "job"): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** 把后端抛出来的东西统一成 { reason, message }。 */
+export function toFileError(err: unknown): FileErrorInfo {
+  if (typeof err === "string") return { reason: "other", message: err };
+  if (err && typeof err === "object") {
+    const info = err as { reason?: unknown; message?: unknown };
+    if (typeof info.message === "string") {
+      return { reason: typeof info.reason === "string" ? info.reason : "other", message: info.message };
+    }
+  }
+  if (err instanceof Error && err.message) return { reason: "other", message: err.message };
+  return { reason: "other", message: text().files.actionFailed };
+}
 
 function previewTree(): PreviewNode {
   const en = currentLocale() === "en";
@@ -65,12 +123,6 @@ function previewTree(): PreviewNode {
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function formatError(err: unknown): string {
-  if (typeof err === "string") return err;
-  if (err instanceof Error && err.message) return err.message;
-  return text().files.actionFailed;
 }
 
 export function checkFileName(name: string): string | null {
@@ -138,12 +190,19 @@ function findNode(root: PreviewNode, path: string): PreviewNode | null {
   return node;
 }
 
+function previewBytes(node: PreviewNode): number {
+  if (node.kind === "file") return new TextEncoder().encode(node.text ?? "").length;
+  return (node.children ?? []).reduce((total, child) => total + previewBytes(child), 0);
+}
+
 function toEntry(node: PreviewNode, path: string): FileEntry {
   return {
     name: node.name,
     path,
     kind: node.kind,
-    bytes: node.kind === "file" ? new TextEncoder().encode(node.text ?? "").length : 0,
+    bytes: previewBytes(node),
+    // 预览里的文件没有真实时间：给 0（未知），按时间排序就退化成按名字。
+    modified: 0,
     editable: node.kind === "file" && node.editable !== false,
   };
 }
@@ -154,12 +213,7 @@ function listPreview(root: PreviewNode, location: string | null): FileEntry[] {
   }
   const node = findNode(root, location);
   if (!node || node.kind !== "dir") return [];
-  return (node.children ?? [])
-    .map((child) => toEntry(child, childPath(location, child.name)))
-    .sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-      return a.name.localeCompare(b.name, currentLocale());
-    });
+  return (node.children ?? []).map((child) => toEntry(child, childPath(location, child.name)));
 }
 
 function uniqueName(siblings: PreviewNode[], name: string): string {
@@ -173,6 +227,27 @@ function uniqueName(siblings: PreviewNode[], name: string): string {
   }
   return `${name}.copy`;
 }
+
+function updateDir(
+  root: PreviewNode,
+  path: string,
+  change: (children: PreviewNode[]) => PreviewNode[],
+): PreviewNode {
+  if (path === PREVIEW_ROOT) {
+    return { ...root, children: change(root.children ?? []) };
+  }
+  const parent = parentPath(path);
+  const name = baseName(path);
+  if (parent == null) return root;
+  return updateDir(root, parent, (children) =>
+    children.map((child) =>
+      child.name === name && child.kind === "dir"
+        ? { ...child, children: change(child.children ?? []) }
+        : child,
+    ),
+  );
+}
+
 
 function applyPreviewPaste(
   tree: PreviewNode,
@@ -205,25 +280,134 @@ function applyPreviewPaste(
   };
 }
 
-function updateDir(
-  root: PreviewNode,
+function renamePreview(
+  tree: PreviewNode,
   path: string,
-  change: (children: PreviewNode[]) => PreviewNode[],
-): PreviewNode {
-  if (path === PREVIEW_ROOT) {
-    return { ...root, children: change(root.children ?? []) };
-  }
+  nextName: string,
+): { tree: PreviewNode; focus: string } | { error: string } {
+  const t = text().files;
   const parent = parentPath(path);
+  if (parent == null) return { error: t.cannotRenameHere };
   const name = baseName(path);
-  if (parent == null) return root;
-  return updateDir(root, parent, (children) =>
-    children.map((child) =>
-      child.name === name && child.kind === "dir"
-        ? { ...child, children: change(child.children ?? []) }
-        : child,
+  const dir = findNode(tree, parent);
+  if (!dir || dir.kind !== "dir") return { error: t.cannotRenameHere };
+  if ((dir.children ?? []).some((child) => child.name === nextName && child.name !== name)) {
+    return { error: t.nameTaken };
+  }
+  return {
+    tree: updateDir(tree, parent, (children) =>
+      children.map((child) => (child.name === name ? { ...child, name: nextName } : child)),
     ),
-  );
+    focus: nextName,
+  };
 }
+
+function searchPreview(root: PreviewNode, query: string): SearchHit[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const hits: SearchHit[] = [];
+  const walk = (node: PreviewNode, path: string, where: string) => {
+    for (const child of node.children ?? []) {
+      const childWalk = childPath(path, child.name);
+      if (child.name.toLowerCase().includes(needle)) {
+        hits.push({ ...toEntry(child, childWalk), relative: where });
+      }
+      if (child.kind === "dir") walk(child, childWalk, where ? `${where}/${child.name}` : child.name);
+    }
+  };
+  walk(root, PREVIEW_ROOT, "");
+  return hits;
+}
+
+function propertiesPreview(root: PreviewNode, path: string): FileProperties | null {
+  const node = path === PREVIEW_ROOT ? root : findNode(root, path);
+  if (!node) return null;
+  const entry = toEntry(node, path);
+  const dot = node.name.lastIndexOf(".");
+  const editable = node.kind === "file" && node.editable !== false;
+  return {
+    name: node.name,
+    path,
+    kind: node.kind,
+    bytes: entry.bytes,
+    sizeComplete: true,
+    modified: 0,
+    created: 0,
+    extension: node.kind === "file" && dot > 0 ? node.name.slice(dot + 1).toLowerCase() : "",
+    readonly: node.kind === "file" && !editable,
+    hidden: false,
+    writable: node.kind === "file" ? editable : true,
+    writeReason: "",
+    protected: false,
+  };
+}
+
+/**
+ * 面包屑：从「位置」一路到当前目录，每一段都能点回去。
+ *
+ * Windows 的 `C:\` 和 UNC（`\\server\share`）都要还原成能直接用的路径，
+ * 不然点一下会跳到一个不存在的目录。
+ */
+export function crumbsFor(location: string | null): Crumb[] {
+  const t = text().files;
+  const head: Crumb = { label: t.drivesTitle, path: null };
+  if (location == null) return [head];
+  if (location === PREVIEW_ROOT) return [head, { label: t.previewRoot, path: PREVIEW_ROOT }];
+  if (location.startsWith(`${PREVIEW_ROOT}/`)) {
+    const parts = location.slice(PREVIEW_ROOT.length + 1).split("/");
+    const out: Crumb[] = [head, { label: t.previewRoot, path: PREVIEW_ROOT }];
+    parts.forEach((part, index) => {
+      out.push({ label: part, path: `${PREVIEW_ROOT}/${parts.slice(0, index + 1).join("/")}` });
+    });
+    return out;
+  }
+  if (location === "/") return [head, { label: t.root, path: "/" }];
+
+  const parts = location.replace(/[\\/]+$/, "").split(/[\\/]+/).filter(Boolean);
+  const out: Crumb[] = [head];
+  if (location.startsWith("\\\\")) {
+    const [server, share, ...rest] = parts;
+    if (server && share) {
+      let current = `\\\\${server}\\${share}`;
+      out.push({ label: `${server}\\${share}`, path: `${current}\\` });
+      for (const part of rest) {
+        current = `${current}\\${part}`;
+        out.push({ label: part, path: current });
+      }
+    }
+    return out;
+  }
+  const absolute = location.startsWith("/");
+  if (absolute) out.push({ label: t.root, path: "/" });
+  const sep = location.includes("\\") ? "\\" : "/";
+  let current = absolute ? "/" : "";
+  for (const part of parts) {
+    if (!current) current = part;
+    else if (/^[A-Za-z]:$/.test(current)) current = `${current}${sep}${part}`;
+    else current = `${current.replace(/[\\/]+$/, "")}${sep}${part}`;
+    out.push({ label: part, path: current });
+  }
+  return out;
+}
+
+function sortRows(rows: FileEntry[], key: SortKey, dir: SortDir): FileEntry[] {
+  const flip = dir === "asc" ? 1 : -1;
+  const extensionOf = (name: string) => {
+    const dot = name.lastIndexOf(".");
+    return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  };
+  return [...rows].sort((a, b) => {
+    // 目录永远排在前面：按时间找刚拷进来的游戏时，文件夹混在文件中间更难认。
+    if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+    let order = 0;
+    if (key === "size") order = a.bytes - b.bytes;
+    else if (key === "time") order = a.modified - b.modified;
+    else if (key === "type") order = extensionOf(a.name).localeCompare(extensionOf(b.name), currentLocale());
+    if (order === 0) order = a.name.localeCompare(b.name, currentLocale());
+    return order * flip;
+  });
+}
+
 
 /// The Files tab is unmounted on every tab switch (`key={tab}` in App.tsx), so
 /// its folder and rows used to be thrown away: coming back re-asked for the
@@ -235,62 +419,110 @@ const LISTING_FRESH_MS = 3000;
 
 type SessionListing = { location: string | null; rows: FileEntry[]; at: number };
 
-let sessionListing: SessionListing | null = null;
+/// 每个栏位各记一份「上次看到的目录」：双栏时左右两栏各看各的，不能互相覆盖。
+const sessionListings = new Map<string, SessionListing>();
 const sessionFolders = new Map<string, SessionListing>();
 
-function cachedRows(location: string | null): FileEntry[] {
-  if (sessionListing !== null && sessionListing.location === location) return sessionListing.rows;
+function lastListing(key: string): SessionListing | null {
+  return sessionListings.get(key) ?? null;
+}
+
+function cachedRows(key: string, location: string | null): FileEntry[] {
+  const last = lastListing(key);
+  if (last !== null && last.location === location) return last.rows;
   if (location !== null) return sessionFolders.get(location)?.rows ?? [];
   return [];
 }
 
-function rememberRows(location: string | null, rows: FileEntry[]) {
+function rememberRows(key: string, location: string | null, rows: FileEntry[]) {
   const entry: SessionListing = { location, rows, at: Date.now() };
-  sessionListing = entry;
+  sessionListings.set(key, entry);
   if (location !== null) sessionFolders.set(location, entry);
 }
 
-function listingIsFresh(location: string | null): boolean {
-  if (sessionListing === null || sessionListing.location !== location) return false;
-  return Date.now() - sessionListing.at < LISTING_FRESH_MS;
+function listingIsFresh(key: string, location: string | null): boolean {
+  const last = lastListing(key);
+  if (last === null || last.location !== location) return false;
+  return Date.now() - last.at < LISTING_FRESH_MS;
 }
 
-export function useFileBrowser() {
+const SORT_KEY = "handheld-launcher.files.sort";
+const SORT_DIR = "handheld-launcher.files.sortDir";
+
+function loadSort(): { key: SortKey; dir: SortDir } {
+  let key: string | null = null;
+  let dir: string | null = null;
+  try {
+    key = localStorage.getItem(SORT_KEY);
+    dir = localStorage.getItem(SORT_DIR);
+  } catch {
+    /* private mode */
+  }
+  return {
+    key: key === "size" || key === "time" || key === "type" ? key : "name",
+    dir: dir === "desc" ? "desc" : "asc",
+  };
+}
+
+function saveSort(key: SortKey, dir: SortDir) {
+  try {
+    localStorage.setItem(SORT_KEY, key);
+    localStorage.setItem(SORT_DIR, dir);
+  } catch {
+    /* private mode */
+  }
+}
+
+/** 前端自己造出来的失败（校验没过），形状和后端抛的一致。 */
+function fileError(reason: string, message: string): FileErrorInfo {
+  return { reason, message };
+}
+
+export type UseFileBrowserOptions = { cacheKey?: string };
+
+
+export function useFileBrowser(options: UseFileBrowserOptions = {}) {
+  const cacheKey = options.cacheKey ?? "main";
   const { locale } = useI18n();
   const preview = !inTauri();
   const [location, setLocation] = useState<string | null>(() =>
-    preview ? null : sessionListing?.location ?? null,
+    preview ? null : lastListing(cacheKey)?.location ?? null,
   );
   const [tree, setTree] = useState<PreviewNode>(() => previewTree());
   const [nativeEntries, setNativeEntries] = useState<FileEntry[]>(() =>
-    preview ? [] : cachedRows(sessionListing?.location ?? null),
+    preview ? [] : cachedRows(cacheKey, lastListing(cacheKey)?.location ?? null),
   );
   const [note, setNote] = useState("");
   const [clip, setClip] = useState<Clip | null>(null);
   const [pendingFocus, setPendingFocus] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>(() => loadSort().key);
+  const [sortDir, setSortDir] = useState<SortDir>(() => loadSort().dir);
 
   useEffect(() => {
     if (preview) setTree(previewTree());
   }, [locale, preview]);
 
-  const reloadNative = useCallback(async (path: string | null) => {
-    try {
-      const rows =
-        path == null
-          ? await invoke<FileEntry[]>("file_places")
-          : await invoke<FileEntry[]>("file_list", { path });
-      rememberRows(path, rows);
-      setNativeEntries(rows);
-    } catch (err) {
-      setNativeEntries([]);
-      const message = formatError(err);
-      setNote((current) => current ? `${current}\n${message}` : message);
-    }
-  }, []);
+  const reloadNative = useCallback(
+    async (path: string | null) => {
+      try {
+        const rows =
+          path == null
+            ? await invoke<FileEntry[]>("file_places")
+            : await invoke<FileEntry[]>("file_list", { path });
+        rememberRows(cacheKey, path, rows);
+        setNativeEntries(rows);
+      } catch (err) {
+        setNativeEntries([]);
+        const message = toFileError(err).message;
+        setNote((current) => (current ? `${current}\n${message}` : message));
+      }
+    },
+    [cacheKey],
+  );
 
   useEffect(() => {
     if (preview) return;
-    if (listingIsFresh(location)) return;
+    if (listingIsFresh(cacheKey, location)) return;
     let cancel = false;
     void (async () => {
       try {
@@ -299,139 +531,168 @@ export function useFileBrowser() {
             ? await invoke<FileEntry[]>("file_places")
             : await invoke<FileEntry[]>("file_list", { path: location });
         if (!cancel) {
-          rememberRows(location, rows);
+          rememberRows(cacheKey, location, rows);
           setNativeEntries(rows);
         }
       } catch (err) {
         if (!cancel) {
           setNativeEntries([]);
-          setNote(formatError(err));
+          setNote(toFileError(err).message);
         }
       }
     })();
     return () => {
       cancel = true;
     };
-  }, [location, preview]);
+  }, [cacheKey, location, preview]);
 
-  const entries = preview ? listPreview(tree, location) : nativeEntries;
+  const rows = preview ? listPreview(tree, location) : nativeEntries;
+  const entries = useMemo(() => sortRows(rows, sortKey, sortDir), [rows, sortKey, sortDir]);
+  const crumbs = useMemo(() => crumbsFor(location), [location, locale]);
 
-  const enter = useCallback((entry: FileEntry) => {
-    if (entry.kind !== "dir") return;
-    setLocation(entry.path);
+  const chooseSort = useCallback(
+    (key: SortKey) => {
+      // 再点同一个键就换方向：手柄上没有「另一个键」，同一个键切正反最省事。
+      const nextDir: SortDir = key === sortKey && sortDir === "asc" ? "desc" : "asc";
+      setSortKey(key);
+      setSortDir(nextDir);
+      saveSort(key, nextDir);
+    },
+    [sortDir, sortKey],
+  );
+
+  const jump = useCallback((path: string | null, focusName = "") => {
+    setLocation(path);
     setNote("");
-    setPendingFocus("");
+    setPendingFocus(focusName);
   }, []);
+
+  const enter = useCallback(
+    (entry: FileEntry) => {
+      if (entry.kind !== "dir") return;
+      jump(entry.path);
+    },
+    [jump],
+  );
 
   const up = useCallback(() => {
     if (location == null) return false;
-    setLocation(parentPath(location));
-    setNote("");
-    setPendingFocus("");
+    jump(parentPath(location));
     return true;
-  }, [location]);
+  }, [jump, location]);
 
-  const stage = useCallback((entries: FileEntry[], mode: Clip["mode"]) => {
-    if (entries.length === 0) return;
+  const stage = useCallback((items: FileEntry[], mode: Clip["mode"]) => {
+    if (items.length === 0) return;
     setClip({
-      items: entries.map((entry) => ({ path: entry.path, name: entry.name, kind: entry.kind })),
+      items: items.map((entry) => ({ path: entry.path, name: entry.name, kind: entry.kind })),
       mode,
     });
     const t = text().files;
     const label =
-      entries.length === 1
-        ? t.quoted(entries[0].name)
+      items.length === 1
+        ? t.quoted(items[0].name)
         : currentLocale() === "zh"
-          ? ` ${t.itemCount(entries.length)}`
-          : t.itemCount(entries.length);
+          ? ` ${t.itemCount(items.length)}`
+          : t.itemCount(items.length);
     setNote(mode === "copy" ? t.copiedClip(label) : t.moveClip(label));
   }, []);
 
-  const paste = useCallback(async () => {
-    if (!clip || clip.items.length === 0) return;
-    if (location == null) {
-      setNote(text().files.enterFolderFirst);
-      return;
-    }
-    const countLabel = clip.items.length === 1 ? "" : text().files.itemCount(clip.items.length);
-    if (preview) {
-      let next = tree;
-      let focus = clip.items[0].name;
-      const done: string[] = [];
-      for (const item of clip.items) {
-        const applied = applyPreviewPaste(next, { ...item, mode: clip.mode }, location);
-        if ("error" in applied) {
-          setTree(next);
-          if (clip.mode === "move") {
-            setClip({ ...clip, items: clip.items.filter((entry) => !done.includes(entry.path)) });
-          }
-          setNote(done.length > 0 ? text().files.partial(done.length, applied.error) : applied.error);
-          return;
+
+  /**
+   * 把清单交给后端搬：命令立刻返回，进度走 `files-transfer` 事件（页面在听）。
+   * 目标默认是这一栏的当前目录；双栏时页面会传另一栏的目录。
+   * 返回任务编号；界面按它显示进度条和取消。
+   */
+  const startTransfer = useCallback(
+    async (
+      items: TransferItem[],
+      mode: Clip["mode"],
+      conflict: Conflict,
+      destDir: string | null = location,
+    ): Promise<string> => {
+      if (items.length === 0) return "";
+      if (destDir == null) {
+        setNote(text().files.enterFolderFirst);
+        return "";
+      }
+      const id = jobId(mode);
+      if (preview) {
+        // 预览模式没有后端：在内存树上模拟一次，界面照样能试。
+        // （每栏各有一份内存树，跨栏搬没有共同的那棵树，所以只支持本栏。）
+        if (destDir !== location) {
+          setNote(text().files.previewCross);
+          return "";
         }
-        next = applied.tree;
-        focus = applied.focus;
-        done.push(item.path);
+        let next = tree;
+        let focus = items[0].name;
+        const done: string[] = [];
+        for (const item of items) {
+          const applied = applyPreviewPaste(
+            next,
+            { path: item.path, name: item.name, kind: item.kind, mode },
+            destDir,
+          );
+          if ("error" in applied) {
+            setTree(next);
+            setNote(done.length > 0 ? text().files.partial(done.length, applied.error) : applied.error);
+            return "";
+          }
+          next = applied.tree;
+          focus = applied.focus;
+          done.push(item.path);
+        }
+        setTree(next);
+        playSfx("paste");
+        setPendingFocus(focus);
+        setNote(
+          items.length === 1
+            ? mode === "copy"
+              ? text().files.pasted(focus)
+              : text().files.moved(focus)
+            : mode === "copy"
+              ? text().files.pastedMany(text().files.itemCount(items.length))
+              : text().files.movedMany(text().files.itemCount(items.length)),
+        );
+        return id;
       }
-      setTree(next);
-      if (clip.mode === "move") setClip(null);
-      playSfx("paste");
-      setNote(
-        clip.items.length === 1
-          ? clip.mode === "copy"
-            ? text().files.pasted(focus)
-            : text().files.moved(focus)
-          : clip.mode === "copy"
-            ? text().files.pastedMany(countLabel)
-            : text().files.movedMany(countLabel),
-      );
-      setPendingFocus(focus);
-      return;
-    }
-    const done: string[] = [];
-    let failure = "";
-    for (const item of clip.items) {
       try {
-        await invoke(clip.mode === "copy" ? "file_copy" : "file_move", {
-          from: item.path,
-          destDir: location,
+        await invoke("file_transfer", {
+          id,
+          items: items.map((item) => item.path),
+          destDir,
+          mode,
+          conflict,
         });
-        done.push(item.path);
       } catch (err) {
-        failure = formatError(err);
-        break;
+        setNote(toFileError(err).message);
+        return "";
       }
-    }
-    if (clip.mode === "move") {
-      setClip(failure ? { ...clip, items: clip.items.filter((entry) => !done.includes(entry.path)) } : null);
-    }
-    setPendingFocus(clip.items.find((item) => done.includes(item.path))?.name ?? "");
-    const t = text().files;
-    if (done.length > 0 && !failure) playSfx("paste");
-    setNote(
-      failure
-        ? done.length > 0
-          ? t.partial(done.length, failure)
-          : failure
-        : clip.mode === "copy"
-          ? clip.items.length === 1
-            ? t.pasted(clip.items[0].name)
-            : t.pastedMany(countLabel)
-          : clip.items.length === 1
-            ? t.moved(clip.items[0].name)
-            : t.movedMany(countLabel),
-    );
-    await reloadNative(location);
-  }, [clip, location, preview, reloadNative, tree]);
+      return id;
+    },
+    [location, preview, tree],
+  );
+
+  const paste = useCallback(
+    async (conflict: Conflict = "keep") => {
+      if (!clip || clip.items.length === 0) return "";
+      const id = await startTransfer(clip.items, clip.mode, conflict);
+      if (id && clip.mode === "move") setClip(null);
+      return id;
+    },
+    [clip, startTransfer],
+  );
 
   const createDir = useCallback(
     async (name: string) => {
       const problem = checkFileName(name);
-      if (problem) throw problem;
-      if (location == null) throw text().files.enterFolderFirst;
+      if (problem) throw fileError("name", problem);
+      if (location == null) throw fileError("rule", text().files.enterFolderFirst);
       const trimmed = name.trim();
       if (preview) {
         const dest = findNode(tree, location);
-        if (dest?.children?.some((child) => child.name === trimmed)) throw text().files.nameTaken;
+        if (dest?.children?.some((child) => child.name === trimmed)) {
+          throw fileError("exists", text().files.nameTaken);
+        }
         setTree((current) =>
           updateDir(current, location, (children) => [
             ...children,
@@ -440,12 +701,13 @@ export function useFileBrowser() {
         );
         setPendingFocus(trimmed);
         setNote(text().files.folderCreated(trimmed));
-        return;
+        return trimmed;
       }
       await invoke("file_make_dir", { parent: location, name: trimmed });
       setPendingFocus(trimmed);
       setNote(text().files.folderCreated(trimmed));
       await reloadNative(location);
+      return trimmed;
     },
     [location, preview, reloadNative, tree],
   );
@@ -453,12 +715,14 @@ export function useFileBrowser() {
   const createFile = useCallback(
     async (name: string) => {
       const problem = checkFileName(name);
-      if (problem) throw problem;
-      if (location == null) throw text().files.enterFolderFirst;
+      if (problem) throw fileError("name", problem);
+      if (location == null) throw fileError("rule", text().files.enterFolderFirst);
       const trimmed = name.trim();
       if (preview) {
         const dest = findNode(tree, location);
-        if (dest?.children?.some((child) => child.name === trimmed)) throw text().files.nameTaken;
+        if (dest?.children?.some((child) => child.name === trimmed)) {
+          throw fileError("exists", text().files.nameTaken);
+        }
         setTree((current) =>
           updateDir(current, location, (children) => [
             ...children,
@@ -478,11 +742,14 @@ export function useFileBrowser() {
     [location, preview, reloadNative, tree],
   );
 
+
   const readText = useCallback(
     async (entry: FileEntry) => {
       if (preview) {
         const node = findNode(tree, entry.path);
-        if (!node || node.kind !== "file" || node.editable === false) throw text().files.notText;
+        if (!node || node.kind !== "file" || node.editable === false) {
+          throw fileError("binary", text().files.notText);
+        }
         return node.text ?? "";
       }
       return invoke<string>("file_read_text", { path: entry.path });
@@ -495,7 +762,7 @@ export function useFileBrowser() {
       if (preview) {
         const parent = parentPath(path);
         const name = baseName(path);
-        if (parent == null) throw text().files.cannotSave;
+        if (parent == null) throw fileError("rule", text().files.cannotSave);
         setTree((current) =>
           updateDir(current, parent, (children) =>
             children.map((child) => (child.name === name ? { ...child, text: body } : child)),
@@ -511,30 +778,36 @@ export function useFileBrowser() {
   );
 
   const remove = useCallback(
-    async (entries: FileEntry[]) => {
-      if (entries.length === 0) return;
+    async (items: FileEntry[]) => {
+      if (items.length === 0) return;
       if (preview) {
         let next = tree;
-        for (const entry of entries) {
+        for (const entry of items) {
           const parent = parentPath(entry.path);
           if (parent == null) {
             setNote(text().files.cannotDeleteHere);
             return;
           }
-          next = updateDir(next, parent, (children) => children.filter((child) => child.name !== entry.name));
+          next = updateDir(next, parent, (children) =>
+            children.filter((child) => child.name !== entry.name),
+          );
         }
         setTree(next);
-        setNote(entries.length === 1 ? text().files.deletedOne(entries[0].name) : text().files.deletedMany(entries.length));
+        setNote(
+          items.length === 1
+            ? text().files.deletedOne(items[0].name)
+            : text().files.deletedMany(items.length),
+        );
         return;
       }
       let done = 0;
       let failure = "";
-      for (const entry of entries) {
+      for (const entry of items) {
         try {
           await invoke("file_delete", { path: entry.path });
           done += 1;
         } catch (err) {
-          failure = formatError(err);
+          failure = toFileError(err).message;
           break;
         }
       }
@@ -544,9 +817,9 @@ export function useFileBrowser() {
           ? done > 0
             ? `${t.deletedMany(done)} ${failure}`
             : failure
-          : entries.length === 1
-            ? t.deletedOne(entries[0].name)
-            : t.deletedMany(entries.length),
+          : items.length === 1
+            ? t.deletedOne(items[0].name)
+            : t.deletedMany(items.length),
       );
       await reloadNative(location);
     },
@@ -565,20 +838,124 @@ export function useFileBrowser() {
     [preview],
   );
 
+  const rename = useCallback(
+    async (entry: FileEntry, nextName: string) => {
+      const problem = checkFileName(nextName);
+      if (problem) throw fileError("name", problem);
+      const trimmed = nextName.trim();
+      if (trimmed === entry.name) return trimmed;
+      if (preview) {
+        const applied = renamePreview(tree, entry.path, trimmed);
+        if ("error" in applied) throw fileError("rule", applied.error);
+        setTree(applied.tree);
+        setPendingFocus(applied.focus);
+        setNote(text().files.renamed(applied.focus));
+        return applied.focus;
+      }
+      await invoke("file_rename", { from: entry.path, to: trimmed });
+      setPendingFocus(trimmed);
+      setNote(text().files.renamed(trimmed));
+      await reloadNative(location);
+      return trimmed;
+    },
+    [location, preview, reloadNative, tree],
+  );
+
+  const renameMany = useCallback(
+    async (pairs: { from: string; to: string }[]) => {
+      if (pairs.length === 0) return { done: 0, failures: [] as { name: string; message: string }[] };
+      if (preview) {
+        let next = tree;
+        let done = 0;
+        for (const pair of pairs) {
+          const applied = renamePreview(next, pair.from, pair.to.trim());
+          if ("error" in applied) {
+            setTree(next);
+            return { done, failures: [{ name: baseName(pair.from), message: applied.error }] };
+          }
+          next = applied.tree;
+          done += 1;
+        }
+        setTree(next);
+        setPendingFocus(pairs[0].to.trim());
+        setNote(text().files.renamedMany(done));
+        return { done, failures: [] as { name: string; message: string }[] };
+      }
+      const report = await invoke<{ done: number; failures: { name: string; message: string }[] }>(
+        "file_rename_many",
+        { pairs },
+      );
+      await reloadNative(location);
+      return report;
+    },
+    [location, preview, reloadNative, tree],
+  );
+
+
+
+  const properties = useCallback(
+    async (path: string) => {
+      if (preview) {
+        const info = propertiesPreview(tree, path);
+        if (!info) throw fileError("missing", text().files.cannotReadProperties);
+        return info;
+      }
+      return invoke<FileProperties>("file_properties", { path });
+    },
+    [preview, tree],
+  );
+
+  const search = useCallback(
+    async (query: string, id: string) => {
+      if (preview) return searchPreview(tree, query);
+      if (location == null) throw fileError("rule", text().files.searchInsideFolder);
+      return invoke<SearchHit[]>("file_search", { id, root: location, query });
+    },
+    [location, preview, tree],
+  );
+
+  const listPlaces = useCallback(async () => {
+    if (preview) return listPreview(tree, PREVIEW_ROOT);
+    return invoke<FileEntry[]>("file_places");
+  }, [preview, tree]);
+
+  const cancel = useCallback(
+    async (id: string) => {
+      if (preview || !id) return false;
+      try {
+        return await invoke<boolean>("file_cancel", { id });
+      } catch {
+        return false;
+      }
+    },
+    [preview],
+  );
+
+  const reload = useCallback(async () => {
+    if (!preview) await reloadNative(location);
+  }, [location, preview, reloadNative]);
+
   return {
     preview,
     location,
     title: baseName(location),
     pathLabel: location ?? text().files.choosePlace,
+    crumbs,
     entries,
     note,
     clip,
     pendingFocus,
     clearPendingFocus: useCallback(() => setPendingFocus(""), []),
+    sortKey,
+    sortDir,
+    chooseSort,
     enter,
     up,
-    stageCopy: (entries: FileEntry[]) => stage(entries, "copy"),
-    stageMove: (entries: FileEntry[]) => stage(entries, "move"),
+    jump,
+    listPlaces,
+    stageCopy: (items: FileEntry[]) => stage(items, "copy"),
+    stageMove: (items: FileEntry[]) => stage(items, "move"),
+    startTransfer,
     paste,
     createDir,
     createFile,
@@ -586,6 +963,12 @@ export function useFileBrowser() {
     writeText,
     openExternal,
     remove,
+    rename,
+    renameMany,
+    properties,
+    search,
+    cancel,
+    reload,
     setNote,
   };
 }

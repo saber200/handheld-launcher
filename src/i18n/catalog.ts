@@ -274,6 +274,89 @@ export type Catalog = {
     exeOnly: string;
     pickerPreview: string;
     pickerNative: string;
+    // 功能 12：双栏 / 排序 / 面包屑 / 常用位置 / 搜索 / 属性 / 改名 / 传输进度
+    pathHere: string;
+    leftPane: string;
+    rightPane: string;
+    dual: string;
+    dualHint: (pane: string) => string;
+    sortBy: string;
+    sortName: string;
+    sortSize: string;
+    sortTime: string;
+    sortType: string;
+    places: string;
+    placesTitle: string;
+    search: string;
+    searchTitle: (pane: string) => string;
+    searchPlaceholder: string;
+    searchStart: string;
+    searchKeyboard: string;
+    searching: string;
+    searchEmpty: (query: string) => string;
+    searchCap: string;
+    searchInsideFolder: string;
+    selectModeHint: string;
+    rename: string;
+    renameTitle: (name: string) => string;
+    renameHint: string;
+    renamed: (name: string) => string;
+    renamedMany: (count: number) => string;
+    cannotRenameHere: string;
+    batchRename: string;
+    batchModeOriginal: string;
+    batchModeNumber: string;
+    batchModeReplace: string;
+    batchBase: string;
+    batchBaseHint: string;
+    batchStart: string;
+    batchFind: string;
+    batchReplace: string;
+    batchPreview: string;
+    batchUnchanged: string;
+    batchMore: (count: number) => string;
+    batchKeyboard: string;
+    batchRun: string;
+    batchEmpty: string;
+    properties: string;
+    propsReading: string;
+    propPath: string;
+    propKind: string;
+    propSize: string;
+    propPartial: string;
+    propModified: string;
+    propCreated: string;
+    propExtension: string;
+    propAttrs: string;
+    attrReadonly: string;
+    attrHidden: string;
+    propWritable: string;
+    propYes: string;
+    propNo: string;
+    cannotReadProperties: string;
+    unknown: string;
+    hintDenied: string;
+    hintBusy: string;
+    hintSpace: string;
+    hintToolong: string;
+    hintProtected: string;
+    startCopy: (label: string) => string;
+    startMove: (label: string) => string;
+    transferScan: string;
+    transferMeta: (index: number, total: number, done: string, totalBytes: string) => string;
+    transferCancel: string;
+    transferDone: (items: number) => string;
+    transferDoneSkipped: (items: number, skipped: number) => string;
+    transferCancelled: (items: number) => string;
+    reasonCancelled: string;
+    copyToOther: (pane: string) => string;
+    moveToOther: (pane: string) => string;
+    conflictTitle: string;
+    conflictBody: (count: number) => string;
+    conflictReplace: string;
+    conflictSkip: string;
+    conflictKeep: string;
+    previewCross: string;
   };
 };
 
@@ -290,11 +373,11 @@ export const zh: Catalog = {
   tabs: { menu: "主菜单", games: "游戏库", apps: "软件库", files: "文件管理", toolbox: "工具箱" },
   hints: {
     filesNav: "方向键选择",
-    filesMulti: "X 多选",
-    filesOpen: "A 用系统打开",
+    filesMulti: "X 多选（进选择模式）",
+    filesOpen: "A 打开",
     filesBack: "B 返回",
-    filesCopy: "Y 复制 / 移动",
-    filesTabs: "LB / RB 切换",
+    filesCopy: "Y 菜单：复制 / 移动 / 改名 / 删除 / 属性",
+    filesTabs: "LB / RB 切页；双栏时 LT / RT 换栏",
     tabs: "LB / RB 切换",
     keys: "键盘 Q / E",
     settings: "双击 Back / Share（Esc）设置",
@@ -554,6 +637,89 @@ export const zh: Catalog = {
     exeOnly: "请选择 .exe 程序。",
     pickerPreview: "浏览器预览可以选任意文件。A 进入文件夹或选中，B 返回。",
     pickerNative: "A 进入文件夹，或选中 .exe。B 返回，到盘符再按 B 关闭。",
+    pathHere: "位置",
+    leftPane: "左栏",
+    rightPane: "右栏",
+    dual: "双栏（左源右目标）",
+    dualHint: (pane) => `当前是${pane}。LT / RT 换栏；Y 菜单里可以直接复制到另一栏。`,
+    sortBy: "排序",
+    sortName: "名称",
+    sortSize: "大小",
+    sortTime: "时间",
+    sortType: "类型",
+    places: "位置",
+    placesTitle: "常用位置",
+    search: "搜索",
+    searchTitle: (pane) => `${pane}里搜索`,
+    searchPlaceholder: "输入要搜索的名字",
+    searchStart: "开始搜索",
+    searchKeyboard: "用系统键盘输入（掌机上也可以接一个键盘）。",
+    searching: "正在搜索…",
+    searchEmpty: (query) => `没有找到「${query}」。`,
+    searchCap: "只显示前 300 条、最深 6 层。名字说得再具体一点会更准。",
+    searchInsideFolder: "先进入一个文件夹，再搜索。",
+    selectModeHint: "选择模式：移动焦点就会选上；A 单独选或取消，B 退出。",
+    rename: "重命名",
+    renameTitle: (name) => `重命名「${name}」`,
+    renameHint: "只改名字，位置不动。",
+    renamed: (name) => `已改名为「${name}」。`,
+    renamedMany: (count) => `已改名 ${count} 项。`,
+    cannotRenameHere: "这个位置不能重命名。",
+    batchRename: "批量重命名",
+    batchModeOriginal: "原名 + 编号",
+    batchModeNumber: "统一名称 + 编号",
+    batchModeReplace: "查找替换",
+    batchBase: "新名称",
+    batchBaseHint: "留空就各自用原名",
+    batchStart: "起始编号",
+    batchFind: "查找",
+    batchReplace: "替换为",
+    batchPreview: "预览",
+    batchUnchanged: "不变",
+    batchMore: (count) => `…… 还有 ${count} 项`,
+    batchKeyboard: "要输入名字时请用系统键盘（掌机上也可以接一个键盘）。",
+    batchRun: "开始改名",
+    batchEmpty: "照现在的规则没有一项会改名。",
+    properties: "属性",
+    propsReading: "正在读取…",
+    propPath: "路径",
+    propKind: "类型",
+    propSize: "大小",
+    propPartial: "（没算完，实际更大）",
+    propModified: "修改时间",
+    propCreated: "创建时间",
+    propExtension: "扩展名",
+    propAttrs: "属性",
+    attrReadonly: "只读",
+    attrHidden: "隐藏",
+    propWritable: "现在能写入",
+    propYes: "能",
+    propNo: "不能",
+    cannotReadProperties: "读不到这个项目的属性。",
+    unknown: "未知",
+    hintDenied: "权限不够：关掉占用它的程序，或者以管理员身份重新打开幻想枢纽再试。",
+    hintBusy: "它正被别的程序用着：先关掉那个程序再试一次。",
+    hintSpace: "目标盘空间不够了：清一点空间或换一个目标盘。",
+    hintToolong: "路径太长了：把它移到更靠上层的文件夹再试。",
+    hintProtected: "这是系统 / 程序目录，写入多半需要管理员，建议换一个位置。",
+    startCopy: (label) => `正在复制${label}…`,
+    startMove: (label) => `正在移动${label}…`,
+    transferScan: "正在算大小…",
+    transferMeta: (index, total, done, totalBytes) =>
+      `第 ${index}/${total} 项 · ${done} / ${totalBytes}`,
+    transferCancel: "取消",
+    transferDone: (items) => `已完成 ${items} 项。`,
+    transferDoneSkipped: (items, skipped) => `已完成 ${items} 项，跳过 ${skipped} 项（目标里已有同名）。`,
+    transferCancelled: (items) => `已取消（已经完成 ${items} 项）。`,
+    reasonCancelled: "已取消。",
+    copyToOther: (pane) => `复制到${pane}`,
+    moveToOther: (pane) => `移动到${pane}`,
+    conflictTitle: "目标里已经有同名的",
+    conflictBody: (count) => `有 ${count} 项和目标里的同名，你想怎么办？`,
+    conflictReplace: "覆盖（用新的换掉旧的）",
+    conflictSkip: "跳过（旧的留着，这些不搬）",
+    conflictKeep: "保留两者（新的自动改名）",
+    previewCross: "浏览器预览里左右两栏是两棵独立的树，跨栏复制请用打包后的程序试。",
   },
 };
 
@@ -570,11 +736,11 @@ export const en: Catalog = {
   tabs: { menu: "Main menu", games: "Games", apps: "Apps", files: "Files", toolbox: "Toolbox" },
   hints: {
     filesNav: "D-pad to move",
-    filesMulti: "X select more",
+    filesMulti: "X select mode",
     filesOpen: "A open",
     filesBack: "B back",
-    filesCopy: "Y copy / move",
-    filesTabs: "LB / RB switch",
+    filesCopy: "Y menu: copy / move / rename / delete / properties",
+    filesTabs: "LB / RB tabs; LT / RT panes",
     tabs: "LB / RB switch",
     keys: "Q / E on keyboard",
     settings: "Double-tap Back / Share (Esc) for settings",
@@ -834,5 +1000,87 @@ export const en: Catalog = {
     exeOnly: "Choose an .exe program.",
     pickerPreview: "Browser preview can pick any file. A opens a folder or selects, B goes back.",
     pickerNative: "A opens a folder or selects an .exe. B goes back. B again on the drive list closes.",
+    pathHere: "Location",
+    leftPane: "Left pane",
+    rightPane: "Right pane",
+    dual: "Two panes (source left, target right)",
+    dualHint: (pane) => `${pane} is active. LT / RT switches panes; the Y menu can copy straight to the other pane.`,
+    sortBy: "Sort",
+    sortName: "Name",
+    sortSize: "Size",
+    sortTime: "Date",
+    sortType: "Type",
+    places: "Places",
+    placesTitle: "Common places",
+    search: "Search",
+    searchTitle: (pane) => `Search in ${pane}`,
+    searchPlaceholder: "Type a name to look for",
+    searchStart: "Search",
+    searchKeyboard: "Type with the system keyboard (or plug one in).",
+    searching: "Searching…",
+    searchEmpty: (query) => `Nothing named “${query}”.`,
+    searchCap: "First 300 hits, 6 levels deep. A more specific name searches better.",
+    searchInsideFolder: "Open a folder before searching.",
+    selectModeHint: "Select mode: moving the focus selects; A toggles one, B leaves.",
+    rename: "Rename",
+    renameTitle: (name) => `Rename “${name}”`,
+    renameHint: "Only the name changes; it stays where it is.",
+    renamed: (name) => `Renamed to “${name}”.`,
+    renamedMany: (count) => `Renamed ${count} items.`,
+    cannotRenameHere: "This location can't be renamed.",
+    batchRename: "Batch rename",
+    batchModeOriginal: "Name + number",
+    batchModeNumber: "Same name + number",
+    batchModeReplace: "Find and replace",
+    batchBase: "New name",
+    batchBaseHint: "Leave empty to keep each original name",
+    batchStart: "Start number",
+    batchFind: "Find",
+    batchReplace: "Replace with",
+    batchPreview: "Preview",
+    batchUnchanged: "unchanged",
+    batchMore: (count) => `… and ${count} more`,
+    batchKeyboard: "Names are typed with the system keyboard (or a plugged-in one).",
+    batchRun: "Rename now",
+    batchEmpty: "Nothing would change with these settings.",
+    properties: "Properties",
+    propsReading: "Reading…",
+    propPath: "Path",
+    propKind: "Kind",
+    propSize: "Size",
+    propPartial: "(still counting, it's bigger)",
+    propModified: "Modified",
+    propCreated: "Created",
+    propExtension: "Extension",
+    propAttrs: "Attributes",
+    attrReadonly: "Read-only",
+    attrHidden: "Hidden",
+    propWritable: "Writable now",
+    propYes: "Yes",
+    propNo: "No",
+    cannotReadProperties: "Couldn't read this item's properties.",
+    unknown: "Unknown",
+    hintDenied: "Not enough permission: close whatever is using it, or reopen FantasyHub as administrator and try again.",
+    hintBusy: "Another program is using it: close that program and try again.",
+    hintSpace: "The target drive is full: free some space or pick another drive.",
+    hintToolong: "The path is too long: move it to a folder closer to the root.",
+    hintProtected: "This is a system / program folder; writing usually needs admin, so pick another location.",
+    startCopy: (label) => `Copying ${label}…`,
+    startMove: (label) => `Moving ${label}…`,
+    transferScan: "Counting the size…",
+    transferMeta: (index, total, done, totalBytes) => `Item ${index}/${total} · ${done} / ${totalBytes}`,
+    transferCancel: "Cancel",
+    transferDone: (items) => `Finished ${items} items.`,
+    transferDoneSkipped: (items, skipped) => `Finished ${items}, skipped ${skipped} (already there).`,
+    transferCancelled: (items) => `Cancelled (finished ${items}).`,
+    reasonCancelled: "Cancelled.",
+    copyToOther: (pane) => `Copy to ${pane}`,
+    moveToOther: (pane) => `Move to ${pane}`,
+    conflictTitle: "Those names are already there",
+    conflictBody: (count) => `${count} items have the same name in the target. What should happen?`,
+    conflictReplace: "Replace (swap the old one out)",
+    conflictSkip: "Skip (keep the old one, don't move these)",
+    conflictKeep: "Keep both (rename the new ones)",
+    previewCross: "In the browser preview the two panes have separate trees; try cross-pane copy in the packaged app.",
   },
 };

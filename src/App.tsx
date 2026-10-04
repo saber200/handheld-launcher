@@ -231,9 +231,11 @@ export default function App() {
       closeSettings();
     },
     onTriggerLeft: () => {
+      if (fileActions().switchPane?.(-1)) return;
       libraryActions().cycleGroup?.(-1);
     },
     onTriggerRight: () => {
+      if (fileActions().switchPane?.(1)) return;
       libraryActions().cycleGroup?.(1);
     },
   });

@@ -1213,6 +1213,335 @@ img.app-icon {
   border-color: var(--accent);
 }
 
+/* ---- 功能 12：双栏 / 面包屑 / 排序 / 进度 / 新弹窗 ---- */
+
+.file-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 14px;
+}
+
+.file-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 双栏时两栏要能一眼看出「现在哪一栏听键盘」 */
+.file-panes.is-dual .file-pane {
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.file-panes.is-dual .file-pane.is-active {
+  border-color: var(--accent);
+}
+
+.file-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.file-pane-tag {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-pane-tag.is-current {
+  color: #06241f;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.file-pane-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px;
+}
+
+.file-crumb {
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 14px;
+}
+
+.file-crumb.is-here {
+  color: var(--ink);
+  background: transparent;
+  border-color: var(--line);
+}
+
+.file-crumb:focus {
+  color: var(--ink);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.file-sort-group {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.file-sort {
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 14px;
+}
+
+.file-sort.is-current {
+  color: #06241f;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.file-view-wide {
+  width: 52px;
+}
+
+.file-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.file-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.file-progress-name {
+  flex-shrink: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.file-progress-bar {
+  flex: 1;
+  min-width: 0;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.file-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--dur-fast) linear;
+}
+
+.file-progress-meta {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.library-tool.is-current {
+  color: #06241f;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.file-batch-panel,
+.file-search-panel,
+.file-props {
+  width: min(720px, calc(100vw - 48px));
+}
+
+.file-batch-modes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.file-batch-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.file-batch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 180px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-batch-preview-title {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-batch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 0 2px;
+  list-style: none;
+  font-size: 14px;
+}
+
+.file-batch-preview li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-batch-from,
+.file-batch-to {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-batch-from {
+  flex: 1;
+  color: var(--muted);
+}
+
+.file-batch-to {
+  flex: 1;
+  color: var(--ink);
+}
+
+.file-batch-to.is-same {
+  color: var(--muted);
+}
+
+.file-props-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  max-height: 380px;
+  overflow: auto;
+}
+
+.file-props-list div {
+  display: flex;
+  gap: 12px;
+}
+
+.file-props-list dt {
+  flex-shrink: 0;
+  width: 96px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.file-props-list dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-all;
+  font-size: 14px;
+}
+
+.file-search-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 120px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.file-search-hit {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: left;
+}
+
+.file-search-hit:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.file-search-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.file-search-dir {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-places,
+.file-conflict {
+  width: min(640px, calc(100vw - 48px));
+}
+
+.file-places-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow: auto;
+}
+
+
 .library-group-row {
   display: flex;
   align-items: center;
