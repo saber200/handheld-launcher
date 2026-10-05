@@ -1,4 +1,23 @@
-# 前端独立化（0.1.46 起）
+# 前端与界面（0.1.46 独立化 → 0.1.62 删掉独立前端）
+
+> **未发布（0.1.62，2026-10-05）：独立前端程序整个删掉了。** 删掉的是 `frontend/src-tauri`
+> （`FantasyHubFrontend.exe`：托盘 + 浮层 + 回环 TDP 服务 + `widget-ipc.json` 发现文件 +
+> 更新握手）、`src/frontend/*`、`frontend.html`、`vite.config.ts` 的 frontend 入口，以及
+> 只为它服务的共享内核模块（`fh-core` 的 `ipc` / `presence` / `handshake` / `autostart` /
+> `library`）与启动器侧的 `frontend_tool.rs` / `overlay_watch.rs` / `tdp_ipc.rs` /
+> `library_publish` 和那四条权限。**前端界面现在只剩随启动器安装的 Game Bar 小组件**
+> （`frontend/gamebar`，原生 UWP）。小组件原来靠上面那个回环服务取数据 —— 服务删掉后
+> **当天就搬回启动器进程里了**（`src-tauri/src/widget.rs` / `widget_protocol.rs` /
+> `widget_discovery.rs` + `library.rs`；为什么并进来、代价是什么写在 `widget.rs` 顶部），
+> **C# 侧（UWP + Bridge）一个字节没改**。所以 `library_publish` 与 `allow-library-publish`
+> 因为小组件还要用，又回到了启动器侧；`tdp_ipc.rs`（只服务旧前端的那个服务端）没有回来 ——
+> 小组件直接问启动器。细则见 `STATUS.md` 的「小组件后端补回来了」。
+>
+> 因此下面 **§1–§9 是历史记录**（为什么要拆 / 边界 / 前端软件自己的能力 / TDP 的本地 IPC /
+> 安装与更新 / 代码组织 / 启动器侧删除清单 / 阶段与验证 / 进展）：读它们时要知道那些程序
+> 已经不在仓库里。**§10（手柄归属）与 §11（文件管理器）仍是现行设计。**
+> 取回旧代码：`git show v0.1.61:<路径>`（如 `git show v0.1.61:frontend/src-tauri/src/main.rs`）。
+> 逐条清单与验证边界见 `STATUS.md` 的「未发布（0.1.62）」。
 
 ## 0.1.61：还欠账（功能 15 五条 + 功能 14 能做的，2026-10-05）
 

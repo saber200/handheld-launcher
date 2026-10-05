@@ -284,21 +284,6 @@ export function useRunningGameIds(items: { id: string; launchPath?: string; inst
   return new Set(ids);
 }
 
-export type RunningLibraryGame = {
-  id: string;
-  name: string;
-  launchPath?: string;
-  installPath?: string;
-  customPath?: boolean;
-};
-
-/** Result of one process probe: the game found, and whether an answer arrived. */
-export type RunningProbe = {
-  game: RunningLibraryGame | null;
-  /** False until the current probe session got a usable answer (empty counts). */
-  settled: boolean;
-};
-
 /**
  * 「游戏目录 → 封面」表，给**文件页**的预览面板用（FUTURE.md 功能 15 第 5 条）。
  *
@@ -330,7 +315,7 @@ function normalizeDirKey(path: string): string {
 /**
  * 已装软件（从这一层的扫描缓存里读，**不触发扫描**）—— 首页「最近安装的软件」用它。
  *
- * 和 `cachedLibraryGames` 同一个理由：首页一挂载就要出内容，不能等一次全盘扫描。
+ * 从扫描缓存里读，**不触发扫描**：首页一挂载就要出内容，不能等一次全盘扫描。
  * 按 `installDate` 倒序排（注册表里那一列），没写日期的排后面、按名字排。
  */
 export function cachedApps(): { id: string; name: string; version: string; sizeBytes: number; installDate: string }[] {
@@ -348,93 +333,6 @@ export function cachedApps(): { id: string; name: string; version: string; sizeB
       if (a.installDate !== b.installDate) return b.installDate.localeCompare(a.installDate);
       return a.name.localeCompare(b.name, currentLocale());
     });
-}
-
-/**
- * The games the library would show, read straight from this session's scan
- * cache. The frontend overlay only needs a candidate list for `running_games`;
- * unlike the library page it must never start a full system scan.
- */
-export function cachedLibraryGames(): RunningLibraryGame[] {
-  if (!inTauri()) return [];
-  const extras = loadExtras("games");
-  const scanned = (readScanCache<RawGame>("scan_games") ?? []).map((row) => ({
-    id: row.id,
-    name: row.name,
-    launchPath: row.launchPath,
-    installPath: row.installPath,
-  }));
-  const base = withPaths(scanned, extras);
-  const known = new Set(base.map((item) => item.launchPath).filter(Boolean));
-  const added = extras.added
-    .filter((item) => !known.has(item.launchPath))
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      launchPath: item.launchPath,
-      installPath: item.installPath,
-      customPath: true,
-    }));
-  return [...base, ...added].filter((item) => !extras.hidden.includes(item.id));
-}
-
-/**
- * The library game running right now, for the frontend's quit row. Probes the
- * same process list as the library, but only while the overlay is on screen.
- * Returns `null` for apps and for the shell itself, so no row is offered there.
- */
-export function useRunningLibraryGame(active: boolean): [RunningProbe, () => void] {
-  const [probe, setProbe] = useState<RunningProbe>({ game: null, settled: false });
-  const items = useMemo(() => (active ? cachedLibraryGames() : []), [active]);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-  const inFlight = useRef(false);
-  const rerun = useRef(false);
-  const probes = useRef<() => void>(() => {});
-  const tick = useCallback(() => {
-    const list = itemsRef.current;
-    if (list.length === 0) {
-      setProbe({ game: null, settled: true });
-      return;
-    }
-    // Walking the process list is the expensive part: never stack a second probe,
-    // but remember the ask — a quit has to land without waiting for the next tick.
-    if (inFlight.current) {
-      rerun.current = true;
-      return;
-    }
-    inFlight.current = true;
-    void invoke<string[]>("running_games", {
-      items: list.map((item) => ({
-        id: item.id,
-        launchPath: item.launchPath ?? "",
-        installPath: item.installPath ?? "",
-      })),
-    })
-      .then((ids) =>
-        setProbe({ game: list.find((item) => ids.includes(item.id)) ?? null, settled: true }),
-      )
-      // A probe that failed is not a game that quit: leave the last answer alone.
-      .catch(() => {})
-      .finally(() => {
-        inFlight.current = false;
-        if (rerun.current) {
-          rerun.current = false;
-          probes.current();
-        }
-      });
-  }, []);
-  probes.current = tick;
-  useEffect(() => {
-    if (!active || !inTauri()) {
-      setProbe({ game: null, settled: false });
-      return;
-    }
-    tick();
-    const timer = window.setInterval(tick, 4000);
-    return () => window.clearInterval(timer);
-  }, [active, tick]);
-  return [probe, tick];
 }
 
 function formatError(err: unknown): string {
@@ -964,9 +862,10 @@ export function useLocalGames() {
       .filter((item) => !extra.extras.hidden.includes(item.id))
       .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   }, [extra.extras, scanned.items]);
-  // 把游戏清单发布到 `library.json`：独立前端读这个文件来判断「哪个游戏在跑 / 退掉它」。
-  // 前端读的是**数据文件**，不是命令通道 —— 启动器不因此获得任何对前端的控制能力
-  // （见仓库根 FRONTEND.md §3/§4）。
+
+  // 把游戏清单发布到 `library.json`：小组件的后端（就在启动器进程里，见
+  // `src-tauri/src/widget.rs`）读这份文件来判断「哪个游戏在跑 / 退掉它」。
+  // 发布的是**数据**，不是控制通道 —— 小组件只能读它 + 发它自己的四条命令。
   useEffect(() => {
     if (!inTauri()) return;
     void invoke("library_publish", {

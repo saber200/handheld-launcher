@@ -3,8 +3,28 @@ FantasyHub Game Bar 源码交接
 交付与验证边界
 本目录包含原生 UWP C# / XAML 小组件及同包 .NET Framework 4.8 全信任中转源码。
 仅修改 frontend/gamebar；不修改 Rust 服务、原面板、启动器自启或其他协作者文件。
+
+【2026-10-05 后端已补齐：后端就是启动器本身】原来那个回环服务（连
+handheld-launcher/widget-ipc.json 发现文件）随「独立前端程序」一起被删掉后，已把**同样的
+传输 / 协议 / 发现文件实现搬进启动器**（FantasyHub.exe）。要点：
+- 格式完全没变：端口随机、令牌每次启动重生成，仍由后台写 %APPDATA%\handheld-launcher\
+  widget-ipc.json。**UWP / Bridge 侧一个字节都不用改**，下面「通信契约」一节照旧成立。
+- 命令就地在启动器进程里执行：TDP 读写走它自己的 WinRing0、游戏列表读它发布的
+  library.json、语言取它当前的语言（不再有中间那层转发）。
+- 因此：**启动器被真的退出后（「电源 → 退出」）小组件取不到数据** —— 与以前独立前端没启动
+  时一样，不是新问题（启动器默认开机自启、关窗口不会退出）。
+- 与老实现的两处差别：① `set_autostart` 没有实现（Bridge 白名单本来也不放它，小组件发不出来）；
+  ② 语言：`status.locale` 报的是启动器**进程内**当前的语言 —— 启动器起来后由它的界面推一次
+  （界面里改语言也会推）。在小组件里切语言只改进程里的这一份、**不写回**启动器的设置，
+  所以下次启动仍以启动器保存的语言为准；反过来，启动器界面也不会跟着小组件切（它只在自己的
+  设置里改）。
+- 所以下面第 5、7 条「与 Rust 联调」现在可以跑了（先启动 FantasyHub.exe）。
+- 本机（macOS）已实测：回环链路一条（跑 `status` 并断言 minW / maxW / driver.ready /
+  driver.installed / games / locale 这些 C# 侧写死的字段名）+ 令牌不对返回 Unauthorized 一条。
+  **Windows 侧仍未编译、未真机验**；macOS 上走的是「不支持 TDP」的回退分支，只证明传输与
+  回包形状对，不证明 TDP 写得进去。
 当前不是已验证可安装的 Windows 成品。未执行 Windows 编译、PowerShell、.NET Native、签名安装或设备运行。
-本机 Python 静态检查通过：XML=8、PNG=4、WAV=4、XAML handlers=8。
+本机 Python 静态检查通过：XML=8、PNG=4、WAV=4、XAML handlers=6（以 check-static.py 实际输出为准）。
 此前在线比较官方 master 的 ProxyStub ClassId、Path 和 23 个接口集合一致；master 可变，不是固定版本证明。
 静态检查不是 C# 编译、XAML 类型检查、manifest schema 验证或运行时线程正确性的证明。
 

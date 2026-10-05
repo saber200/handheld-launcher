@@ -1,6 +1,6 @@
 # 幻想枢纽（FantasyHub）
 
-Windows 掌机全屏前端启动器。当前完成全屏壳，以及 Windows 安装包里的 Steam / Epic 游戏扫描和已安装软件扫描。
+Windows 掌机全屏前端启动器。当前完成全屏壳，以及 Windows 安装包里的 Steam / Epic 游戏扫描和已安装软件扫描。前端界面是随启动器安装的 **Game Bar 小组件**（`Win+G`）；独立的前端程序已在 0.1.62 删除，小组件的后端改成**启动器进程自己**（回环 + 发现文件，见 `frontend/gamebar/HANDOFF.txt`）。
 
 ## 技术栈
 
@@ -19,7 +19,7 @@ source "$HOME/.cargo/env"
 npm run tauri:dev
 ```
 
-顶部四个标签水平居中：游戏库、软件库、文件管理、工具箱。手柄 LB / RB 切换标签（键盘 Q / E）。**双击** Xbox 的 Back（View）或 PS 的 Share 从左侧拉出设置（单击 Back 留给前端浮层的 `Back+Start` 和弦，键盘 Esc 仍是按一次即可，再按一次关闭）。方向键或摇杆移动焦点，A / Enter 确认。游戏卡片菜单里有「安装 Mod / 工具」，可直接为该游戏下载并安装 OptiScaler（工具箱标签页只剩运行库）。
+顶部四个标签水平居中：游戏库、软件库、文件管理、工具箱。手柄 LB / RB 切换标签（键盘 Q / E）。**双击** Xbox 的 Back（View）或 PS 的 Share 从左侧拉出设置（键盘 Esc 仍是按一次即可，再按一次关闭）。方向键或摇杆移动焦点，A / Enter 确认。游戏卡片菜单里有「安装 Mod / 工具」，可直接为该游戏下载并安装 OptiScaler（工具箱标签页只剩运行库）。
 
 ## 在 Windows 掌机上下载使用（推荐）
 

@@ -359,7 +359,7 @@ fn toolbox_optiscaler_status_now(
     }
 }
 
-/// 数据结构在共享内核里（独立前端通过本地 IPC 拿到的就是同一个形状）。
+/// 数据结构在共享内核里（工具箱与界面读的是同一份形状）。
 pub use fh_core::tdp::TdpDriverStatus;
 
 #[tauri::command]
@@ -374,7 +374,8 @@ pub async fn toolbox_tdp_driver_status() -> TdpDriverStatus {
         })
 }
 
-fn toolbox_tdp_driver_status_now() -> TdpDriverStatus {
+/// 小组件后端用它填 `status.driver`（见 widget.rs）。
+pub(crate) fn toolbox_tdp_driver_status_now() -> TdpDriverStatus {
     #[cfg(windows)]
     {
         return windows::tdp_driver_status();

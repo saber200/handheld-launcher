@@ -315,7 +315,7 @@ mod platform {
         let pin = pin_directory(directory)?;
         security.verify_directory(pin.0)?;
         let attrs = security.attributes();
-        let temporary = directory.join(format!(".widget-ipc-{}.tmp", fh_core::ipc::random_token()?));
+        let temporary = directory.join(format!(".widget-ipc-{}.tmp", crate::widget_protocol::random_token()?));
         let temporary_wide = wide(&temporary)?;
         let destination = wide(&directory.join(FILE_NAME))?;
         let raw = unsafe { CreateFileW(temporary_wide.as_ptr(), GENERIC_WRITE | READ_CONTROL,
@@ -339,7 +339,7 @@ mod platform {
         // Random test fixtures are retained; never access the real discovery path.
         fn isolated(security: &Security, extra: &str) -> PathBuf {
             let path = std::env::temp_dir().join(format!(
-                "widget-discovery-test-{}", fh_core::ipc::random_token().unwrap()));
+                "widget-discovery-test-{}", crate::widget_protocol::random_token().unwrap()));
             unsafe {
                 let sid = (*(security.user.as_ptr().cast::<TOKEN_USER>())).User.Sid;
                 let mut text = null_mut();
@@ -567,7 +567,7 @@ mod platform {
     fn store_in(directory: &std::fs::File, body: &[u8], uid: u32) -> Result<(), String> {
         check_directory(directory, uid, true)?;
         // Descriptor-relative operations never follow an existing target or directory link.
-        let temporary = CString::new(format!(".widget-ipc-{}.tmp", fh_core::ipc::random_token()?))
+        let temporary = CString::new(format!(".widget-ipc-{}.tmp", crate::widget_protocol::random_token()?))
             .map_err(|e| e.to_string())?;
         let fd = unsafe { openat(directory.as_raw_fd(), temporary.as_ptr(), CREATE_FLAGS, 0o600u32) };
         if fd < 0 { return Err(io_error()); }
@@ -595,7 +595,7 @@ mod platform {
         // Deliberately retained: never touch the real discovery directory or delete files.
         fn isolated(mode: u32) -> (PathBuf, std::fs::File) {
             let path = std::env::temp_dir().join(format!(
-                "widget-discovery-test-{}", fh_core::ipc::random_token().unwrap()));
+                "widget-discovery-test-{}", crate::widget_protocol::random_token().unwrap()));
             std::fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
             let directory = std::fs::File::open(&path).unwrap();
             directory.set_permissions(std::fs::Permissions::from_mode(mode)).unwrap();

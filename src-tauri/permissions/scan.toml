@@ -24,6 +24,11 @@ description = "Force-quit a running library game process."
 commands.allow = ["quit_game"]
 
 [[permission]]
+identifier = "allow-library-publish"
+description = "Publish the library list so the Game Bar widget can see which games are running."
+commands.allow = ["library_publish"]
+
+[[permission]]
 identifier = "allow-cache-covers"
 description = "Save Steam cover images for offline use."
 commands.allow = ["cache_covers"]
@@ -77,26 +82,6 @@ commands.allow = ["system_power"]
 identifier = "allow-set-locale"
 description = "Choose Chinese or English for system messages."
 commands.allow = ["set_locale"]
-
-[[permission]]
-identifier = "allow-library-publish"
-description = "Publish the library list so the standalone frontend can read it."
-commands.allow = ["library_publish"]
-
-[[permission]]
-identifier = "allow-frontend-status"
-description = "Read whether the standalone frontend is installed (it reports its own path)."
-commands.allow = ["frontend_status"]
-
-[[permission]]
-identifier = "allow-frontend-install"
-description = "Run the bundled frontend installer (file-level install/update only)."
-commands.allow = ["frontend_install"]
-
-[[permission]]
-identifier = "allow-overlay-open"
-description = "Read whether the standalone frontend overlay is on screen (the launcher then leaves the gamepad to it)."
-commands.allow = ["overlay_open"]
 
 [[permission]]
 identifier = "allow-quit-launcher"

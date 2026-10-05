@@ -15,11 +15,11 @@ type Options = {
    * View（8 号键）的动作怎么触发。默认 `"press"`：按下就触发；`"double"`：**双击**才触发，
    * 单击什么都不做。
    *
-   * 启动器用 `"double"`：独立前端浮层的 `Back+Start` 和弦里就有 Back 这一半，按下即触发就是
-   * 「浮层出来的同时设置抽屉也被拉开」；而押后判定（按下后等几十毫秒看 Menu 是否也按下）会
-   * 让设置键肉眼可见地变慢 —— 和弦是**按住两个键**，不会出现两次点按，双击既零延迟又天然
-   * 分得开。双击模式下 Menu 也跟着守：第一次点按之后的一小段时间里 Menu 不算独立按下，
-   * 第二次点按时若 Menu 还按着就整串吞掉（那正是和弦）。
+   * 启动器用 `"double"`：设置抽屉是重操作，掌机上 View / Share 很容易被误蹭到，按下就拉开
+   * 太吵；而押后判定（按下后等几十毫秒看 Menu 是否也按下）会让设置键肉眼可见地变慢 ——
+   * 双击零延迟，也不会把一次误触算成两次点按。双击模式下 Menu 也跟着守：第一次点按之后的
+   * 一小段时间里 Menu 不算独立按下，第二次点按时若 Menu 还按着就整串吞掉（那是 Back+Start
+   * 和弦，留给以后接的界面用）。
    *
    * 一次按键只有一个响应者，规则见仓库根 FRONTEND.md §10。
    */
@@ -532,9 +532,9 @@ export function useGamepadNav({
   useEffect(() => {
     if (!enabled) return;
 
-    // When this shell becomes active mid-hold (e.g. frontend shown while Start
-    // is still down), treat current presses as already held so we don't fire
-    // open+close on the same physical press.
+    // When navigation turns on mid-hold (the intro finishes while a button is
+    // still down), treat current presses as already held so one physical press
+    // never fires twice.
     const seedHeld = () => {
       const pads = navigator.getGamepads?.() ?? [];
       const pad = pads.find(Boolean);
@@ -608,8 +608,8 @@ export function useGamepadNav({
       const start = !!pad.buttons[9]?.pressed;
       if (view && !viewHeld.current) {
         if (viewGesture === "double") {
-          // 双击才触发：**单击什么都不做**，所以「按下那一下」不会被算成设置 ——
-          // 独立前端浮层的 Back+Start 和弦里正好有 Back 这一半（见 Options.viewGesture）。
+          // 双击才触发：**单击什么都不做** —— 设置抽屉是重操作，掌机上误蹭到 View 不该拉开它
+          // （见 Options.viewGesture）。
           if (now - viewTappedAt.current <= VIEW_DOUBLE_MS) {
             viewTappedAt.current = 0;
             // 第二次按下时 Menu 还按着 = 和弦（不是双击），整串吞掉。

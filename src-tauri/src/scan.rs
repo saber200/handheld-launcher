@@ -106,7 +106,7 @@ pub async fn steam_library_cover(app_id: String) -> Result<String, String> {
     }
 }
 
-/// 候选表的数据结构在共享内核里 —— 独立前端自己判断进程时用的是同一份。
+/// 候选表的数据结构在共享内核里（`fh_core::process`），本文件与内核只有一份实现。
 pub use fh_core::process::RunningQuery;
 
 enum GamePresence {
@@ -123,7 +123,7 @@ pub async fn running_games(items: Vec<RunningQuery>) -> Vec<String> {
 }
 
 fn running_ids_now(items: Vec<RunningQuery>) -> Vec<String> {
-    // 实现搬到了共享内核：独立前端也要用同一套判断（它自己枚举进程，不需要提权），
+    // 实现搬到了共享内核（`fh_core::process`）：这里只做一层转发，
     // 两份实现迟早会走偏，所以只留一份。
     fh_core::process::running_ids(&items)
 }
@@ -142,7 +142,7 @@ fn quit_game_now(id: String, launch_path: String, install_path: String) -> Resul
         let _ = (id, launch_path, install_path);
         Err(pick("只能在 Windows 上退出游戏", "Quitting games only works on Windows."))
     }
-    // 结束进程的实现也搬到了共享内核：独立前端自己退游戏（免提权）。
+    // 结束进程的实现也搬到了共享内核（`fh_core::process::kill_game`）。
     #[cfg(windows)]
     {
         let killed = fh_core::process::kill_game(&launch_path, &install_path);
@@ -335,8 +335,8 @@ fn launched_recently(id: &str) -> bool {
     list.iter().any(|(key, at)| key == id && now.saturating_sub(*at) < 8_000)
 }
 
-/// 路径规范化与“这个进程属于这个游戏吗”都搬到了共享内核（独立前端要用同一套，
-/// 见 `fh_core::process`）。这里不再留同名薄壳：留着只会在 Windows 构建里报
+/// 路径规范化与“这个进程属于这个游戏吗”都在共享内核里（见 `fh_core::process`）。
+/// 这里不再留同名薄壳：留着只会在 Windows 构建里报
 /// “never used”（调用点早就改成直接打共享内核了），测试也直接打共享内核那份。
 
 #[derive(Debug, PartialEq, Eq)]

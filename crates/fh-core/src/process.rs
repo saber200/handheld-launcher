@@ -1,8 +1,7 @@
 //! “哪个游戏在跑 / 退掉它”。
 //!
-//! 这段逻辑从启动器的 `scan.rs` 搬过来（原样搬，行为不变），因为**独立前端要自己做**
-//! 这两件事：前端是普通权限进程，枚举进程与 `TerminateProcess` 都不需要提权，所以
-//! 启动器没运行也能用（FRONTEND.md §3）。启动器那边的 `scan.rs` 现在直接调这里，
+//! 这段逻辑从启动器的 `scan.rs` 搬进内核（原样搬，行为不变）：枚举进程与
+//! `TerminateProcess` 都不需要提权，启动器的 `scan.rs` 与工具箱现在直接调这里，
 //! 避免两份实现慢慢走偏。
 //!
 //! 匹配规则：先把进程全路径规范化，再看它是不是等于游戏的启动路径、或落在游戏安装目录
@@ -10,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 前端问“这些库里条目里谁在跑”时传的候选表。
+/// 问「这些库里条目里谁在跑」时传的候选表。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunningQuery {

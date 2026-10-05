@@ -99,7 +99,6 @@ export type Catalog = {
     focusTools: string;
     cardMenu: string;
     confirm: string;
-    frontend: string;
   };
   settings: {
     title: string;
@@ -170,45 +169,19 @@ export type Catalog = {
     powerFailed: (detail: string) => string;
   };
   power: { menu: string; sleep: string; restart: string; shutdown: string };
-  frontend: {
-    title: string;
-    close: string;
-    hint: string;
-    tdpNoLauncher: string;
-    tdpLoading: string;
-    tdpReadFailed: (detail: string) => string;
-    tdpDriverInLauncher: string;
-    frontendTitle: string;
-    frontendBody: string;
-    frontendStatusInstalled: (version: string) => string;
-    frontendStatusMissing: string;
-    frontendAction: string;
-    frontendNoPayload: string;
-    powerTitle: string;
-    powerBody: string;
-    tdp: string;
-    tdpValue: (watts: number) => string;
-    tdpUnknown: string;
-    tdpSlider: string;
-    tdpPreview: string;
-    tdpFailed: (detail: string) => string;
-    fan: string;
-    fanBody: string;
+  // 工具箱（画板 K4）的文案。以前这一段叫 `frontend` —— 那套独立前端程序的文案
+  // 已随程序一起删除，剩下的全是工具箱自己在用，名字跟着改成它实际服务的东西。
+  toolbox: {
     toolboxPreview: string;
     toolboxFailed: (detail: string) => string;
     toolboxInstall: string;
     toolboxReinstall: string;
     toolboxWorking: string;
     toolboxInstalling: string;
-    tdpDriverTitle: string;
     tdpDriverBody: string;
     tdpDriverInstall: string;
-    tdpDriverStart: string;
     tdpDriverReinstall: string;
-    tdpDriverReady: string;
-    tdpDriverNeedAdmin: string;
     tdpDriverInstalling: string;
-    tdpDriverStarting: string;
     runtimesTitle: string;
     runtimesBody: string;
     runtimesEmpty: string;
@@ -255,11 +228,6 @@ export type Catalog = {
     toolboxModListEntry: (game: string, version: string) => string;
     toolboxModListLegacy: string;
     toolboxModInstalled: (count: number, version: string) => string;
-    quitGame: string;
-    quitGameBody: (name: string) => string;
-    quitGameRunning: string;
-    later: string;
-    soon: string;
   };
   keyboard: { label: string; backspace: string; done: string };
   library: {
@@ -809,7 +777,6 @@ export const zh: Catalog = {
     focusTools: "方向键移到新建 / 添加",
     cardMenu: "B 卡片操作",
     confirm: "A / Enter 启动或确认",
-    frontend: "前端是独立软件：装好后托盘常驻，Ctrl+H / 手柄 Back+Start 开关",
   },
   shell: {
     brandTagline: "掌机前端",
@@ -911,9 +878,9 @@ export const zh: Catalog = {
     fseOpenSettings: "打开系统全屏体验设置",
     fseOpenSettingsHint: "把主页应用选成「幻想枢纽」",
     fsePreview: "浏览器预览无法登记全屏体验",
-    widgetRegister: "安装前端",
-    widgetRegisterHint: "前端界面就是 Game Bar 小组件；随启动器自动装，点这里重装一次",
-    widgetPreview: "浏览器预览无法安装前端",
+    widgetRegister: "安装小组件",
+    widgetRegisterHint: "Game Bar 小组件就是前端界面；随启动器自动装，点这里重装一次",
+    widgetPreview: "浏览器预览无法安装小组件",
     quit: "退出启动器",
     quitHint: "退出并回到桌面",
     autostartReadFailed: "无法读取开机自启状态（需在打包后的桌面端测试）",
@@ -933,51 +900,23 @@ export const zh: Catalog = {
     powerFailed: (detail) => `电源操作失败：${detail}`,
   },
   power: { menu: "电源", sleep: "休眠", restart: "重启", shutdown: "关机" },
-  frontend: {
-    title: "前端",
-    close: "关闭前端",
-    hint: "掌机常用调节和工具箱会放在这里。TDP 可先试 5–40W 档位。",
-    tdpNoLauncher: "启动器没在运行 —— TDP 暂不可用，其它功能照常。",
-    tdpLoading: "正在读取 TDP 驱动状态…",
-    tdpReadFailed: (detail) => `无法读取 TDP 驱动状态：${detail}`,
-    tdpDriverInLauncher: "安装 TDP 驱动需要管理员：请在启动器的「工具箱」里安装。",
-    frontendTitle: "前端（独立程序）",
-    frontendBody:
-      "前端是独立软件：托盘常驻，Ctrl+H 或手柄 Back+Start 开关浮层。这里只负责安装 / 更新它，不控制它的开关。",
-    frontendStatusInstalled: (version) => `已安装 ${version}`,
-    frontendStatusMissing: "还没装过",
-    frontendAction: "安装 / 更新",
-    frontendNoPayload: "这个版本没内置前端安装包，请到 Release 页面下载",
-    powerTitle: "性能",
-    powerBody: "调节整机功耗上限。",
-    tdp: "TDP",
-    tdpValue: (watts) => `${watts}W`,
-    tdpUnknown: "未读取",
-    tdpSlider: "自定义瓦数",
-    tdpPreview: "浏览器预览无法调节 TDP，请在 Windows 掌机上使用。",
-    tdpFailed: (detail) => `TDP 调节失败：${detail}`,
-    fan: "风扇",
-    fanBody: "风扇协议较复杂，先不做，记在 FUTURE 里以后再接。",
+  // 工具箱（画板 K4）的文案：独立前端那套文案已随程序一起删除，只剩这一页在用。
+  toolbox: {
     toolboxPreview: "浏览器预览无法安装运行库，请在 Windows 掌机上使用。",
     toolboxFailed: (detail) => `工具箱操作失败：${detail}`,
     toolboxInstall: "安装",
     toolboxReinstall: "重装",
     toolboxWorking: "…",
     toolboxInstalling: "正在下载并安装，请稍候…",
-    tdpDriverTitle: "TDP 驱动 (WinRing0)",
     tdpDriverBody:
       "调节 TDP 需要内核驱动。可一键下载并安装；需管理员权限。若安全中心提示风险，属已知情况，允许后即可用。",
     tdpDriverInstall: "安装 TDP 驱动",
-    tdpDriverStart: "启动 TDP 驱动",
     tdpDriverReinstall: "重新安装",
-    tdpDriverReady: "驱动已就绪",
-    tdpDriverNeedAdmin: "当前不是管理员，安装会失败；请确认启动时有 UAC。",
     tdpDriverInstalling: "正在下载并安装 TDP 驱动…",
-    tdpDriverStarting: "正在启动已安装的 TDP 驱动…",
     runtimesTitle: "游戏运行库",
     runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
     runtimesEmpty: "暂时没有可安装的运行库项。",
-    toolboxSubtitle: "运行库 · 驱动 · 前端 · 系统维护",
+    toolboxSubtitle: "运行库 · 驱动 · 系统维护",
     toolboxSelfCheck: "自检",
     toolboxDriverLabel: "TDP 驱动",
     toolboxDriverTitle: "WinRing0 驱动",
@@ -1019,11 +958,6 @@ export const zh: Catalog = {
     toolboxModListEntry: (game, version) => `${game} · OptiScaler ${version}`,
     toolboxModListLegacy: "旧版标记（没记版本）",
     toolboxModInstalled: (count, version) => `已装 ${count} 个游戏${version ? ` · OptiScaler ${version}` : ""}`,
-    quitGame: "退出游戏",
-    quitGameBody: (name) => `立刻结束「${name}」；没保存的进度会丢`,
-    quitGameRunning: "正在退出…",
-    later: "展开",
-    soon: "即将推出",
   },
   keyboard: { label: "数字键盘", backspace: "删除", done: "完成" },
   library: {
@@ -1548,7 +1482,6 @@ export const en: Catalog = {
     focusTools: "D-pad to New / Add",
     cardMenu: "B card menu",
     confirm: "A / Enter launch or confirm",
-    frontend: "The frontend is a separate app: tray-resident, toggle with Ctrl+H / Back+Start",
   },
   shell: {
     brandTagline: "Handheld shell",
@@ -1650,9 +1583,9 @@ export const en: Catalog = {
     fseOpenSettings: "Open Windows FSE settings",
     fseOpenSettingsHint: "Choose FantasyHub as the home app",
     fsePreview: "Browser preview can't register fullscreen experience",
-    widgetRegister: "Install frontend",
-    widgetRegisterHint: "The frontend UI is the Game Bar widget; ships with the launcher, click to reinstall",
-    widgetPreview: "Browser preview can't install the frontend",
+    widgetRegister: "Install widget",
+    widgetRegisterHint: "The Game Bar widget is the frontend UI; ships with the launcher, click to reinstall",
+    widgetPreview: "Browser preview can't install the widget",
     quit: "Quit",
     quitHint: "Leave and return to the desktop",
     autostartReadFailed: "Couldn't read the startup setting. Try the installed app.",
@@ -1672,51 +1605,24 @@ export const en: Catalog = {
     powerFailed: (detail) => `Power action failed: ${detail}`,
   },
   power: { menu: "Power", sleep: "Sleep", restart: "Restart", shutdown: "Shut down" },
-  frontend: {
-    title: "Frontend",
-    close: "Close frontend",
-    hint: "Quick handheld controls live here. Try the 5–40W TDP presets first.",
-    tdpNoLauncher: "The launcher isn't running — TDP is unavailable, everything else still works.",
-    tdpLoading: "Reading TDP driver status…",
-    tdpReadFailed: (detail) => `Couldn't read TDP driver status: ${detail}`,
-    tdpDriverInLauncher: "Installing the TDP driver needs admin: use the launcher's toolbox.",
-    frontendTitle: "Frontend (separate app)",
-    frontendBody:
-      "The frontend is its own app: tray-resident, toggle the overlay with Ctrl+H or Back+Start. This card only installs/updates it — it never opens or closes it.",
-    frontendStatusInstalled: (version) => `Installed ${version}`,
-    frontendStatusMissing: "Not installed yet",
-    frontendAction: "Install / update",
-    frontendNoPayload: "This build ships no frontend installer — grab it from Releases",
-    powerTitle: "Performance",
-    powerBody: "Adjust the package power limit.",
-    tdp: "TDP",
-    tdpValue: (watts) => `${watts}W`,
-    tdpUnknown: "Unknown",
-    tdpSlider: "Custom watts",
-    tdpPreview: "Browser preview can't change TDP. Use it on a Windows handheld.",
-    tdpFailed: (detail) => `Couldn't change TDP: ${detail}`,
-    fan: "Fan",
-    fanBody: "Fan control is deferred — protocols vary a lot by handheld.",
+  // Toolbox page text. This block used to be called `frontend`; those strings went
+  // away with the standalone frontend app, and the rest of the block is toolbox-only.
+  toolbox: {
     toolboxPreview: "Browser preview can't install runtimes; use the Windows app.",
     toolboxFailed: (detail) => `Toolbox action failed: ${detail}`,
     toolboxInstall: "Install",
     toolboxReinstall: "Reinstall",
     toolboxWorking: "…",
     toolboxInstalling: "Downloading and installing…",
-    tdpDriverTitle: "TDP driver (WinRing0)",
     tdpDriverBody:
       "TDP control needs a kernel driver. One-click download and install; admin required. Defender may warn — that's expected; allow it to continue.",
     tdpDriverInstall: "Install TDP driver",
-    tdpDriverStart: "Start TDP driver",
     tdpDriverReinstall: "Reinstall",
-    tdpDriverReady: "Driver ready",
-    tdpDriverNeedAdmin: "Not elevated — install will fail. Confirm UAC on launch.",
     tdpDriverInstalling: "Downloading and installing TDP driver…",
-    tdpDriverStarting: "Starting the installed TDP driver…",
     runtimesTitle: "Game runtimes",
     runtimesBody: "Official Microsoft redistributables first; more packages later.",
     runtimesEmpty: "No runtime packages available yet.",
-    toolboxSubtitle: "Runtimes · Driver · Frontend · Maintenance",
+    toolboxSubtitle: "Runtimes · Driver · Maintenance",
     toolboxSelfCheck: "Self-check",
     toolboxDriverLabel: "TDP driver",
     toolboxDriverTitle: "WinRing0 driver",
@@ -1758,11 +1664,6 @@ export const en: Catalog = {
     toolboxModListEntry: (game, version) => `${game} · OptiScaler ${version}`,
     toolboxModListLegacy: "Legacy marker (version not recorded)",
     toolboxModInstalled: (count, version) => `${count} game(s) installed${version ? ` · OptiScaler ${version}` : ""}`,
-    quitGame: "Quit game",
-    quitGameBody: (name) => `Ends “${name}” right away; unsaved progress is lost`,
-    quitGameRunning: "Quitting…",
-    later: "Later",
-    soon: "Soon",
   },
   keyboard: { label: "Number pad", backspace: "Delete", done: "Done" },
   library: {

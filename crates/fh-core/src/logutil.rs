@@ -5,12 +5,12 @@ use std::sync::Mutex;
 
 static LOG: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// 启动器与独立前端写同一个日志文件（按行追加），方便把两边行为放在一条时间线上对照；
-/// `tag` 只用来区分是谁启动的。
+/// 写 `%APPDATA%\handheld-launcher\<tag>.log`（按行追加）；`tag` 用来区分是哪个程序 /
+/// 哪次启动写的。独立前端那个程序已删（0.1.62），现在只有启动器在用。
 ///
 /// 首行带**版本号**：日志里从来没有「这一轮跑的到底是哪一版」，排查浮层时就卡在这儿 ——
 /// 同一条 `frontend show end` 在 0.1.47 和 0.1.48 里逐字相同，光看日志分不出这天装的
-/// 是不是带修复的那版。两个程序共用这个函数，各报自己编译进去的版本。
+/// 是不是带修复的那版。
 pub fn init_for(tag: &str) {
     let path = log_path();
     if let Some(parent) = path.parent() {

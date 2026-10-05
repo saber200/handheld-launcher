@@ -39,11 +39,9 @@ pub async fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
     let _ = window.set_fullscreen(false);
     let _ = window.unminimize();
     let _ = window.show();
-    // 记一行「现在是什么模式」：浮层在两种模式下的 Z 序完全不同（大屏时启动器是
-    // 铺满整屏的前台窗口，桌面时它只是窗口化的普通窗口），前端那行 layer 日志要跟它对表。
+    // 记一行「现在是什么模式」：大屏时启动器是铺满整屏的前台窗口，桌面时它只是窗口化的
+    // 普通窗口 —— 真机上查「界面呼不出来」这类问题，第一件事就是确认当时处在哪种模式。
     crate::logutil::write_line("desktop mode (leave fullscreen + start explorer)");
-    // 告诉浮层观察线程：不在大屏模式了，壳体可以把置顶还回去（见 overlay_watch::BIG_SCREEN）。
-    crate::overlay_watch::set_big_screen(false);
     #[cfg(windows)]
     {
         windows::start_explorer();
@@ -56,9 +54,6 @@ pub async fn open_desktop(window: tauri::WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 pub fn enter_fullscreen(window: tauri::WebviewWindow) -> Result<(), String> {
     crate::logutil::write_line("big-screen mode (fill screen)");
-    // 大屏模式：壳体常态退出置顶层，浮层才能被顶上来（0.1.53 真机结论，
-    // 见 overlay_watch::BIG_SCREEN 的说明）。
-    crate::overlay_watch::set_big_screen(true);
     fill_screen(&window);
     Ok(())
 }

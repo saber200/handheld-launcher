@@ -5,6 +5,8 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
+**最新（未发布，0.1.62）：独立前端程序整个删掉了** —— 前端界面现在只剩随启动器的 Game Bar 小组件；小组件的后端**改成启动器进程自己**（回环服务 + `widget-ipc.json` 发现文件从删掉的前端搬进了 `src-tauri/src/widget*.rs`），细则与验证边界见下面「未发布（0.1.62）」一节。
+
 **这一版（0.1.60）= 文件管理增强（桌面「FantasyHub-文件管理增强」改造包的 8 项全做）**：把「文件管理」从「通用文件管理器」变成「按目标选」的任务层 —— 8 个任务入口（导入 ROM / 装 Mod / 备份存档 / 恢复存档 / 处理截图 / 清理空间 / U 盘 / 最近传输）+ 四步向导 + 快速预览面板（含缩略图）+ 后台任务中心（+ 侧栏进度环）+ 批量重命名对照表 + 冲突「应用到全部」+ 确认前置总量摘要。**只新增了 1 个 Rust 命令 `file_thumb`**（改造包 §6 允许的那一个），另给 `file_extract` 加了一个 `listOnly` 可选参数（复用它的「看一眼包里有什么」，不解压）。**已发布 `v0.1.60`（2026-10-05）**：启动器包 `FantasyHub_0.1.60_x64-setup.exe` **30.56 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.60_x64-setup.exe` 3.23 MB；CI 三项全绿 —— **Lint**（windows-latest，`cargo clippy --workspace --all-targets --locked`）2m31s、**Game Bar (Windows)** 2m41s、tag 触发的 **Build Windows**（`gamebar-payload` 2m36s + `windows` 7m36s）都 success。**Windows Lint 这一关是这版最要紧的验收**：`file_thumb` 的 `image` 解码与 zip 列表那段 PowerShell 都在 `#[cfg(windows)]` 里，本机编不到。**装包这一步在你手上** —— 真机要看什么逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.60）」。细则见下面「0.1.60」一节。
 
 **上一版（0.1.59）= 界面大改的第一次真机验证版**：把 M0 壳（设计令牌 + 左侧栏）/ M1 游戏库 K1 / M2 软件库 K2 / M3 文件页 K7 / M4 工具箱 K4 + 设置抽屉 K3，连 M6（一）清死 CSS 与双语探针一起发出去。用户给的 9 张画板里 **K5 首页 / K6 下载还是「排期中」占位页**（要新数据源：最近启动记录 / 存储容量 / 统一下载任务模型），**K8 前端浮层（M5）一行没动**（那是独立前端程序，要在 Windows 上编）。硬要求「现有能力一项都不能丢」在 M1–M4 里逐页核对过；**这一版故意没做的东西逐条记在 `FUTURE.md` 功能 14**（17 条，带勾选框），不是漏掉。**已发布 `v0.1.59`（2026-10-04）**：启动器包 `FantasyHub_0.1.59_x64-setup.exe` **30.37 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.59_x64-setup.exe` 3.21 MB；CI 三项全绿 —— **Lint** 2m05s、**Game Bar (Windows)** 2m35s（带新版的 msix 在 artifact 里）、**Build Windows**（`gamebar-payload` + `windows` 两个作业）都 success。**装包这一步在用户手上：这版就是给真机测的**（手柄焦点移动 / 左右键进出侧栏 / 字体与缩放是第一轮要看的东西）。
@@ -20,6 +22,45 @@
 **这一版（0.1.61）= 把上一版记下的欠账一次还掉**：`FUTURE.md` 功能 15 的 5 条（清空回收站 / U 盘安全弹出 / 任务暂停继续 / `.iso` 魔数判定 / 游戏目录显示封面）**全做**；功能 14 里能做的也一并做掉 —— 工具箱补「驱动版本 / 系统维护三行 / Mod 查看列表」、设置抽屉补画板 K3 那三行（界面缩放 / 性能与功耗 / 手柄死区）、软件库补画板的搜索框与底部操作条（+「运行中」进程探测）、**首页 K5 与下载 K6 从「排期中」占位换成真数据**（新数据源：启动记录 / 盘容量 / 电池 / 注册表安装日期）、`audit-ui --strict` **归零**、文件页把「读不了」和「空文件夹」分开说。Rust 侧新增三个文件级能力：`winfs.rs`（回收站 / 安全弹出 / 读盘镜像头）、`maintain.rs`（系统维护）、`sysinfo.rs`（容量 / 电池），并把传输循环改成可暂停。**还没做的**：K8 前端浮层（M5，独立程序、要在 Windows 上编）、软件库的「预置软件角标 / 有新版本」（没有数据源）、商店与社区两页（设计材料里没有），以及**一切真机验证** —— 见 `FUTURE.md` 功能 14 / 15 里剩下的勾选框，逐条写了「为什么没做」。细则见下面「0.1.61」一节。
 
 **界面大改的现在**：M0–M4 已落地，**K5 首页 / K6 下载这一版补上了**（真数据），**M5（K8 前端浮层）仍未动**；`FUTURE.md` 功能 14 是**当前唯一的还账清单**，功能 15（文件管理那 5 条）已清空、只留真机验证。
+
+## 未发布（0.1.62）：删掉独立前端程序（2026-10-05）
+
+用户原话：「把原来的独立前端相关全删掉，以后只保留 gamebar 前端 —— 只用这个前端 + 启动器」，并明确**先纯删**，小组件缺后端的事以后再处理。
+
+### 删了什么
+
+- **程序本体**：`frontend/src-tauri/`（`FantasyHubFrontend.exe`：托盘 + 浮层 + 回环 TDP 服务 + `widget-ipc.json` 发现文件 + 更新握手 + 它自己的 NSIS 钩子）、`frontend/package.json`。
+- **它的 Web 界面**：`frontend.html`、`src/frontend/`（FrontendShell / FrontendPanel / library / frontend.css / main.tsx），以及 `vite.config.ts` 里的第二个入口（现在只剩默认的 `index.html`）。
+- **只有它在用的共享内核**：`crates/fh-core` 的 `ipc.rs`（TDP 回环协议与客户端）、`presence.rs`（前端自报装在哪）、`handshake.rs`（更新前请它退出的一次性握手）、`autostart.rs`（前端的计划任务）、`library.rs`（库清单发布）。`fh-core` 现在只剩 `i18n` / `logutil` / `process` / `tdp`；`getrandom` 与 `Win32_Globalization` 依赖随之删掉。
+- **启动器侧那一圈配套**：`frontend_tool.rs`（工具箱前端卡片 + `ensure_running`）、`overlay_watch.rs`（观察浮层窗口 / 让出手柄 / 让出置顶）、`tdp_ipc.rs`（只服务前端的 TDP 回环服务端）、`library_publish` 命令（前端只读的 `library.json`）、四条权限（`allow-frontend-status` / `allow-frontend-install` / `allow-overlay-open` / `allow-library-publish`）、`App.tsx` 里的 `overlay_open` + `overlay-state`（那道「闸一」）、工具箱的前端卡片与 `OverlayIcon`、`tauri.conf.json` 的 `payload/frontend-setup.exe` 资源、`build.rs` 的 0 字节占位、NSIS 钩子里的前端安装段、`useLocalLibrary` 里的发布效应与两个只给前端用的取数函数（`cachedLibraryGames` / `useRunningLibraryGame`）。
+- **构建与发布**：`frontend/src-tauri` 从工作区成员里去掉（现在只有 `src-tauri` 与 `crates/fh-core`）；根 `package.json` 的两个 `tauri:*:frontend` 脚本；CI 的「Build standalone frontend」段、「Stage frontend installer as launcher payload」段、Release 说明里的前端行、artifact 里的 `FantasyHubFrontend.exe`。**发版现在只有一个安装包**。
+- **死掉的样式**：`global.css` 里整套 `.tdp-*`（旧浮层面板）与 `.toolbox-block-body` —— 0.1.46 当时就是「留给独立前端用」才没删，现在没有任何消费方。
+- **文案**：`text().frontend` 这一块（工具箱页在用）改名 `text().toolbox`，前端专属字符串删掉；设置抽屉那行「安装前端」改成「安装小组件」（它本来就是小组件）。
+
+### 故意没删的
+
+- `frontend/gamebar/`（原生 UWP 小组件 + 同包 Bridge）**原样保留、一个字节没改**；它缺的后端**当天就补回来了**（并进启动器进程，见下面「小组件后端补回来了」）。
+- `fh_core::process`（哪个游戏在跑 / 退掉它）保留：库与工具箱在用。
+- 手柄**双击 Back 开设置**的行为不变（只改了注释里的理由）：这是已经发到真机上的交互，不该顺手改。
+
+### 小组件后端补回来了（2026-10-05 同日，原计划「以后处理」）
+
+用户原话：「你把 gamebar 里前端的缺陷补齐 让他可以正常读取数据和调整 tdp」。做法**不是再起一个后台进程**，而是把后端**并进启动器进程**：
+
+- 搬回来的三件（原来在 `frontend/src-tauri`，代码原样，只改调用点）：`widget.rs`（回环传输）、`widget_protocol.rs`（协议与令牌）、`widget_discovery.rs`（端口/令牌发现文件，含 Windows ACL 与原子替换）。**C# 侧（UWP + Bridge）一个字节没改** —— 契约照旧。
+- 命令就地在启动器里执行，不再绕一圈回环 IPC 问自己：`tdp::{tdp_status_now, set_tdp_now}`、`toolbox::toolbox_tdp_driver_status_now`（只加 `pub(crate)`）、`library::read_published` + `fh_core::process`。
+- 语义照抄老实现：`status` 的 `driver` / `tdp` 各自独立失败（一边坏了不把另一边也变成错误），但**游戏列表卡住不返回空表** —— 空表等于告诉小组件「没有可退出的游戏」，那是撒谎。
+- **为什么并进启动器**：老链路是「小组件 → Bridge → 独立前端 →(回环 IPC)→ 启动器」，而 TDP 一直只归启动器管（只有它装 WinRing0、能提权），独立前端从头到尾是转发器。并进来少一层进程、少一处版本漂移。**代价（与老架构相同，不是新引入）**：用户在「电源 → 退出」里真退出启动器后小组件就没数据 —— 以前 TDP 也一样要启动器在跑。
+- `library_publish` 恢复（新 `src-tauri/src/library.rs`：`LibraryGame` + 读写 + 一条 camelCase/缺字段解析测试），权限 `allow-library-publish` 与 capability 一起补回；`useLocalLibrary` 那条发布效应也回来了（只发布**游戏**清单，软件列表不进这个文件）。
+- 顺手删掉协议里的 `set_autostart`：Bridge 白名单本来就不放它，留着一个小组件永远发不出来的命令，只会让人以为小组件能改自启。
+- 依赖与配置：`getrandom = "0.2"`（令牌随机源，从 `fh-core` 搬来；`Cargo.lock` 已更新，CI 用 `--locked`）；启动器 `windows-sys` 补 `Win32_Security_Authorization` + `Win32_System_Com`（发现文件的 ACL 与 `CoTaskMemFree`）。
+- `widget::start()` **失败不致命**（老前端那里是 `?` —— 那时整个进程只干这一件事）：起不来记一行日志，启动器照常起。
+
+### 验证边界
+
+- 本机（macOS）：`npm run build` 通过；`cargo clippy --workspace --all-targets` 退出 0；`cargo test --workspace` **67 passed** —— 含本次新加的两条（真开一条回环连接跑完 `status`，并断言 `minW` / `maxW` / `driver.ready` / `driver.installed` / `games` / `locale` 这些 C# 侧逐字写死的字段名；令牌不对必须回 `Unauthorized` 且不带 `data`），另有协议层原有的一组（本次去掉 `set_autostart` 用例）；`node scripts/audit-ui.mjs --strict` 0 处；`python3 frontend/gamebar/check-static.py` PASS（C# 未改动）。
+- 未验证：**Windows 全链路**。`widget_discovery.rs` 的 ACL / 原子替换、`tdp.rs` 的 MSR 读写、驱动状态、`#[cfg(windows)]` 分支的编译，都只有 CI 的 Windows Lint 与 tag 打包跑过才算数；小组件真机（`Win+G` 看数据、按住调 TDP）仍要人上机。
+- 本机测试只覆盖到 `status` 的**回退分支**（macOS 上没有 WinRing0，`tdp.supported=false`）：它证明传输、令牌、回包形状对，**不证明 TDP 能写进去**。
 
 ## 0.1.61：把功能 15 的 5 条 + 功能 14 能做的全补上（2026-10-05）
 

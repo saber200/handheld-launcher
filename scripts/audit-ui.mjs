@@ -28,7 +28,6 @@ const strict = process.argv.includes("--strict");
 /** 还没迁到令牌的旧页面：手写数值先只报告不拦。迁移完一个就删一个。 */
 const LEGACY = [
   "src/styles/global.css",
-  "src/frontend/frontend.css",
   "src/pages/FilesPage.tsx",
   "src/components/LibraryShelf.tsx",
   "src/hooks/useGamepadNav.ts",

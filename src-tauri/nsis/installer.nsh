@@ -1,33 +1,12 @@
 ; 启动器的 NSIS 安装钩子（Tauri 2 的 bundle.windows.nsis.installerHooks）。
 ;
-; 这里只做两件事：
-;  ① 随启动器把**独立前端**装上/更新（前端是另一个程序、有自己的安装包，
-;     见仓库根 FRONTEND.md）。启动器不控制前端，所以这里也不出现任何启动/结束它的调用。
-;  ② 随启动器把 **Game Bar 小组件**注册到当前用户（Win+G 里那个）。
-;
-; 覆盖安装前要先请正在运行的前端退出：它的 exe 被自己占用着，安装包覆盖不了。
-; 握手用标记文件（crates/fh-core/src/handshake.rs 里有完整说明）—— 前端每 2 秒看一眼，
-; 看到就真正退出进程；这里等 6 秒再装，没在跑就白等这一会儿，用户无感。
+; 这里只做一件事：随启动器把 **Game Bar 小组件**（前端界面就是它）注册到当前用户（Win+G 里那个）。
 
 !macro NSIS_HOOK_POSTINSTALL
   ; 模板可能正在用 $0/$1，用完记得还原（NSIS 的寄存器没有"保存"约定）。
   Push $0
   Push $1
   SetShellVarContext current
-  IfFileExists "$INSTDIR\payload\frontend-setup.exe" fh_frontend_payload 0
-  Goto fh_frontend_done
-  fh_frontend_payload:
-    CreateDirectory "$APPDATA\handheld-launcher"
-    FileOpen $0 "$APPDATA\handheld-launcher\quit-for-update" w
-    FileWrite $0 "quit-for-update$\r$\n"
-    FileClose $0
-    DetailPrint "Asking a running FantasyHub frontend to quit for the update"
-    Sleep 6000
-    DetailPrint "Installing the standalone FantasyHub frontend"
-    ExecWait '"$INSTDIR\payload\frontend-setup.exe" /S' $1
-    DetailPrint "Frontend installer exit code: $1"
-    Delete "$APPDATA\handheld-launcher\quit-for-update"
-  fh_frontend_done:
 
   ; Game Bar 小组件：包里带的是「签好名的 msix + 它的签名证书 + 三个框架依赖」。
   ; 为什么这里是手写的一行而不是调用随包的 register-widget.ps1：那需要把脚本当资源再发一份、

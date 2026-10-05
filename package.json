@@ -10,8 +10,6 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:dev:frontend": "cd frontend && tauri dev",
-    "tauri:build:frontend": "npm run build && cd frontend && tauri build",
     "lint": "tsc --noEmit && cargo clippy --workspace --all-targets",
     "lint:web": "tsc --noEmit",
     "lint:rust": "cargo clippy --workspace --all-targets",

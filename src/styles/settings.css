@@ -1,10 +1,8 @@
 /*
  * 设置抽屉（画板 K3，440dp）：标题行 + 设置行 + 底部提示。
  *
- * 为什么单开一个文件：抽屉外壳（.drawer / .settings-body）与行样式现在住在 global.css 里，
- * 而**独立前端程序也在用其中几个类**（FrontendPanel 用 .settings-list / .setting-row / .switch，
- * 它 import 的是同一份 global.css）—— 所以旧类一个都不动，这里只写 K3 自己的 `k3-*`，
- * 抽屉自己换过去。几何取自改造包 §9 与画板 K3 实测（2560×1440 按 2 除回 dp）。
+ * 为什么单开一个文件：抽屉外壳（.drawer / .settings-body）与行样式都在 global.css 里，
+ * 这里只写 K3 自己的 `k3-*`，抽屉自己换过去。几何取自改造包 §9 与画板 K3 实测（2560×1440 按 2 除回 dp）。
  */
 
 /* ── 标题行：「设置」21dp Bold + 「双击 Back 呼出 · Esc 关闭」10dp + 关闭按钮 34×34 ── */

@@ -5,9 +5,6 @@ fn main() {
         "fse/identity.cer",
         "fse/CustomCapability.SCCD",
         "drivers/WinRing0x64.sys",
-        // 随包分发的前端安装包：CI 会把真实产物拷到这里；本地/dev 构建留个空占位，
-        // 免得 bundler 因为文件不存在直接报错（工具箱那边会提示"这个版本没内置"）。
-        "payload/frontend-setup.exe",
         // Game Bar 小组件（CI 的 gamebar 作业现编现签，见 frontend/gamebar/package-payload.ps1）：
         // 同样是空占位兜底 —— 装包时 register-widget.ps1 会认出 0 字节的占位并说"这个版本没带小组件"，
         // 而不会静默装个坏包。依赖包的三个文件名来自 MSBuild 的 Dependencies\x64 输出，Debug 配置。

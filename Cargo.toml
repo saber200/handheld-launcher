@@ -1,15 +1,15 @@
 # FantasyHub 工作区根。
 #
-# 一仓两程序：启动器（src-tauri，全屏壳）与独立前端（frontend/src-tauri，托盘常驻浮层），
-# 共用 crates/fh-core。两个程序不再互相控制（详见仓库根 FRONTEND.md）。
+# 一仓一程序：启动器（src-tauri，全屏壳 + 工具箱 + 文件管理），内核在 crates/fh-core。
+# 前端界面只剩 Game Bar 小组件（frontend/gamebar，原生 UWP，不在这个工作区里）。
 #
 # 注意：有了工作区，cargo 的目标目录变成仓库根的 target/（不再是 src-tauri/target），
 # 所以 CI 的 rust-cache 与产物路径都按 ". -> target" 写。
 [workspace]
 resolver = "2"
-members = ["src-tauri", "frontend/src-tauri", "crates/fh-core"]
+members = ["src-tauri", "crates/fh-core"]
 
-# 三个 crate 共用一个版本号：发版时只改这一处（另需同步 package.json 与两个 tauri.conf.json）。
+# 两个 crate 共用一个版本号：发版时只改这一处（另需同步 package.json 与 src-tauri/tauri.conf.json）。
 [workspace.package]
 version = "0.1.61"
 
@@ -19,7 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # profile 只能写在工作区根：成员里的 [profile.*] 会被 cargo 忽略（只告警），
-# 所以从 src-tauri/Cargo.toml 搬到这里，两个程序共用同一套优化参数。
+# 所以从 src-tauri/Cargo.toml 搬到这里，两个 crate 共用同一套优化参数。
 [profile.release]
 panic = "abort"
 # 勿改成 thin LTO / codegen-units = 16：2026-09-30 在 GitHub windows-latest 上实测过，

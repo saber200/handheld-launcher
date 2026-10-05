@@ -58,8 +58,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       # Cargo 依赖缓存。在此之前每次 CI 都要从零编译 286 个第三方 crate（约 9 分 35 秒）。
-      # 注意：Cargo 项目是**工作区**（根 Cargo.toml 管 src-tauri、frontend/src-tauri、
-      # crates/fh-core 三个成员），目标目录因此是仓库根的 target/，而不是 src-tauri/target。
+      # 注意：Cargo 项目是**工作区**（根 Cargo.toml 管 src-tauri 与 crates/fh-core 两个成员），
+      # 目标目录因此是仓库根的 target/，而不是 src-tauri/target。
       # rust-cache 的默认值是 ". -> target"，显式写出来是为了防止有人照旧路径改回去。
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -76,9 +76,7 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      # Web 产物一次构建、两个程序共用（两个入口都在 dist/ 里）。
-      # 独立前端那份 tauri.conf.json 故意不写 beforeBuildCommand（它必须在自己目录里跑 CLI），
-      # 所以这一步必须在两个 tauri-action 之前显式跑掉。
+      # Web 产物只服务启动器一个程序（Vite 的默认入口 index.html，见 vite.config.ts）。
       - name: Build web assets
         run: npm run build
 
@@ -133,34 +131,8 @@ jobs:
       #
       # 与 lint.yml 的分工：这里只保证「装不出包」的问题（不写 --all-targets，测试代码
       # 由每次推 main 的 lint.yml 全量编，那边失败很便宜）。
-      - name: Compile check (both programs)
+      - name: Compile check
         run: cargo check --workspace --locked
-
-      # 构建顺序：先出独立前端的安装包 → 把它放进启动器的 payload → 再打启动器安装包。
-      # 独立前端：先出它的安装包 —— 启动器的安装包会把这份安装包作为 payload 带上
-      # （见仓库根 FRONTEND.md §5）。两个 tauri-action 用同一个 tag，谁先跑都进同一个
-      # Release，这里让前端先跑，它顺手把 Release 建出来。
-      # projectPath 指到 frontend/：Tauri CLI 才会把 frontend/src-tauri/tauri.conf.json
-      # 当成默认配置（`--config` 是「与默认配置合并」语义，不能用来切项目）。
-      # 默认 tauriScript 是 `npm run tauri`，由 frontend/package.json 提供，
-      # 它用 npx 从仓库根的 node_modules 解析 CLI。
-      - name: Build standalone frontend (Windows)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: frontend
-          args: --bundles nsis
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
-          releaseName: FantasyHub ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
-          releaseBody: |
-            Windows 安装包。掌机直接下载安装即可，无需开发环境。
-
-            - 启动器：`FantasyHub_*_x64-setup.exe`（NSIS）
-            - 独立前端：`FantasyHubFrontend_*_x64-setup.exe`（NSIS；托盘常驻，Ctrl+H / 手柄 Back+Start 开关）
-            - 也可在 Artifacts 中下载未安装的 `FantasyHub.exe` / `FantasyHubFrontend.exe`
-          releaseDraft: false
-          prerelease: ${{ github.ref_type != 'tag' }}
 
       # Game Bar 小组件 payload：由上面那个 gamebar-payload 作业编好（现签的证书 + 依赖包），
       # 这里放进启动器的资源目录 —— 启动器安装包会带上它，安装时自动注册到当前用户
@@ -183,21 +155,7 @@ jobs:
             Write-Warning "no widget payload in this build; the installer will ship without the Game Bar widget"
           }
 
-      # 把上一步产出的前端安装包放进启动器的资源目录（固定文件名）：之后启动器安装包会带上
-      # 它，安装时自动装/更新前端（tauri.conf.json 的 resources + nsis/installer.nsh 的
-      # NSIS_HOOK_POSTINSTALL）。固定成 `payload/frontend-setup.exe`，NSIS 脚本里就不用去
-      # 猜带版本号的文件名。
-      - name: Stage frontend installer as launcher payload
-        shell: pwsh
-        run: |
-          $src = Get-ChildItem target/release/bundle/nsis/FantasyHubFrontend_*-setup.exe |
-            Select-Object -First 1
-          if (-not $src) { throw "frontend installer not found in target/release/bundle/nsis" }
-          New-Item -ItemType Directory -Force -Path src-tauri/payload | Out-Null
-          Copy-Item $src.FullName src-tauri/payload/frontend-setup.exe -Force
-          Write-Host "payload staged: $($src.Name) ($($src.Length) bytes)"
-
-      # 启动器安装包：含 FSE 身份、WinRing0，以及上一步就位的前端安装包。
+      # 启动器安装包：含 FSE 身份、WinRing0，以及上一步就位的 Game Bar 小组件 payload。
       - name: Build launcher (Windows) + Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -211,9 +169,8 @@ jobs:
           releaseBody: |
             Windows 安装包。掌机直接下载安装即可，无需开发环境。
 
-            - 启动器：`FantasyHub_*_x64-setup.exe`（NSIS）
-            - 独立前端：`FantasyHubFrontend_*_x64-setup.exe`（NSIS；托盘常驻，Ctrl+H / 手柄 Back+Start 开关）
-            - 也可在 Artifacts 中下载未安装的 `FantasyHub.exe` / `FantasyHubFrontend.exe`
+            - 安装包：`FantasyHub_*_x64-setup.exe`（NSIS；前端界面是随包安装的 Game Bar 小组件）
+            - 也可在 Artifacts 中下载未安装的 `FantasyHub.exe`
           releaseDraft: false
           prerelease: ${{ github.ref_type != 'tag' }}
 
@@ -223,5 +180,4 @@ jobs:
           name: handheld-launcher-windows
           path: |
             target/release/FantasyHub.exe
-            target/release/FantasyHubFrontend.exe
             target/release/bundle/nsis/*.exe

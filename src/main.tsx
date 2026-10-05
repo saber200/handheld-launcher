@@ -20,11 +20,10 @@ import "./styles/files.css";
 // 文件管理增强（任务入口 / 四步向导 / 预览面板 / 任务中心 / 重命名对照）的样式。
 // 与 files.css 分开：那一份是「通用文件管理器」的 K7 形状，这一份是任务层新增的 ft-*。
 import "./styles/filestasks.css";
-// 画板 K4（工具箱）的样式：主卡 + 四张卡。旧 `.toolbox-*` **不能删** —— 独立前端程序
-// （src/frontend/）也在用其中几个类，它 import 的是同一份 global.css。
+// 画板 K4（工具箱）的样式：主卡 + 四张卡。
 import "./styles/toolbox.css";
-// 画板 K3（设置抽屉）的样式：标题行 + 设置行 + 底部提示。同样，旧 `.setting-*` / `.switch`
-// 不能删 —— 独立前端的面板（FrontendPanel）也 import 了 global.css 并在用它们。
+// 画板 K3（设置抽屉）的样式：标题行 + 设置行 + 底部提示。旧的 `.setting-*` 与 `.drawer`
+// 都还在 global.css 里（新页面按里程碑逐页迁），所以这份只写 K3 自己的 `k3-*`。
 import "./styles/settings.css";
 // 画板 K5（首页）+ K6（下载）：这一版起两页都是真数据，不再是「排期中」占位。
 import "./styles/home.css";
@@ -34,9 +33,8 @@ import { watchUiScale } from "./styles/scale";
 // 必须在挂载前先算一次，否则首帧会用 1px 渲染再跳一下。
 watchUiScale();
 
-// 前端（幻想前端）自 0.1.46 起是**另一个程序**，有自己的入口 `frontend.html`
-// （见 src/frontend/main.tsx），不再靠 sessionStorage / hash 在同一份 bundle 里
-// 冒充第二个窗口 —— 那套做法正是 0.1.45「开机就出现、还关不掉」的成因之一。
+// 启动器是唯一入口（前端的独立程序在 0.1.62 删掉了，前端界面只剩 Game Bar 小组件，
+// 见仓库根 FRONTEND.md）。
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <I18nProvider>

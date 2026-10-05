@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { text } from "../i18n";
-import { NavIcon, OverlayIcon, RefreshIcon } from "../components/NavIcons";
+import { NavIcon, RefreshIcon } from "../components/NavIcons";
 import { formatSize } from "../library/format";
 
 type RuntimePackage = {
@@ -9,14 +9,6 @@ type RuntimePackage = {
   name: string;
   detail: string;
   installed: boolean;
-};
-
-/** 工具箱里的前端卡片读到的安装状态（由前端自己写的记录得出）。 */
-type FrontendStatus = {
-  installed: boolean;
-  version: string;
-  exe: string;
-  payload: boolean;
 };
 
 /** WinRing0 驱动的状态（`toolbox_tdp_driver_status`，形状在共享内核里）。 */
@@ -65,7 +57,7 @@ function inTauri(): boolean {
 }
 
 /**
- * 工具箱页（画板 K4）：TDP 驱动主卡 + 前端 / 游戏 Mod 工具 / 运行库 / 系统维护。
+ * 工具箱页（画板 K4）：TDP 驱动主卡 + 游戏 Mod 工具 / 运行库 / 系统维护。
  *
  * 为什么页头也在这里：右上那颗「自检」就是**把这一页的状态全部重读一遍**，跟下面几张卡
  * 用的是同一批命令，放在同一个组件里才不用绕一圈回调。
@@ -76,13 +68,11 @@ function inTauri(): boolean {
  * 如实写清、不摆假数字。
  */
 export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
-  const m = text().frontend;
+  const m = text().toolbox;
   const panelRef = useRef<HTMLDivElement>(null);
   const [runtimes, setRuntimes] = useState<RuntimePackage[]>([]);
   const [busyId, setBusyId] = useState("");
   const [note, setNote] = useState("");
-  const [frontend, setFrontend] = useState<FrontendStatus | null>(null);
-  const [frontendBusy, setFrontendBusy] = useState(false);
   const [driver, setDriver] = useState<TdpDriverStatus | null>(null);
   const [tdp, setTdp] = useState<TdpInfo | null>(null);
   const [driverBusy, setDriverBusy] = useState(false);
@@ -107,13 +97,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
       .catch((err) => setNote(m.toolboxFailed(String(err))));
     // m 每次渲染都是新对象（语言包），但这里只用它拼提示行，不进依赖数组
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const refreshFrontend = useCallback(() => {
-    if (!inTauri()) return;
-    void invoke<FrontendStatus>("frontend_status")
-      .then(setFrontend)
-      .catch(() => setFrontend(null));
   }, []);
 
   const refreshDriver = useCallback(() => {
@@ -186,7 +169,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   const selfCheck = useCallback(() => {
     setNote("");
     refreshRuntimes();
-    refreshFrontend();
     refreshDriver();
     refreshMaintenance();
     if (!inTauri()) {
@@ -198,7 +180,7 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
     setChecking(true);
     window.setTimeout(() => setChecking(false), 600);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshDriver, refreshFrontend, refreshMaintenance, refreshRuntimes]);
+  }, [refreshDriver, refreshMaintenance, refreshRuntimes]);
 
   useEffect(() => {
     // 只在挂载时跑一次（selfCheck 的依赖都是空依赖 useCallback）
@@ -236,25 +218,7 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
     }
   };
 
-  /** 安装/更新前端：只跑随包的安装包（会先请正在运行的前端自己退出）。 */
-  const installFrontend = async () => {
-    if (!inTauri()) {
-      setNote(m.toolboxPreview);
-      return;
-    }
-    setFrontendBusy(true);
-    setNote(m.toolboxInstalling);
-    try {
-      setNote(await invoke<string>("frontend_install"));
-      refreshFrontend();
-    } catch (err) {
-      setNote(m.toolboxFailed(String(err)));
-    } finally {
-      setFrontendBusy(false);
-    }
-  };
-
-  /** 装 / 重装 WinRing0：命令在启动器侧（要 UAC），独立前端那边只读。 */
+  /** 装 / 重装 WinRing0：命令在启动器侧（要 UAC）。 */
   const installDriver = async () => {
     if (!inTauri()) {
       setNote(m.toolboxPreview);
@@ -275,13 +239,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   };
 
   const tauri = inTauri();
-  const frontendStatus = !frontend
-    ? ""
-    : frontend.installed
-      ? m.frontendStatusInstalled(frontend.version || "?")
-      : frontend.payload
-        ? m.frontendStatusMissing
-        : m.frontendNoPayload;
 
   /** 「查看列表」这颗按钮：扫描中写「处理中」，其余时候就是画板上那三个字。 */
   const modListActionLabel = modList?.busy ? m.toolboxWorking : m.toolboxModListAction;
@@ -390,27 +347,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
           </section>
 
           <div className="k4-side">
-            <section className="k4-card" aria-label={m.frontendTitle}>
-              <div className="k4-card-head">
-                <span className="k4-card-icon" aria-hidden>
-                  <OverlayIcon />
-                </span>
-                <div className="k4-card-text">
-                  <h3 className="k4-card-title">{m.frontendTitle}</h3>
-                  <p className="k4-card-body">{frontendStatus || m.frontendBody}</p>
-                </div>
-                <button
-                  type="button"
-                  className="k4-card-action"
-                  data-focusable
-                  disabled={frontendBusy || frontend?.payload === false}
-                  onClick={() => void installFrontend()}
-                >
-                  {frontendBusy ? m.toolboxWorking : m.frontendAction}
-                </button>
-              </div>
-            </section>
-
             <section className="k4-card" aria-label={m.toolboxModTitle}>
               <div className="k4-card-head">
                 <span className="k4-card-icon" aria-hidden>

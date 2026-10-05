@@ -2,10 +2,12 @@
 
 ## 1. 跟用户说话的方式（最重要，用户明确要求过）
 
-- **说人话**：先给结论一句话，再最多三五句说清原因。**不要一大段一大段地讲**。
-- 不整段贴日志、贴 diff、贴代码；需要给证据时只挑一行 / 一句。
+- **说人话**：先用一句话给结论，再用最多三五句说原因。**一个回答不超过 5 句**（除非用户明确要细节）。
+- **不许**：贴表格、贴 diff、贴代码块、甩文件路径清单、整段贴日志。要证据就挑一行 / 一句。
+  用户明确说「给我看」时例外 —— 给了也别顺手再加一堆解释。
 - 术语先翻译：「Z 序」= 谁压在谁上面；「置顶」= 强制排最前；「前台窗口」= 键盘现在听谁的。
 - 一次只让用户做一件事，说清「点哪里、按什么、发我什么」。
+- 长活（要跑几分钟的构建 / 验证）先说一句「我去跑」，跑完只回一句结果，不直播过程。
 - 不确定就说不确定，别猜着说；没验证过的效果不要写成"已修好"。
 
 ## 2. 改代码时
@@ -16,11 +18,11 @@
 
 ## 3. 版本与文档
 
-- 版本号共 6 处要一起改：根 `Cargo.toml`、根 `package.json`、`frontend/package.json`、
-  `src-tauri/tauri.conf.json`、`frontend/src-tauri/tauri.conf.json`、
-  `frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段，如 `0.1.55.0`）。
+- 版本号共 4 处要一起改：根 `Cargo.toml`、根 `package.json`、`src-tauri/tauri.conf.json`、
+  `frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段，如 `0.1.61.0`）。
   最后这处漏改不会装错包（小组件按包 hash 判断要不要重装），只是 Game Bar 里显示旧版本号。
+  （原来的 6 处里有 2 处在独立前端程序里 —— 那个程序已被整个删掉，见 `STATUS.md` 的「未发布（0.1.62）」。）
 - 改动同步进 `FRONTEND.md`（设计与坑）和 `STATUS.md`（当前状态、近期改动备忘）。
 - 提交信息用中文，写清「修了什么、为什么」，不写 "fix bug"。
 - 发版：推 `main` 等 Lint 绿 → 打**注释 tag**（`git tag -a vX.Y.Z -m "FantasyHub X.Y.Z：<一句话>"`）→ 推 tag 触发打包，
-  产物是两个安装包（启动器 + 前端）。
+  产物是**一个**安装包（启动器；Game Bar 小组件随包带上）。

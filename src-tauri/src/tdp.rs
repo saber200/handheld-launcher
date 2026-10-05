@@ -7,8 +7,7 @@ const MAX_W: u32 = 40;
 const PRESETS: [u32; 6] = [5, 10, 15, 25, 35, 40];
 static LAST_WATTS: AtomicU32 = AtomicU32::new(0);
 
-/// 数据结构在共享内核里，独立前端通过本地 IPC 拿到的就是同一个形状
-/// （前端只读，实际读写 MSR 永远在提权的启动器这边，见 tdp_ipc.rs）。
+/// 数据结构在共享内核里（工具箱与界面读的是同一份形状）。
 pub use fh_core::tdp::TdpInfo;
 
 
@@ -24,8 +23,11 @@ pub async fn tdp_status() -> TdpInfo {
 }
 
 /// Probing the CPU / WinRing0 device reads firmware state; keep it off the
-/// event loop (the overlay asks for it every time it opens).
-fn tdp_status_now() -> TdpInfo {
+/// event loop (the toolbox and the settings drawer ask for it on every open).
+///
+/// `pub(crate)` 是给小组件后端用的：它在自己的工作线程里直接调这两个函数
+/// （见 widget.rs 的 dispatch），不再像老架构那样绕一圈回环 IPC 问自己。
+pub(crate) fn tdp_status_now() -> TdpInfo {
     #[cfg(windows)]
     {
         return windows::status();
@@ -62,7 +64,8 @@ pub async fn set_tdp(watts: u32) -> Result<TdpInfo, String> {
     }
 }
 
-fn set_tdp_now(watts: u32) -> Result<TdpInfo, String> {
+/// 小组件后端也调它（同上：就地调用，不走 IPC）。
+pub(crate) fn set_tdp_now(watts: u32) -> Result<TdpInfo, String> {
     let watts = watts.clamp(MIN_W, MAX_W);
     #[cfg(windows)]
     {

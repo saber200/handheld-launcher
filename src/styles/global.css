@@ -119,8 +119,7 @@ button {
   top: 0;
   bottom: 0;
   left: 0;
-  /* 画板 K3 的抽屉是 440dp 宽、内边距 28/24 —— 走 --dp，1080p 上才跟着整屏一起放大。
-     独立前端（K8，440×620 画布）不调用 watchUiScale()，--dp 恒为 1px，值不变。 */
+  /* 画板 K3 的抽屉是 440dp 宽、内边距 28/24 —— 走 --dp，1080p 上才跟着整屏一起放大。 */
   width: min(calc(440 * var(--dp)), 88vw);
   display: flex;
   flex-direction: column;
@@ -172,127 +171,6 @@ button {
      上内边距，滚动体再加 7dp 不会顶出抽屉。 */
   padding: calc(7 * var(--dp)) calc(7 * var(--dp)) calc(7 * var(--dp));
   margin: 0 calc(-7 * var(--dp));
-}
-
-/* 前端浮层/抽屉的样式（.frontend-shell*、.frontend-preview、.frontend-section-title、
-   .frontend-lead）在 0.1.46 随前端独立化一起删除：那套界面从启动器搬去独立前端程序
-   （frontend/src-tauri），样式到时就写在它自己那边。取回旧代码：
-   git show v0.1.45:src/pages/FrontendPage.tsx、git show v0.1.45:src/FrontendShell.tsx */
-
-.tdp-panel {
-  padding: 16px 18px;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
-  margin-bottom: 10px;
-}
-
-.tdp-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.tdp-head strong {
-  font-size: 18px;
-}
-
-.tdp-watts {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.tdp-cpu {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.tdp-presets {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.tdp-preset {
-  padding: 12px 8px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.2);
-  color: inherit;
-  font-size: 16px;
-  font-weight: 600;
-  transition:
-    color var(--dur-fast) var(--ease-soft),
-    background-color var(--dur-fast) var(--ease-soft),
-    border-color var(--dur-fast) var(--ease-soft),
-    transform var(--dur-fast) var(--ease-out);
-}
-
-.tdp-preset.on {
-  background: var(--accent);
-  border-color: transparent;
-}
-
-.tdp-preset:disabled {
-  opacity: 0.45;
-}
-
-.tdp-slider-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.tdp-slider-label {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.tdp-slider {
-  width: 100%;
-  height: calc(28 * var(--dp));
-  margin: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.tdp-slider:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-/* The slider is the only control that is not a button: pad focus has to be obvious. */
-.tdp-slider:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: 8px;
-}
-
-.tdp-slider-ends {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.tdp-status {
-  margin: 12px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.toolbox-block-body {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.4;
 }
 
 .settings-body {

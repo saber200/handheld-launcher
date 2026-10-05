@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
@@ -24,13 +23,9 @@ import { formatSize } from "./library/format";
 
 type DriveSpace = { mount: string; label: string; totalBytes: number; freeBytes: number; kind: string };
 
-// 前端（幻想前端）自 0.1.46 起是一个**独立程序**：启动器不再创建浮层窗口、不再注册它的
-// 快捷键、也不再和它同步「开/关」状态，所以这里只剩启动器自己的界面逻辑。
-// 为什么拆、拆成什么样，见仓库根 FRONTEND.md。
-
 /**
  * 首页 / 下载：设计稿（K5 / K6）里画了，但要跑起来需要现在还不存在的数据源 ——
- * 最近启动记录、存储容量、续航读数、以及把 OptiScaler / 运行库 / 前端的安装进度收成一个
+ * 最近启动记录、存储容量、续航读数、以及把 OptiScaler / 运行库的安装进度收成一个
  * 任务模型。这一版**只放入口和一句实话**：摆一排假卡片、按下去没反应，比明说"排期中"更糟。
  */
 /**
@@ -79,8 +74,6 @@ export default function App() {
   const { locale } = useI18n();
   const [tab, setTab] = useState<TabId>("games");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // 独立前端浮层是否正显示在屏上 —— 由 Rust 侧观察窗口得出（`overlay_watch.rs`）。
-  const [overlayOpen, setOverlayOpen] = useState(false);
   const [intro, setIntro] = useState<"wait" | "play" | "done">("wait");
 
   // 顶栏左侧的时钟 / 日期（设计稿 K1）。30 秒刷一次足够，不用每秒重渲染整个壳。
@@ -269,31 +262,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [intro, shiftTab, toggleSettings]);
 
-  // 闸一：浮层在屏上时**停止消费手柄** —— 前端和我们读的是同一份手柄状态，不设这道闸的话，
-  // 在浮层里按 A 会在身后把游戏启动起来、方向键会在身后挪焦点（见 FRONTEND.md §10）。
-  // 停的只是手柄：键鼠与 Esc 照旧（键盘事件只进焦点窗口，浮层抢了焦点就不会漏回这里）。
-  // 挂载时先问一次，之后收 Rust 侧的状态事件；命令对应 capabilities 的 `allow-overlay-open`。
-  useEffect(() => {
-    if (!inTauri()) return;
-    let cancel = false;
-    let stop: (() => void) | undefined;
-    void invoke<boolean>("overlay_open")
-      .then((open) => {
-        if (!cancel) setOverlayOpen(open);
-      })
-      .catch(() => {});
-    void listen<boolean>("overlay-state", (event) => setOverlayOpen(event.payload)).then((un) => {
-      if (cancel) un();
-      else stop = un;
-    });
-    return () => {
-      cancel = true;
-      stop?.();
-    };
-  }, []);
-
   useGamepadNav({
-    enabled: intro === "done" && !overlayOpen,
+    enabled: intro === "done",
     // 闸二：设置键改成**双击** —— Back+Start 和弦里的 Back 不能顺带把设置抽屉拉开
     // （为什么不用「押后判定」，见 useGamepadNav.ts 的 `viewGesture`）。
     viewGesture: "double",

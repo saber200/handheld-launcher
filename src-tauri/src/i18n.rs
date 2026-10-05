@@ -5,6 +5,11 @@
 
 pub use fh_core::i18n::{apply, pick};
 
+/// 当前语言，给小组件的 `status.locale` 用（C# 侧只认 `zh-CN` / `en-US` 两种字面量）。
+pub fn locale() -> &'static str {
+    if fh_core::i18n::english() { "en-US" } else { "zh-CN" }
+}
+
 #[tauri::command]
 pub fn set_locale(locale: String) {
     apply(&locale);
