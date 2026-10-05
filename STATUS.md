@@ -1,13 +1,15 @@
-# 进度对照（v0.1.63）
+# 进度对照（v0.1.64）
 
 > **发布基准：`v0.1.0` 稳定版** — 内容与内部构建 0.1.38 一致（见 `v0.1.0` 标签 / `release/0.1.0` 分支）。
 > `0.1.31`–`0.1.60` 均为测试版，仅内部验证用，不作为发布版。
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
-**最新（0.1.63）：命令权限漏登记 —— 「存储空间一直待接入」的真根因** —— 上一版（0.1.62）真机复测回来说「TDP 驱动修好了，存储空间还是没读出来，而且日志里一行 `sysinfo:` 都没有」，顺着这句话查到根因：**`system_storage` 从来没被写进 `src-tauri/permissions/*.toml`**。本仓库自己定义了 ACL 清单，Tauri v2 就**连应用自己的命令也逐条查权限**（tauri-2.12.0 `src/webview/mod.rs` 的 `has_app_acl_manifest` 分支），清单里没有就直接 `Command xxx not allowed by ACL` 拒掉 —— 前端 `.catch()` 一吞，界面只剩「读不出来 / 那个按钮没反应」，**0.1.62 那版加的补读与 WMI 兜底一次都没被执行到**。把「前端 invoke 的命令」与权限清单逐条比对后**一共补了 14 条 allow + 2 条漏注册的命令**（`toolbox_mod_list`、`file_probe_disc`），并新增 `scripts/audit-acl.mjs` 当硬闸门（本机 pre-commit + CI 的 Lint 都跑）。**已发布 `v0.1.63`（2026-10-05）**：只有一个安装包 `FantasyHub_0.1.63_x64-setup.exe` **27.33 MB**（和 0.1.62 一模一样大 —— 这版只动了权限清单与文档，界面和 payload 一个字节没改）；CI 三项全绿 —— **Lint**（`windows-latest`）**1m59s**，这一关现在多了 `node scripts/audit-acl.mjs`（新增的命令权限审计），**Game Bar (Windows)** 2m40s、tag 触发的 **Build Windows**（`gamebar-payload` 2m08s + `windows` 10m39s）都 success。**装包这一步在你手上**：真机要重试的那几条（存储 / 电池 / 驱动版本 / 系统维护 / Mod 列表 / 缩略图 / 暂停 / 回收站 / 弹出 / 验碟 / 设置里小组件那行）逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.63）」。细则见下面「0.1.63」一节。
+**最新（0.1.64）：存储空间改成「所有内置盘相加」** —— 0.1.63 把 ACL 修好、数字终于出来之后，用户接着说「不应该是只有 C 盘的 而是所有盘符的总合 因为目前我用的是一个硬盘」。侧栏那颗卡与首页那一格取的都是**第一块内置盘**（`drives.find(kind === "fixed")`），一台机器只有**一块物理盘**却拆成 C: + D: 时「第一块」就是 C:，画出来的数字比机器真实存储小一大截；`sysinfo.rs` 一直是对的（它本来就返回**所有**卷），错在取数之后的展示。`src/system/drives.ts` 新增 `driveTotal(rows)`：总量 = 各内置盘容量相加、用量 = 各内置盘已用相加，`App.tsx` 与 `pages/HomePage.tsx` 都改读它（两处继续共用同一份快照，数字必然一致）；**只加 `kind === "fixed"`** 是为了 U 盘 / SD 卡插上拔下不让这颗卡的数字自己跳，但**一块内置盘都没认出来时退回把所有盘相加**（宁可把移动盘也算进去，也不要让这张卡空着），一盘没读到仍是「容量读取待接入」（不写 0）。标签新增双语 `shell.storageVolumes`：单块盘仍是「`C:` 卷标」，多块盘写「`C: + D: · 合计`」—— 数字是相加的、标签还写单个盘符就成了另一种假象。**已发布 `v0.1.64`（2026-10-05）**：一个安装包 `FantasyHub_0.1.64_x64-setup.exe` **27.34 MB**（0.1.63 是 27.33 MB —— 这几行前端代码的体积回声）；CI 三项全绿 —— **Lint** 2m14s、**Game Bar (Windows)** 3m21s、tag 触发的 **Build Windows**（`gamebar-payload` 4m19s + `windows` 10m32s）都 success。**装包这一步在你手上**：要确认两件事 —— 侧栏与首页两处**都出数字且一致**、那个总量**约等于你这块硬盘的标称容量**（比如 512 GB 的盘 ≈ 476 GB 可用）；逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.64）」。细则见下面「0.1.64」一节。
 
-**上一版（0.1.62）：删掉独立前端 + 修两个真机误报** —— ① 独立前端程序整个删掉，前端界面现在只剩随启动器的 Game Bar 小组件，小组件的后端**改成启动器进程自己**（回环服务 + `widget-ipc.json` 发现文件从删掉的前端搬进了 `src-tauri/src/widget*.rs`）；② 工具箱页改成「快照 + 手动自检」（切页不再重读、不再灰一下）；③ 修 0.1.61 真机上的两个误报 —— 首页「TDP 驱动」明明装了却写「未安装」（判据从版本号改成驱动状态）、侧栏「存储空间」一直写「容量读取待接入」（两处改成一份共享快照 + 失败自动补读，后端放开盘类型白名单并加了 WMI 兜底）。**已发布 `v0.1.62`（2026-10-05）**：现在只有**一个**安装包 `FantasyHub_0.1.62_x64-setup.exe` **27.33 MB**（0.1.61 是启动器 30.60 MB + 前端包 3.24 MB —— 差的那 3.24 MB 就是「删掉独立前端」在包大小上的回声），>7.8 MB 说明小组件 payload 带上了；CI 三项全绿 —— **Lint**（`windows-latest`，`cargo clippy --workspace --all-targets --locked`）**1m47s**，跑的正是 ③ 那两段 `#[cfg(windows)]` 新代码（本机 macOS 编不到，这一关是它唯一的类型检查）；**Game Bar (Windows)** 2m48s（产出 `FantasyHub.GameBar.Widget_0.1.62.0_x64_Debug.msix` —— 四处版本号里 appxmanifest 那处确实生效）；tag 触发的 **Build Windows**（`gamebar-payload` 2m31s + `windows` 10m26s）都 success。**装包这一步在你手上**：真机要看三件事 —— 首页「TDP 驱动」写「已安装」、侧栏与首页的存储都出数字且两处一致、小组件还能正常读数据与调 TDP（它的后端这一版并进了启动器进程）；**怎么试、不对时发我什么，逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.62）」**。细则见下面三节「0.1.62」。
+**上一版（0.1.63）：命令权限漏登记 —— 「存储空间一直待接入」的真根因** —— 上一版（0.1.62）真机复测回来说「TDP 驱动修好了，存储空间还是没读出来，而且日志里一行 `sysinfo:` 都没有」，顺着这句话查到根因：**`system_storage` 从来没被写进 `src-tauri/permissions/*.toml`**。本仓库自己定义了 ACL 清单，Tauri v2 就**连应用自己的命令也逐条查权限**（tauri-2.12.0 `src/webview/mod.rs` 的 `has_app_acl_manifest` 分支），清单里没有就直接 `Command xxx not allowed by ACL` 拒掉 —— 前端 `.catch()` 一吞，界面只剩「读不出来 / 那个按钮没反应」，**0.1.62 那版加的补读与 WMI 兜底一次都没被执行到**。把「前端 invoke 的命令」与权限清单逐条比对后**一共补了 14 条 allow + 2 条漏注册的命令**（`toolbox_mod_list`、`file_probe_disc`），并新增 `scripts/audit-acl.mjs` 当硬闸门（本机 pre-commit + CI 的 Lint 都跑）。**已发布 `v0.1.63`（2026-10-05）**：只有一个安装包 `FantasyHub_0.1.63_x64-setup.exe` **27.33 MB**（和 0.1.62 一模一样大 —— 这版只动了权限清单与文档，界面和 payload 一个字节没改）；CI 三项全绿 —— **Lint**（`windows-latest`）**1m59s**，这一关现在多了 `node scripts/audit-acl.mjs`（新增的命令权限审计），**Game Bar (Windows)** 2m40s、tag 触发的 **Build Windows**（`gamebar-payload` 2m08s + `windows` 10m39s）都 success。**装包这一步在你手上**：真机要重试的那几条（存储 / 电池 / 驱动版本 / 系统维护 / Mod 列表 / 缩略图 / 暂停 / 回收站 / 弹出 / 验碟 / 设置里小组件那行）逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.63）」。细则见下面「0.1.63」一节。
+
+**上上版（0.1.62）：删掉独立前端 + 修两个真机误报** —— ① 独立前端程序整个删掉，前端界面现在只剩随启动器的 Game Bar 小组件，小组件的后端**改成启动器进程自己**（回环服务 + `widget-ipc.json` 发现文件从删掉的前端搬进了 `src-tauri/src/widget*.rs`）；② 工具箱页改成「快照 + 手动自检」（切页不再重读、不再灰一下）；③ 修 0.1.61 真机上的两个误报 —— 首页「TDP 驱动」明明装了却写「未安装」（判据从版本号改成驱动状态）、侧栏「存储空间」一直写「容量读取待接入」（两处改成一份共享快照 + 失败自动补读，后端放开盘类型白名单并加了 WMI 兜底）。**已发布 `v0.1.62`（2026-10-05）**：现在只有**一个**安装包 `FantasyHub_0.1.62_x64-setup.exe` **27.33 MB**（0.1.61 是启动器 30.60 MB + 前端包 3.24 MB —— 差的那 3.24 MB 就是「删掉独立前端」在包大小上的回声），>7.8 MB 说明小组件 payload 带上了；CI 三项全绿 —— **Lint**（`windows-latest`，`cargo clippy --workspace --all-targets --locked`）**1m47s**，跑的正是 ③ 那两段 `#[cfg(windows)]` 新代码（本机 macOS 编不到，这一关是它唯一的类型检查）；**Game Bar (Windows)** 2m48s（产出 `FantasyHub.GameBar.Widget_0.1.62.0_x64_Debug.msix` —— 四处版本号里 appxmanifest 那处确实生效）；tag 触发的 **Build Windows**（`gamebar-payload` 2m31s + `windows` 10m26s）都 success。**装包这一步在你手上**：真机要看三件事 —— 首页「TDP 驱动」写「已安装」、侧栏与首页的存储都出数字且两处一致、小组件还能正常读数据与调 TDP（它的后端这一版并进了启动器进程）；**怎么试、不对时发我什么，逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.62）」**。细则见下面三节「0.1.62」。
 
 **这一版（0.1.60）= 文件管理增强（桌面「FantasyHub-文件管理增强」改造包的 8 项全做）**：把「文件管理」从「通用文件管理器」变成「按目标选」的任务层 —— 8 个任务入口（导入 ROM / 装 Mod / 备份存档 / 恢复存档 / 处理截图 / 清理空间 / U 盘 / 最近传输）+ 四步向导 + 快速预览面板（含缩略图）+ 后台任务中心（+ 侧栏进度环）+ 批量重命名对照表 + 冲突「应用到全部」+ 确认前置总量摘要。**只新增了 1 个 Rust 命令 `file_thumb`**（改造包 §6 允许的那一个），另给 `file_extract` 加了一个 `listOnly` 可选参数（复用它的「看一眼包里有什么」，不解压）。**已发布 `v0.1.60`（2026-10-05）**：启动器包 `FantasyHub_0.1.60_x64-setup.exe` **30.56 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.60_x64-setup.exe` 3.23 MB；CI 三项全绿 —— **Lint**（windows-latest，`cargo clippy --workspace --all-targets --locked`）2m31s、**Game Bar (Windows)** 2m41s、tag 触发的 **Build Windows**（`gamebar-payload` 2m36s + `windows` 7m36s）都 success。**Windows Lint 这一关是这版最要紧的验收**：`file_thumb` 的 `image` 解码与 zip 列表那段 PowerShell 都在 `#[cfg(windows)]` 里，本机编不到。**装包这一步在你手上** —— 真机要看什么逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.60）」。细则见下面「0.1.60」一节。
 
@@ -25,7 +27,7 @@
 
 **界面大改的现在**：M0–M4 已落地，**K5 首页 / K6 下载这一版补上了**（真数据），**M5（K8 前端浮层）仍未动**；`FUTURE.md` 功能 14 是**当前唯一的还账清单**，功能 15（文件管理那 5 条）已清空、只留真机验证。
 
-## 未发布（下一版）：存储空间改成「所有内置盘相加」（2026-10-05，用户反馈）
+## 0.1.64：存储空间改成「所有内置盘相加」（2026-10-05，用户反馈）
 
 用户原话：「你搞错了 这个存储空间 不应该是只有 C 盘的 而是所有盘符的总合 因为目前我用的是一个硬盘
 你可以理解为这就是一个硬盘的空间的总量和用量」。也就是说 ACL 修好之后数字出来了，但**只画了 C: 一个分区**。
@@ -48,7 +50,14 @@
   侧栏「230.0 GB / 500.0 GB」+「C: + D: · 合计」+ 46%，首页底部「可用 270.0 GB / 500.0 GB」（两处同数），
   换成只有 C: 的机器时回到「C: Windows」。
   **真机再看一遍**：那个总量该约等于整块硬盘的标称容量（例如 512 GB 盘 ≈ 476 GB 可用）。
-  逐条写在 `FEEDBACK.md` 的「未发布（下次装包看这条）」。
+  逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.64）」。
+
+### 发布结果（2026-10-05）
+
+- 版本号四处改 `0.1.64`（根 `Cargo.toml` / 根 `package.json` / `src-tauri/tauri.conf.json` / `frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`，即 `0.1.64.0`），`cargo metadata` 顺手把 `Cargo.lock` 里两个工作区包（`fh-core` / `handheld-launcher`）更到 0.1.64 —— 只动了这两处版本行。
+- 推 `main` → **Lint 绿（2m14s）**；打注释 tag `v0.1.64` → **Build Windows 绿**（`gamebar-payload` 4m19s + `windows` 10m32s）；同一批 push 触发的 **Game Bar (Windows)** 也绿（3m21s）。
+- Release `FantasyHub v0.1.64`：**一个**安装包 `FantasyHub_0.1.64_x64-setup.exe` **27.34 MB**（28668349 字节；0.1.63 是 27.33 MB，涨的这点就是 `driveTotal()` + 双语文案的体积）。
+- **验证边界**：真渲染探针是「生产构建 + 无头 Chrome + 假 `invoke`」，验证的是**前端算数与渲染**；`sysinfo.rs` 返回的 `kind` 在真机上到底怎么分类（尤其第二块分区会不会被认成移动盘）只有真机才知道 —— 这正是要用户装包看的那件事。
 
 ## 0.1.63：命令权限漏登记 —— 「存储空间一直待接入」的真根因（2026-10-05，真机复测）
 
