@@ -69,6 +69,8 @@ export type Catalog = {
     freeOf: (free: string, total: string) => string;
     tdpValue: (watts: string) => string;
     driverInstalled: (version: string) => string;
+    /** 装上了但读不到版本号时那一格写什么（读到版本才用 driverInstalled）。 */
+    driverInstalledPlain: string;
     driverMissing: string;
   };
   downloads: {
@@ -823,6 +825,7 @@ export const zh: Catalog = {
     freeOf: (free, total) => `可用 ${free} / ${total}`,
     tdpValue: (watts) => `性能 · ${watts} W`,
     driverInstalled: (version) => `已安装 ${version}`,
+    driverInstalledPlain: "已安装",
     driverMissing: "未安装",
   },
   downloads: {
@@ -1528,6 +1531,7 @@ export const en: Catalog = {
     freeOf: (free, total) => `${free} free of ${total}`,
     tdpValue: (watts) => `Performance · ${watts} W`,
     driverInstalled: (version) => `Installed ${version}`,
+    driverInstalledPlain: "Installed",
     driverMissing: "Not installed",
   },
   downloads: {

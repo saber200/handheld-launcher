@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
@@ -20,8 +19,7 @@ import { text, useI18n } from "./i18n";
 import type { HintPage } from "./i18n/catalog";
 import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
 import { formatSize } from "./library/format";
-
-type DriveSpace = { mount: string; label: string; totalBytes: number; freeBytes: number; kind: string };
+import { useDriveSpace } from "./system/drives";
 
 /**
  * 首页 / 下载：设计稿（K5 / K6）里画了，但要跑起来需要现在还不存在的数据源 ——
@@ -321,16 +319,11 @@ export default function App() {
   /**
    * 侧栏那颗「存储空间」（画板 K5 左下角）。
    *
-   * 只读一次：进应用时问一次盘的容量就够（它不会在几秒内变），没必要轮询。
-   * 读不到（macOS / 权限）就写「—」，不写 0 —— 0 是「满了」，那是另一个意思。
+   * 数据来自 `system/drives.ts` 的共享快照（首页那一格读的是同一份，不重复问系统）：
+   * 读不到就写「待接入」，不写 0 —— 0 是「满了」，那是另一个意思。
+   * 那句话是**暂时的**：读到之前先这么说，读到之后自然换成真数字（失败会自动补读）。
    */
-  const [drives, setDrives] = useState<DriveSpace[]>([]);
-  useEffect(() => {
-    if (!inTauri()) return;
-    void invoke<DriveSpace[]>("system_storage")
-      .then(setDrives)
-      .catch(() => setDrives([]));
-  }, []);
+  const drives = useDriveSpace();
   const primary = drives.find((drive) => drive.kind === "fixed") ?? drives[0] ?? null;
   const usedBytes = primary ? Math.max(0, primary.totalBytes - primary.freeBytes) : 0;
   const storagePercent =

@@ -20,8 +20,10 @@ import { text } from "../i18n";
 import { formatSize } from "../library/format";
 import { cachedApps, gameCoverFor, launchLibraryItem } from "../library/useLocalLibrary";
 import { useRecentLaunches, type RecentLaunch } from "../library/recent";
+import { useDriveSpace } from "../system/drives";
 
 type TdpInfo = { watts: number | null; supported: boolean };
+type TdpDriverStatus = { ready: boolean; installed: boolean; elevated: boolean; message: string };
 type PowerStatus = {
   hasBattery: boolean;
   percent: number;
@@ -29,7 +31,6 @@ type PowerStatus = {
   minutesLeft: number;
   supported: boolean;
 };
-type DriveSpace = { mount: string; label: string; totalBytes: number; freeBytes: number; kind: string };
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -70,7 +71,9 @@ export function HomePage({
   const [status, setStatus] = useState("");
   const [tdp, setTdp] = useState<TdpInfo | null>(null);
   const [power, setPower] = useState<PowerStatus | null>(null);
-  const [drives, setDrives] = useState<DriveSpace[]>([]);
+  // 盘容量：与侧栏那颗卡共用一份快照（见 system/drives.ts），不重复问系统。
+  const drives = useDriveSpace();
+  const [driver, setDriver] = useState<TdpDriverStatus | null>(null);
   const [driverVersion, setDriverVersion] = useState("");
 
   // 缓存里的软件列表：读一次就够（它只是为了首页那一行，不进依赖）。
@@ -84,9 +87,18 @@ export function HomePage({
     void invoke<PowerStatus>("system_power_status")
       .then(setPower)
       .catch(() => setPower(null));
-    void invoke<DriveSpace[]>("system_storage")
-      .then(setDrives)
-      .catch(() => setDrives([]));
+    // 驱动那两格：**「装没装」看状态命令**（ready / installed / 设备能不能打开），
+    // 版本是另一条命令、只是锦上添花。
+    //
+    // 这里踩过坑：原先只读版本号，读不到就写「未安装」—— 真机上驱动装好了、
+    // 设备也打得开（`.sys` 里没有版本资源，或有别的信息读不到），首页却一直写未安装。
+    // 装了就是装了，版本读不到最多是不写数字。
+    //
+    // 代价：这条命令在「装了但服务没起来」时会把服务拉起来（工具箱那边也是这么干的，
+    // 见 toolbox.rs 的 tdp_driver_status），所以首页这一次读顺便就把驱动带起来了。
+    void invoke<TdpDriverStatus>("toolbox_tdp_driver_status")
+      .then(setDriver)
+      .catch(() => setDriver(null));
     void invoke<string>("toolbox_driver_version")
       .then((value) => setDriverVersion(value || ""))
       .catch(() => setDriverVersion(""));
@@ -243,7 +255,13 @@ export function HomePage({
         <div className="k5-status-cell">
           <span className="k5-status-label">{m.statusDriver}</span>
           <strong className="k5-status-value tnum">
-            {driverVersion ? m.driverInstalled(driverVersion) : m.driverMissing}
+            {/* 装了就是装了：版本号读得到就带上（「已安装 1.2.0」），读不到写「已安装」。
+                `ready` 也算装了 —— 设备能打开就说明驱动在系统里，哪怕文件不在我们目录下。 */}
+            {driverVersion
+              ? m.driverInstalled(driverVersion)
+              : driver?.ready || driver?.installed
+                ? m.driverInstalledPlain
+                : m.driverMissing}
           </strong>
         </div>
       </section>

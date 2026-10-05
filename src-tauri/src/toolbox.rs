@@ -783,6 +783,9 @@ mod windows {
     }
 
     const WINRING0_SERVICE: &str = "WinRing0_1_2_0";
+    /// 查「装没装」时认的服务名：第一个是我们自己装的；第二个是别家工具（掌机厂商自带的
+    /// 调压工具、老版本 G-Helper）常用的名字 —— 驱动是同一个，不该因为服务名不同就写「未安装」。
+    const WINRING0_SERVICES: [&str; 2] = [WINRING0_SERVICE, "WinRing0x64"];
     // Prefer CDN mirrors. G-Helper removed the raw .sys from main; LHM 0.9.3 still hosts it.
     const WINRING0_URLS: [&str; 3] = [
         "https://cdn.jsdelivr.net/gh/LibreHardwareMonitor/LibreHardwareMonitor@0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
@@ -795,13 +798,23 @@ mod windows {
 
     pub fn tdp_driver_status() -> TdpDriverStatus {
         let elevated = is_elevated();
-        let installed = winring0_present();
+        // 「装没装」按**驱动在不在系统里**算：我们的文件、服务注册表、设备能不能打开
+        // 三者任一成立就算装上了。
+        //
+        // 为什么不能只看我们自己的文件：真机上出现过「驱动装好了、设备打得开，首页却写
+        // 未安装」—— 那条链路只读版本号，版本号读不到就当成没装。驱动可能是别家工具
+        // 装进系统驱动目录的，文件不在我们那个 ProgramData 目录里。
+        let registered = service_registered();
         let mut ready = crate::tdp::winring0_ready();
+        let installed = winring0_present() || registered.is_some() || ready;
+        if !installed {
+            crate::logutil::write_line("toolbox: no winring0 file, service or device found");
+        }
         // After reboot the service is often Stopped (was demand-start). Start it
         // instead of asking the user to "install" again.
         if !ready && elevated && installed {
             crate::logutil::write_line("toolbox: winring0 installed but not open; starting service");
-            match ensure_winring0_running() {
+            match ensure_winring0_running(registered.unwrap_or(WINRING0_SERVICE)) {
                 Ok(()) => crate::logutil::write_line("toolbox: winring0 service start attempted"),
                 Err(err) => crate::logutil::write_line(&format!("toolbox: winring0 start: {err}")),
             }
@@ -848,7 +861,7 @@ mod windows {
         // Already on disk from a previous boot — just start, don't wipe the service.
         if winring0_present() {
             crate::logutil::write_line("toolbox: winring0 already on disk; ensuring service");
-            let _ = ensure_winring0_running();
+            let _ = ensure_winring0_running(service_registered().unwrap_or(WINRING0_SERVICE));
             if crate::tdp::winring0_ready() {
                 crate::logutil::write_line("toolbox: winring0 start ok (no reinstall)");
                 let mut status = tdp_driver_status();
@@ -941,31 +954,44 @@ mod windows {
 
     /// 已装驱动的版本号（读 `.sys` 的版本资源）。读不到就是空串 —— 界面写「—」，
     /// 不用一个猜的版本号占着那一格。
+    ///
+    /// 注意：**空串只说明版本读不到，不等于没装驱动**（真机上就有过 `.sys` 里没有版本资源
+    /// 的情况）。「装没装」看 `tdp_driver_status`，别拿这个函数当判断依据。
     pub fn driver_version() -> String {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let Ok(dir) = driver_dir() else {
+        let Some(sys) = driver_sys_path() else {
+            crate::logutil::write_line("toolbox: driver_version: no driver file found");
             return String::new();
         };
-        let sys = dir.join("WinRing0x64.sys");
-        if !sys.is_file() {
-            return String::new();
-        }
         // 用 PowerShell 读版本资源：比在 Rust 里走 GetFileVersionInfo + 查翻译表 +
         // VerQueryValue 那一套短得多，而这条命令只在 Windows 上跑。
+        // FileVersion 为空时再试 ProductVersion：WinRing0 的 .sys 是十多年前编的，
+        // 有的版本只填了后者（两样都空才写「—」）。
+        let escaped = sys.to_string_lossy().replace('\'', "''");
         let script = format!(
-            "(Get-Item -LiteralPath '{}').VersionInfo.FileVersion",
-            sys.to_string_lossy().replace('\'', "''")
+            "$v=(Get-Item -LiteralPath '{escaped}').VersionInfo; \
+             if ($v.FileVersion) {{ $v.FileVersion }} else {{ $v.ProductVersion }}"
         );
         let Ok(output) = Command::new("powershell.exe")
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
         else {
+            crate::logutil::write_line("toolbox: driver_version: powershell didn't start");
             return String::new();
         };
-        // 没有版本资源时 PowerShell 打印空行 → 空串，界面照样写「—」。
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if version.is_empty() {
+            // 留一行日志：是文件没版本资源，还是 PowerShell 起不来，下次不用猜。
+            crate::logutil::write_line(&format!(
+                "toolbox: driver_version: empty for {} ({}, stderr={})",
+                sys.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        version
     }
 
     /// 列出装了 OptiScaler 的游戏：账本优先；只有旧版标记（没账本）的也列出来，
@@ -994,19 +1020,74 @@ mod windows {
     }
 
     fn winring0_present() -> bool {
-        driver_dir()
-            .ok()
-            .map(|dir| {
-                let sys = dir.join("WinRing0x64.sys");
-                sys.is_file() && sys.metadata().map(|m| m.len()).unwrap_or(0) > 10_000
-            })
-            .unwrap_or(false)
+        driver_sys_path().is_some()
+    }
+
+    /// 驱动 `.sys` 在哪：① 我们自己装的那份（ProgramData），② 服务注册表里指的那份，
+    /// ③ 系统驱动目录里那份（别家工具装 WinRing0 通常就放这儿）。
+    ///
+    /// 只认第①个会把「驱动明明装好了」读成「未安装」—— 0.1.61 真机上就是这么误报的。
+    fn driver_sys_path() -> Option<PathBuf> {
+        if let Ok(dir) = driver_dir() {
+            let sys = dir.join("WinRing0x64.sys");
+            if is_driver_file(&sys) {
+                return Some(sys);
+            }
+        }
+        if let Some(service) = service_registered() {
+            if let Some(path) = service_image_path(service) {
+                if is_driver_file(&path) {
+                    return Some(path);
+                }
+                crate::logutil::write_line(&format!(
+                    "toolbox: {service} ImagePath={} is not a driver file",
+                    path.display()
+                ));
+            }
+        }
+        // `%SystemRoot%` 那种写法不展开，直接按最常见的落点找一次。
+        if let Some(root) = std::env::var_os("SystemRoot") {
+            let sys = PathBuf::from(root)
+                .join("System32")
+                .join("drivers")
+                .join("WinRing0x64.sys");
+            if is_driver_file(&sys) {
+                return Some(sys);
+            }
+        }
+        None
+    }
+
+    /// 10 KB 以下的不认：那是下载没下完 / 被拦截下来的残文件（真驱动 100 KB 出头）。
+    fn is_driver_file(path: &Path) -> bool {
+        path.is_file() && path.metadata().map(|m| m.len()).unwrap_or(0) > 10_000
+    }
+
+    /// 服务注册表里有没有 WinRing0（SCM 的服务键就在
+    /// `HKLM\SYSTEM\CurrentControlSet\Services\<服务名>`）。没文件但有服务键也算装了。
+    fn service_registered() -> Option<&'static str> {
+        WINRING0_SERVICES.iter().copied().find(|name| {
+            winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
+                .open_subkey(format!(r"SYSTEM\CurrentControlSet\Services\{name}"))
+                .is_ok()
+        })
+    }
+
+    /// 服务的 `ImagePath` → 驱动文件路径。注册表里的写法通常带引号，也可能带 `\??\` 前缀。
+    fn service_image_path(service: &str) -> Option<PathBuf> {
+        let key = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
+            .open_subkey(format!(r"SYSTEM\CurrentControlSet\Services\{service}"))
+            .ok()?;
+        let raw: String = key.get_value("ImagePath").ok()?;
+        let trimmed = raw.trim().trim_matches('"');
+        let without_prefix = trimmed.strip_prefix(r"\??\").unwrap_or(trimmed);
+        Some(PathBuf::from(without_prefix))
     }
 
     /// Start existing service; also flip to auto so the next reboot is quieter.
-    fn ensure_winring0_running() -> Result<(), String> {
-        let _ = run_sc_line(&format!("sc config {WINRING0_SERVICE} start= auto"));
-        match run_sc_line(&format!("sc start {WINRING0_SERVICE}")) {
+    fn ensure_winring0_running(service: &str) -> Result<(), String> {
+        let _ = run_sc_line(&format!("sc config {service} start= auto"));
+        match run_sc_line(&format!("sc start {service}")) {
             Ok(()) => {}
             Err(err) => {
                 // Already running is fine — sc start returns non-zero then.
