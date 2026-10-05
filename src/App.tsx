@@ -19,7 +19,7 @@ import { text, useI18n } from "./i18n";
 import type { HintPage } from "./i18n/catalog";
 import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
 import { formatSize } from "./library/format";
-import { useDriveSpace } from "./system/drives";
+import { driveTotal, useDriveSpace } from "./system/drives";
 
 /**
  * 首页 / 下载：设计稿（K5 / K6）里画了，但要跑起来需要现在还不存在的数据源 ——
@@ -319,20 +319,23 @@ export default function App() {
   /**
    * 侧栏那颗「存储空间」（画板 K5 左下角）。
    *
-   * 数据来自 `system/drives.ts` 的共享快照（首页那一格读的是同一份，不重复问系统）：
+   * 数据来自 `system/drives.ts` 的共享快照（首页那一格读的是同一份，不重复问系统），
+   * 数字是**所有内置盘之和**（`driveTotal`）—— 一块硬盘拆成 C: + D: 时要画整块盘，
+   * 只画 C: 那个数比机器真实存储小一大截。
    * 读不到就写「待接入」，不写 0 —— 0 是「满了」，那是另一个意思。
    * 那句话是**暂时的**：读到之前先这么说，读到之后自然换成真数字（失败会自动补读）。
    */
   const drives = useDriveSpace();
-  const primary = drives.find((drive) => drive.kind === "fixed") ?? drives[0] ?? null;
-  const usedBytes = primary ? Math.max(0, primary.totalBytes - primary.freeBytes) : 0;
+  const storage = driveTotal(drives);
   const storagePercent =
-    primary && primary.totalBytes > 0 ? Math.round((usedBytes / primary.totalBytes) * 100) : 0;
-  const storageHead = primary
-    ? `${formatSize(usedBytes)} / ${formatSize(primary.totalBytes)}`
+    storage && storage.totalBytes > 0
+      ? Math.round((storage.usedBytes / storage.totalBytes) * 100)
+      : 0;
+  const storageHead = storage
+    ? `${formatSize(storage.usedBytes)} / ${formatSize(storage.totalBytes)}`
     : m.shell.storagePending;
-  const storageMeta = primary
-    ? `${primary.mount} ${primary.label}`.trim()
+  const storageMeta = storage
+    ? m.shell.storageVolumes(storage.mounts, storage.label)
     : m.shell.storagePending;
 
   return (

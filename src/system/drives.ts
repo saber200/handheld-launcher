@@ -10,6 +10,9 @@
  * 所以这里读不到（请求失败、或返回空 —— Windows 上系统盘不会凭空消失，空就是没读到）
  * 都按「这次没读到」处理，隔一会儿自己再问一次，最多补两回，之后认下来。
  * 拿不到就返回空数组，界面写「—」/「待接入」，绝不编数字。
+ *
+ * 界面要的「容量」不是某一块盘的，而是 `driveTotal()` 算出来的**所有内置盘之和** ——
+ * 常用机型往往是一块硬盘拆成 C: + D: 两个分区，只画 C: 那个数比机器真实存储小一大截。
  */
 import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,6 +23,17 @@ export type DriveSpace = {
   totalBytes: number;
   freeBytes: number;
   kind: string;
+};
+
+/** `driveTotal()` 的结果：几块内置盘加在一起的总量与用量。 */
+export type DriveTotal = {
+  /** 参与相加的盘符，保持后端给的顺序（内置盘在前），如 `["C:", "D:"]`。 */
+  mounts: string[];
+  /** 只有一块盘参与时的卷标；多块盘时为空串（一块盘的卷标代表不了合计）。 */
+  label: string;
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
 };
 
 /** 补读的间隔（毫秒）。第一次失败最常见的原因是「问得太早」，所以第一次等得短一点。 */
@@ -91,4 +105,38 @@ export function useDriveSpace(): DriveSpace[] {
     startLoad();
   }, []);
   return rows;
+}
+
+/**
+ * 把「所有内置盘」加成一个总量（侧栏那颗卡与首页那一格都读它）。
+ *
+ * 为什么不是取第一块盘（`drives.find(kind === "fixed")`）：掌机上常见的是**一块硬盘拆成
+ * C: + D: 几个分区**，只画 C: 的话那个数字比机器真实的存储小一大截 —— 用户 2026-10-05
+ * 反馈的就是这个（「不应该只有 C 盘的，而是所有盘符的总合」）。总量 = 各分区容量相加，
+ * 用量 = 各分区已用相加：一块盘拆成几个分区，不影响这个数。
+ *
+ * **只加 `kind === "fixed"`（内置盘）**：U 盘 / SD 卡插上拔下不该让这颗卡的数字自己跳。
+ * 但**一块内置盘都没认出来时退回把所有盘相加** —— 宁可把移动盘也算进去，也不要让这张卡
+ * 空着（跟本文件上面那条「空 = 没读到」一个道理）。
+ *
+ * 一盘都没读到（`[]`）返回 null，界面写「—」/「待接入」，绝不编数字。
+ */
+export function driveTotal(rows: DriveSpace[]): DriveTotal | null {
+  if (rows.length === 0) return null;
+  const fixed = rows.filter((row) => row.kind === "fixed");
+  const counted = fixed.length > 0 ? fixed : rows;
+  let totalBytes = 0;
+  let freeBytes = 0;
+  for (const row of counted) {
+    totalBytes += row.totalBytes;
+    freeBytes += row.freeBytes;
+  }
+  return {
+    mounts: counted.map((row) => row.mount),
+    label: counted.length === 1 ? counted[0].label : "",
+    totalBytes,
+    freeBytes,
+    // 分区之间可能互相挂载导致 free > total 这类怪读数，用量兜一下底、不写负数。
+    usedBytes: Math.max(0, totalBytes - freeBytes),
+  };
 }

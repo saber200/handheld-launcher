@@ -20,7 +20,7 @@ import { text } from "../i18n";
 import { formatSize } from "../library/format";
 import { cachedApps, gameCoverFor, launchLibraryItem } from "../library/useLocalLibrary";
 import { useRecentLaunches, type RecentLaunch } from "../library/recent";
-import { useDriveSpace } from "../system/drives";
+import { driveTotal, useDriveSpace } from "../system/drives";
 
 type TdpInfo = { watts: number | null; supported: boolean };
 type TdpDriverStatus = { ready: boolean; installed: boolean; elevated: boolean; message: string };
@@ -72,7 +72,9 @@ export function HomePage({
   const [tdp, setTdp] = useState<TdpInfo | null>(null);
   const [power, setPower] = useState<PowerStatus | null>(null);
   // 盘容量：与侧栏那颗卡共用一份快照（见 system/drives.ts），不重复问系统。
+  // 数字是**所有内置盘之和**（一块硬盘拆成 C: + D: 时要画整块盘，不认第一块）。
   const drives = useDriveSpace();
+  const storage = driveTotal(drives);
   const [driver, setDriver] = useState<TdpDriverStatus | null>(null);
   const [driverVersion, setDriverVersion] = useState("");
 
@@ -105,7 +107,6 @@ export function HomePage({
   }, []);
 
   const cover = hero ? (gameCoverFor(hero.installPath ?? "")?.cover ?? null) : null;
-  const primary = drives.find((drive) => drive.kind === "fixed") ?? drives[0] ?? null;
 
   const launch = (row: RecentLaunch) => {
     setStatus("");
@@ -247,8 +248,8 @@ export function HomePage({
         <div className="k5-status-cell">
           <span className="k5-status-label">{m.statusStorage}</span>
           <strong className="k5-status-value tnum">
-            {primary
-              ? m.freeOf(formatSize(primary.freeBytes), formatSize(primary.totalBytes))
+            {storage
+              ? m.freeOf(formatSize(storage.freeBytes), formatSize(storage.totalBytes))
               : m.statusNone}
           </strong>
         </div>

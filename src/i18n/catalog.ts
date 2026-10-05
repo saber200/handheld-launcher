@@ -34,6 +34,12 @@ export type Catalog = {
     storageTitle: string;
     /** 存储容量还没有数据源（要新的系统信息命令），如实说明，不摆假数字。 */
     storagePending: string;
+    /**
+     * 存储卡底部那行小字：列出**参与相加的盘符**（`mounts` 形如 `["C:", "D:"]`，
+     * `label` 只在单块盘时非空）。多块盘时必须写明「合计」—— 数字是相加的、标签却像
+     * 只有一块盘的话，用户会觉得这个数不对（2026-10-05 就是这么反馈的）。
+     */
+    storageVolumes: (mounts: string[], label: string) => string;
     storageAction: string;
     /** 锁定项给读屏的播报：「商店，即将开放，不可用」。 */
     lockedAria: (name: string) => string;
@@ -785,6 +791,15 @@ export const zh: Catalog = {
     searchPlaceholder: "搜索游戏 / 软件 / 文件",
     storageTitle: "存储空间",
     storagePending: "容量读取待接入",
+    // 单块盘：还是「盘符 + 卷标」；多块盘：把盘符列出来再说一句「合计」——
+    // 那个数字是几块盘相加的，标签必须让用户看得出来（否则会以为只有第一块盘）。
+    storageVolumes: (mounts, label) => {
+      if (mounts.length === 0) return "";
+      if (mounts.length === 1) return `${mounts[0]} ${label}`.trim();
+      const head = mounts.slice(0, 3).join(" + ");
+      const more = mounts.length > 3 ? ` 等 ${mounts.length} 块` : "";
+      return `${head}${more} · 合计`;
+    },
     storageAction: "打开管理器",
     lockedAria: (name) => `${name}，即将开放，不可用`,
   },
@@ -1491,6 +1506,15 @@ export const en: Catalog = {
     searchPlaceholder: "Search games / apps / files",
     storageTitle: "Storage",
     storagePending: "Capacity readout pending",
+    // Single volume keeps the old "letter + label"; several volumes list the letters and say
+    // "combined" — the number is a sum, and the caption has to say so.
+    storageVolumes: (mounts, label) => {
+      if (mounts.length === 0) return "";
+      if (mounts.length === 1) return `${mounts[0]} ${label}`.trim();
+      const head = mounts.slice(0, 3).join(" + ");
+      const more = mounts.length > 3 ? ` +${mounts.length - 3} more` : "";
+      return `${head}${more} · combined`;
+    },
     storageAction: "Open manager",
     lockedAria: (name) => `${name}, coming soon, unavailable`,
   },
