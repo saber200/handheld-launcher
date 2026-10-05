@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type Ref } from "react";
 import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf, type CardOptions } from "../components/LibraryShelf";
+import { EpicMark, SteamMark } from "../components/DeviceIcons";
+import { KeyCap } from "../components/KeyCap";
 import { MenuIcon, PlayIcon } from "../components/NavIcons";
 import { libraryActions } from "../library/actions";
 import { formatPlaytime, formatPlaytimeAndSize, formatSize } from "../library/format";
@@ -257,9 +259,7 @@ function GameCard({
         <span className="library-name">{title}</span>
         {facts && <span className="k1-card-facts tnum">{facts}</span>}
         {running && <span className="k1-run-dot" aria-hidden />}
-        <span className="k1-a" aria-hidden>
-          A
-        </span>
+        <KeyCap label="A" className="k1-a" />
       </button>
     );
   }
@@ -284,11 +284,29 @@ function GameCard({
  * 库里的 id 前缀就是来源：扫描出来的 Steam / Epic 游戏带 `steam:` / `epic:` 前缀
  * （见 src-tauri/src/scan.rs），其余是用户手动添加的程序。浏览器预览里的 12 个样例
  * 用的是裸 appid，这里按数字也算 Steam，免得预览页整排都写「手动添加」。
+ *
+ * **判据只写这一处**：来源要同时画文字和图标，两处各写一遍 if 迟早漂移
+ * （以后加了 GOG 前缀只改了一处，就会出现文字写 GOG、图标还画着 Steam）。
  */
+function platformKind(game: GameEntry): "steam" | "epic" | "manual" {
+  if (game.id.startsWith("steam:") || /^\d+$/.test(game.id)) return "steam";
+  if (game.id.startsWith("epic:")) return "epic";
+  return "manual";
+}
+
 function platformOf(game: GameEntry): string {
-  if (game.id.startsWith("steam:") || /^\d+$/.test(game.id)) return text().library.platformSteam;
-  if (game.id.startsWith("epic:")) return text().library.platformEpic;
+  const kind = platformKind(game);
+  if (kind === "steam") return text().library.platformSteam;
+  if (kind === "epic") return text().library.platformEpic;
   return text().library.platformManual;
+}
+
+/** 「来源」那一格左边的平台标记。手动添加的游戏没有品牌可画 → null，只显示文字，不拿通用图标硬凑。 */
+function platformMark(game: GameEntry) {
+  const kind = platformKind(game);
+  if (kind === "steam") return <SteamMark />;
+  if (kind === "epic") return <EpicMark />;
+  return null;
 }
 
 /**
@@ -343,7 +361,10 @@ function GameInfo({ game, name, running }: { game: GameEntry; name: string; runn
       <h3 className="k1-info-name">{name}</h3>
       <dl className="k1-info-fields">
         <dt>{text().library.fieldSource}</dt>
-        <dd>{platform}</dd>
+        <dd className="k1-source">
+          {platformMark(game)}
+          {platform}
+        </dd>
         <dt>{text().library.fieldState}</dt>
         <dd className={running ? "is-running" : undefined}>
           {running ? text().library.stateRunning : text().library.stateIdle}

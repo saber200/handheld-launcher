@@ -1,7 +1,7 @@
 # FantasyHub 工作区根。
 #
 # 一仓一程序：启动器（src-tauri，全屏壳 + 工具箱 + 文件管理），内核在 crates/fh-core。
-# 前端界面只剩 Game Bar 小组件（frontend/gamebar，原生 UWP，不在这个工作区里）。
+# 界面是 React（src/，vite build 成静态资源随启动器一起打包），没有别的可执行前端了。
 #
 # 注意：有了工作区，cargo 的目标目录变成仓库根的 target/（不再是 src-tauri/target），
 # 所以 CI 的 rust-cache 与产物路径都按 ". -> target" 写。

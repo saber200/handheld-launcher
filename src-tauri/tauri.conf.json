@@ -44,13 +44,7 @@
     "resources": [
       "fse/identity.msix",
       "fse/identity.cer",
-      "fse/CustomCapability.SCCD",
-      "drivers/WinRing0x64.sys",
-      "payload/gamebar/widget.msix",
-      "payload/gamebar/widget.cer",
-      "payload/gamebar/deps/Microsoft.NET.CoreRuntime.2.2.appx",
-      "payload/gamebar/deps/Microsoft.NET.CoreFramework.Debug.2.2.appx",
-      "payload/gamebar/deps/Microsoft.VCLibs.x64.Debug.14.00.appx"
+      "fse/CustomCapability.SCCD"
     ],
     "windows": {
       "nsis": {

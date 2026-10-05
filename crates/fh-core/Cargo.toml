@@ -2,7 +2,7 @@
 name = "fh-core"
 version.workspace = true
 edition = "2021"
-description = "FantasyHub 共享内核：日志、文案、TDP 数据结构、进程匹配"
+description = "FantasyHub 共享内核：日志、文案、进程匹配"
 
 # 规则：这里只放**不带** `#[tauri::command]` 的纯逻辑。
 # Tauri 的 `allow-<命令名>` 权限是构建时按“app 自己的 crate 源码”自动生成的，

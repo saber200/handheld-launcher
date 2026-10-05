@@ -1,6 +1,6 @@
 # 幻想枢纽（FantasyHub）
 
-Windows 掌机全屏前端启动器。当前完成全屏壳，以及 Windows 安装包里的 Steam / Epic 游戏扫描和已安装软件扫描。前端界面是随启动器安装的 **Game Bar 小组件**（`Win+G`）；独立的前端程序已在 0.1.62 删除，小组件的后端改成**启动器进程自己**（回环 + 发现文件，见 `frontend/gamebar/HANDOFF.txt`）。
+Windows 掌机全屏前端启动器。当前完成全屏壳，以及 Windows 安装包里的 Steam / Epic 游戏扫描和已安装软件扫描。界面（React）由启动器自己承载；曾经随包安装的 **Game Bar 小组件**与 TDP 控制（前端界面、Rust 后端、驱动、安装脚本）已从本仓库移除。
 
 ## 技术栈
 

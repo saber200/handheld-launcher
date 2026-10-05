@@ -1,3 +1,0 @@
-FantasyHub native Xbox Game Bar widget public folder.
-App extension ID: FantasyHubWidget
-This folder intentionally contains no web UI or authentication material.

@@ -24,11 +24,6 @@ description = "Force-quit a running library game process."
 commands.allow = ["quit_game"]
 
 [[permission]]
-identifier = "allow-library-publish"
-description = "Publish the library list so the Game Bar widget can see which games are running."
-commands.allow = ["library_publish"]
-
-[[permission]]
 identifier = "allow-cache-covers"
 description = "Save Steam cover images for offline use."
 commands.allow = ["cache_covers"]
@@ -89,16 +84,6 @@ description = "Exit the launcher and return to the Windows desktop."
 commands.allow = ["quit_launcher"]
 
 [[permission]]
-identifier = "allow-tdp-status"
-description = "Read current handheld TDP support and wattage."
-commands.allow = ["tdp_status"]
-
-[[permission]]
-identifier = "allow-set-tdp"
-description = "Set the handheld CPU power limit in watts."
-commands.allow = ["set_tdp"]
-
-[[permission]]
 identifier = "allow-toolbox-runtimes"
 description = "List game redistributable packages for the toolbox."
 commands.allow = ["toolbox_runtimes"]
@@ -134,31 +119,7 @@ description = "Cancel the OptiScaler download in progress."
 commands.allow = ["toolbox_cancel_mod"]
 
 [[permission]]
-identifier = "allow-toolbox-tdp-driver-status"
-description = "Check whether the WinRing0 TDP driver is available."
-commands.allow = ["toolbox_tdp_driver_status"]
-
-[[permission]]
-identifier = "allow-toolbox-install-tdp-driver"
-description = "Download and install the WinRing0 TDP driver."
-commands.allow = ["toolbox_install_tdp_driver"]
-[[permission]]
-identifier = "allow-toolbox-driver-version"
-description = "Read the installed WinRing0 TDP driver version."
-commands.allow = ["toolbox_driver_version"]
-
-[[permission]]
 identifier = "allow-toolbox-mod-list"
 description = "List the mod files installed next to a game."
 commands.allow = ["toolbox_mod_list"]
-
-[[permission]]
-identifier = "allow-widget-status"
-description = "Read the last Game Bar widget install result."
-commands.allow = ["widget_status"]
-
-[[permission]]
-identifier = "allow-register-widget"
-description = "Register the Game Bar widget package again."
-commands.allow = ["register_widget"]
 

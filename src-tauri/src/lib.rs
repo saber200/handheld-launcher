@@ -1,7 +1,5 @@
 mod files;
 mod i18n;
-// 库清单落盘（`library.json`）：小组件后端靠它知道「哪个游戏在跑 / 能退掉谁」。
-mod library;
 // 工具箱「系统维护」卡：着色器缓存 / 启动项 / 日志（FUTURE.md 功能 14 第 2 条）。
 mod maintain;
 mod media;
@@ -12,14 +10,7 @@ mod scan;
 mod startup;
 // 只读的系统状态：盘的容量 / 电池（FUTURE.md 功能 14 第 10 条，K5 首页用）。
 mod sysinfo;
-mod tdp;
 mod toolbox;
-// Game Bar 小组件的后端就住在启动器里（回环传输 + 协议 + 端口/令牌发现文件）。
-// 为什么不单起一个后台进程：TDP 一直只归启动器管，老架构里那个独立前端只是转发器
-// —— 详细理由与代价写在 widget.rs 顶部。
-mod widget;
-mod widget_discovery;
-mod widget_protocol;
 // 文件管理要的 Windows 专属原语：清空回收站 / 安全弹出 / 读盘镜像魔数
 // （见文件头说明；非 Windows 平台一律报「不支持」）。
 mod winfs;
@@ -137,8 +128,6 @@ pub fn run() {
             scan::quit_game,
             scan::cache_covers,
             scan::steam_library_cover,
-            tdp::tdp_status,
-            tdp::set_tdp,
             toolbox::toolbox_runtimes,
             toolbox::toolbox_install_runtime,
             toolbox::toolbox_optiscaler_status,
@@ -146,9 +135,6 @@ pub fn run() {
             toolbox::toolbox_install_optiscaler,
             toolbox::toolbox_uninstall_optiscaler,
             toolbox::toolbox_cancel_mod,
-            toolbox::toolbox_tdp_driver_status,
-            toolbox::toolbox_install_tdp_driver,
-            toolbox::toolbox_driver_version,
             // 游戏文件夹里装了哪些 mod（工具箱「已装 Mod」那一行）。
             toolbox::toolbox_mod_list,
             maintain::toolbox_maintenance,
@@ -160,16 +146,11 @@ pub fn run() {
             startup::fse_status,
             startup::register_fse,
             startup::open_fse_settings,
-            // Game Bar 小组件：看上次装的结果 / 手动重装一次（见 startup.rs 顶部说明）。
-            startup::widget_status,
-            startup::register_widget,
             startup::open_desktop,
             startup::enter_fullscreen,
             startup::system_power,
             startup::quit_launcher,
             i18n::set_locale,
-            // 把库清单发布出去，给小组件后端读（见 library.rs 顶部说明）。
-            library::library_publish,
             files::file_places,
             files::file_list,
             files::file_make_dir,
@@ -206,16 +187,7 @@ pub fn run() {
             startup::prepare();
             logutil::write_line(&format!("log file: {}", logutil::path_for_user()));
             let resources = app.path().resource_dir().ok();
-            startup::schedule_fse_registration(resources.clone());
-            // 小组件也随启动器装：CI 把它签好塞进安装包，这里每次启动幂等地补一次
-            // （安装器那一步可能没跑成、或者用户从旧版本升级上来）。
-            startup::schedule_widget_registration(resources);
-            // 小组件的后端：绑一个随机回环端口、生成令牌、把端口/令牌写进发现文件，
-            // 之后小组件（经同包 Bridge）就能来问 TDP / 游戏列表 / 语言。
-            // **失败不致命**：启动器是主程序，小组件取不到数据不该连带把主界面挡在门外。
-            if let Err(err) = widget::start() {
-                logutil::write_line(&format!("widget backend start failed: {err}"));
-            }
+            startup::schedule_fse_registration(resources);
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_fullscreen(true);
                 attach_main(&window, app.handle());

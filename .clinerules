@@ -23,11 +23,10 @@
 
 ## 3. 版本与文档
 
-- 版本号共 4 处要一起改：根 `Cargo.toml`、根 `package.json`、`src-tauri/tauri.conf.json`、
-  `frontend/gamebar/Widget/Package.appxmanifest` 的 `Identity Version`（四段，如 `0.1.61.0`）。
-  最后这处漏改不会装错包（小组件按包 hash 判断要不要重装），只是 Game Bar 里显示旧版本号。
-  （原来的 6 处里有 2 处在独立前端程序里 —— 那个程序已被整个删掉，见 `STATUS.md` 的「未发布（0.1.62）」。）
+- 版本号共 3 处要一起改：根 `Cargo.toml`、根 `package.json`、`src-tauri/tauri.conf.json`。
+  （原来的 6 处里，2 处在已删掉的独立前端程序里、1 处在已删掉的 Game Bar 小组件
+  `frontend/gamebar/Widget/Package.appxmanifest` 里，见 `STATUS.md`。）
 - 改动同步进 `FRONTEND.md`（设计与坑）和 `STATUS.md`（当前状态、近期改动备忘）。
 - 提交信息用中文，写清「修了什么、为什么」，不写 "fix bug"。
 - 发版：推 `main` 等 Lint 绿 → 打**注释 tag**（`git tag -a vX.Y.Z -m "FantasyHub X.Y.Z：<一句话>"`）→ 推 tag 触发打包，
-  产物是**一个**安装包（启动器；Game Bar 小组件随包带上）。
+  产物是**一个**安装包（启动器 + 随包的 web 产物）。

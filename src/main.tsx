@@ -33,8 +33,8 @@ import { watchUiScale } from "./styles/scale";
 // 必须在挂载前先算一次，否则首帧会用 1px 渲染再跳一下。
 watchUiScale();
 
-// 启动器是唯一入口（前端的独立程序在 0.1.62 删掉了，前端界面只剩 Game Bar 小组件，
-// 见仓库根 FRONTEND.md）。
+// 启动器是唯一入口：界面就是启动器自己的窗口（独立前端程序在 0.1.62 删掉了，
+// Game Bar 小组件那套 UWP 前端后来也删了，见仓库根 FRONTEND.md）。
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <I18nProvider>

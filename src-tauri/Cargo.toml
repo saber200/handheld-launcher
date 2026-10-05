@@ -23,11 +23,8 @@ tauri-plugin-autostart = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri-plugin-single-instance = "2"
-# 共享内核（crates/fh-core）：日志、文案、TDP 数据结构、进程匹配。
+# 共享内核（crates/fh-core）：日志、文案、进程匹配。
 fh-core = { path = "../crates/fh-core" }
-# 小组件回环令牌的随机源（widget_protocol::random_token）。以前放在 fh-core 的 ipc 里，
-# 独立前端删掉后只有启动器用，就跟着搬过来。
-getrandom = "0.2"
 # 图片解码：封面缓存（src/media.rs）与文件页缩略图（files.rs 的 file_thumb）共用。
 # 从 `[target.'cfg(windows)'.dependencies]` 挪上来的原因：`file_thumb` 是跨平台实现，
 # 留在 Windows 分区里本机（macOS）就编不到，等于「本地永远验不了这段代码」。

@@ -1,4 +1,4 @@
-# 前端与界面（0.1.46 独立化 → 0.1.62 删掉独立前端）
+# 前端与界面（0.1.46 独立化 → 0.1.62 删掉独立前端 → 0.1.65 删掉小组件与 TDP）
 
 > **0.1.62（2026-10-05，已发布）：独立前端程序整个删掉了。** 删掉的是 `frontend/src-tauri`
 > （`FantasyHubFrontend.exe`：托盘 + 浮层 + 回环 TDP 服务 + `widget-ipc.json` 发现文件 +
@@ -32,6 +32,125 @@
 >
 > **0.1.64（2026-10-05）：侧栏那颗「存储空间」与首页底部那一格改成「所有内置盘相加」。**
 > 以前画的是第一块内置盘（C:），一块硬盘拆成 C: + D: 时数字比整机存储小一大截。细则见下面那一节。
+>
+> **未发布（0.1.65）：Game Bar 小组件与 TDP 一起删掉了。** 用户要求「把小组件和 TDP 相关
+> 的所有内容都删掉，只留启动器本身的功能」，所以 `frontend/gamebar`（UWP 小组件 + Bridge +
+> 打包脚本 + `HANDOFF.txt`）、`.github/workflows/gamebar.yml`、启动器侧的
+> `widget*.rs` / `library.rs` / `tdp.rs` / `crates/fh-core/src/tdp.rs` /
+> `src-tauri/gamebar/register-widget.ps1` / `src-tauri/drivers` / `public/sounds/tdp-*.wav`
+> 整批移出仓库，界面上的 TDP 与驱动入口（工具箱主卡、首页那格、设置页「性能与功耗」与
+> 「装小组件」按钮、双语文案、音效 id）一并删掉，安装包也不再带 `payload/gamebar` 与
+> WinRing0。**因此本文件 §1–§9 与下面 0.1.58–0.1.64 里关于小组件 / TDP 的段落全部只当历史读。**
+> 只有一处是有意保留的：`installer.nsh` 里两个空宏与「升级时清掉旧 `FantasyHub.GameBar` 包」，
+> 免得老用户 Win+G 里留一个打不开的壳。细则见 `STATUS.md` 的「未发布（0.1.65）」。
+
+## 未发布：删掉 Game Bar 小组件与 TDP 全部界面
+
+**结论**：仓库里不再有小组件、也不再有任何调瓦数的入口。启动器 + React 界面（`src/`）
+就是全部产品形态。
+
+- **删掉的文件**：`frontend/gamebar/**`（Widget 的 XAML/C#、Bridge、`build-windows.ps1`、
+  `package-payload.ps1`、`check-static.py`、`HANDOFF.txt`）、`.github/workflows/gamebar.yml`、
+  `src-tauri/src/` 的 `widget.rs` / `widget_protocol.rs` / `widget_discovery.rs` / `library.rs` /
+  `tdp.rs`、`crates/fh-core/src/tdp.rs`、`src-tauri/gamebar/register-widget.ps1`、
+  `src-tauri/drivers/`、`public/sounds/tdp-up.wav` / `tdp-down.wav`。
+- **为什么连 TDP 一起删**：TDP 这条链路原本只为小组件与独立前端服务（`set_tdp` 写 MSR 要
+  WinRing0 驱动、驱动又要管理员装），前端界面里只剩「性能与功耗」那一行和工具箱那张驱动卡
+  是它的出口；小组件一走，它就成了没有用户的功能，留着等于在安装包里继续塞一个提权驱动。
+- **前端**：工具箱页删掉主卡（`k4-main`：驱动状态 / 后端 / 权限三格）与相关样式，
+  首页底部从四格回到两格，设置抽屉删掉「性能与功耗」整行与「装小组件」那颗按钮，
+  `src/i18n/catalog.ts` 里 `tdp*` / `driver*` / `power*` / `widget*` 文案（中英）逐条删掉，
+  `src/audio/sfx.ts` 去掉 `tdpUp` / `tdpDown`，`DeviceIcons.tsx` 去掉 `TdpIcon`。
+- **后端与配置**：`lib.rs` 的 `invoke_handler!` 去掉 `tdp_status` / `set_tdp` /
+  `widget_status` / `register_widget` / `library_publish` / `toolbox_tdp_driver_status` /
+  `toolbox_install_tdp_driver` / `toolbox_driver_version`，`permissions/*.toml` 与
+  `capabilities/default.json` 里对应的 8 条 `allow-*` 一并删掉（`audit-acl.mjs` 仍然绿：
+  49 个前端调用 / 56 条注册 / 56 条权限）；`tauri.conf.json` 的 `resources` 只留 FSE 三项，
+  `build.rs` 的占位清单同步收窄，`Cargo.toml` 去掉只给小组件令牌用的 `getrandom`。
+- **安装与 CI**：`build-windows.yml` 去掉 `gamebar-payload` 作业、WinRing0 现下步骤、
+  「就位小组件 payload」与「报告 payload」两步，`needs` / `if` 也跟着收；发布说明不再提小组件。
+- **有意保留**：① `nsis/installer.nsh` 的两个空宏（Tauri 模板会插，缺了是编译期报错）与
+  升级时清掉旧 `FantasyHub.GameBar` 包的那行 PowerShell；② 文案里「Game Bar 录像 / Captures」
+  那几条 —— 那是 **Windows 自带**的录屏，与本项目的小组件无关，删了会让文件页找不到截图目录。
+- **验证边界**：本机 macOS 只跑得了前端（`npm run build` 通过、`audit-ui.mjs` 通过）与
+  跨平台的 clippy（`cargo clippy --workspace --all-targets` 通过）；UWP / NSIS / WinRing0
+  这些 Windows 专属部分本机编不了，靠 CI 的 Windows Lint。**还没在真机上装过这一版**，
+  要看的就一件事：小组件那几处入口消失后，其余页面一切照旧（尤其工具箱与首页的布局没塌）。
+
+## 未发布：图标换成 Tabler（+ 补掌机品牌 / 硬件图标）
+
+**结论**：`src/components/NavIcons.tsx` 里 22 个手绘 path 全部换成 `@tabler/icons-react`（MIT）的
+同名图标，**导出名与签名一个没改**，所以十几个调用点一行没动；新增
+`src/components/DeviceIcons.tsx` 放游戏平台品牌与机身硬件图标。
+
+- **为什么不再自己画**：`NavIcons.tsx` 原来那段注释写的是「为了 8 个 18dp 图标引一个依赖不划算」——
+  这个判断在**当时**是对的。后来要的图标变成了两类手绘很贵的东西：**游戏平台品牌**
+  （Steam / Epic / Xbox）和**掌机硬件**（风扇 / 电量 / SD 卡）。品牌 logo 更是画不像的。
+- **为什么选 Tabler 而不是 Lucide / Phosphor / Iconoir**：决定性的一条是**只有 Tabler 带品牌图标**
+  （`brand-steam` / `brand-xbox` / `brand-windows`，另有 PS 的 ○✕△□ 四个按键符号）。
+  Lucide 明确不收品牌图标 —— Steam / Xbox / PlayStation / Epic 命中数全是 0，而本项目的
+  **游戏来源扫描、Xbox / FSE 模式、手柄提示**三处都要用。硬件图标也是 Tabler 最全
+  （`device-sd-card` / `brightness-up` / `temperature` / `cpu` / `usb` / `volume` / `wifi` / `bluetooth`）。
+- **风格无成本对齐**：Tabler outline 与原来手绘的规格逐项相同 —— 24×24 viewBox、`fill:none`、
+  `stroke:currentColor`、圆头圆角。**唯一差别是它默认描边 2，这里统一传 `stroke={1.7}`**
+  （画板规格 1.6~1.7）。`NavIcons.tsx` 里那个 `line` 属性对象就是干这个的；实心图标
+  （播放键、品牌标记）走 `solid` / `mark`，不吃描边。
+- **品牌标记是第二套规格**：带 `Mark` 后缀的是**实心**官方 logo（Steam / Epic），
+  来自 `simple-icons`（**CC0-1.0**，可商用、无需署名），viewBox 0 0 24 24 原样内联进
+  `DeviceIcons.tsx`。**内联而不是装运行时依赖**：只要两枚 logo，引一个 3464 个图标的包不划算，
+  所以 `simple-icons` 放在 **devDependencies** —— 它只是「以后要加 GOG / Ubisoft 时去哪儿取 path」
+  的出处，不进包。**坑**：Simple Icons 因商标方要求已下架 `xbox` / `nintendoswitch` /
+  `battlenet` / `ea`，所以 Xbox 只能用 Tabler 的线性 `brand-xbox` 顶上 —— `DeviceIcons.tsx`
+  里对「一排里要么全线性、要么全实心」这条写明了原因。
+- **体积**（生产构建实测，同一台机器前后各打一次）：JS **512.74 kB → 521.36 kB**
+  （gzip 151.79 → 155.39 kB），**+8.6 kB**；其中约 3.6 kB 是内联的两枚品牌 logo path，
+  24 枚 Tabler 图标合计 ~5 kB。tree-shake 有效已验证：随便挑一枚没 import 的图标
+  （`abacus`）的 path 在 `dist/assets/index-*.js` 里 0 命中，`search` / `home-2` /
+  `device-gamepad-2` / `lock` 各 1 命中。
+- **这一版接了线的**：① `GamesPage` 的「来源」那一格 —— Steam / Epic 游戏在文字前画平台标记
+  （判据与 `platformOf` 一致，抽成 `platformMark`，手动添加的游戏返回 `null` 只显示文字）；
+  ② 顶栏电量改用 Tabler 的四档电池（`battery-1`~`4`，空电池单算）—— 原来是「按比例伸缩的填充条」，
+  低电量时只剩一两个像素、等于没画。
+- **已经能用、还没接线的**：`DeviceIcons.tsx` 里的 Xbox / Windows / PS 按键 / 风扇 /
+  温度 / CPU / SD 卡 / USB / 亮度 / 音量 / Wi-Fi / 蓝牙 / 仪表（**TDP 那枚在 0.1.65 随功能一起删了**）。
+  **没有硬塞进画板** ——
+  K3 设置行、K4 工具箱卡、K5 首页底部那几格在画板上**本来就没有图标位**，画上图标是改设计稿，
+  不是换图标库该干的事；有真实数据源和图标位的地方（顶栏、来源格）才接。
+- **本机验证**：`npx tsc --noEmit`、`npm run build`、`node scripts/audit-ui.mjs --strict` 全过；
+  **真渲染截图**（生产构建 + headless Chrome）确认侧栏 8 个图标、顶栏电量、播放键、卡片菜单、
+  来源那格「Steam 标记 + Steam」都画得出来；Epic 标记在浏览器预览里跑不到（预览数据全是裸 appid、
+  全判成 Steam），单独起一张页对两枚品牌 path 做了渲染核对。
+
+### 补一波：手柄按键角标也换成图标（同一天，用户看截图后提的）
+
+用户原话：「这里面的 absy 按钮也给我换成 icon，不要自己手绘，太难看了」。指的是三处
+**用字符 + CSS 画圆框**的按键角标 —— 它们跟上面那批不一样，从来没进过图标库：
+
+- 底部提示条的 `A` / `B` / `X` / `Y` / `≡`
+- 文件页操作条 chip 里的 `X`/`Y`（`FilesPage` 的 `KeyBadge`）
+- 游戏卡右下角那颗 `A`（`GamesPage` 的 `k1-a`）
+
+**改法**：新增 `src/components/KeyCap.tsx` 收口，三处都改调它。字母键用 Tabler 的
+**实心** `circle-letter-{a,b,x,y}-filled`，`≡` 用 `menu-2`。
+
+- **为什么是实心版**：画板里这几颗角标本来就是「实心圆 + 挖空字母」（K1 卡片右下角那颗 A 是
+  **accent 实心圆 + 深色 A**，提示条是浅圆 + 深字母）。线性版是一圈描边加一个描边字母，
+  套进原来的圆框里会变成**双层圈**。
+- **CSS 要跟着脱一层**：三处各自的 `is-keycap` 规则把 `border` / `background` / `min-width` 去掉
+  （圆框改由图标画），只留尺寸与颜色。`.hint-key.is-round` / `.k7-key.is-round` 两条旧规则随之删掉
+  —— 圆不圆现在由「用哪枚图标」决定，不再由字符长度决定。
+- **肩键是刻意的例外**：`LT/RT` / `LB/RB` 是**两个字母的标签**，不是单个按键符号。
+  四个库都没有肩键 / 扳机图标（查过命中 0），硬套一个只会更看不懂 —— 它们继续走文字角标，
+  画板也是这么画的。
+- **顺手修掉一颗语义不对的图标**：侧栏存储卡那颗「打开管理器」以前画的是**手柄**。
+  画板上那颗按钮本来是「手柄图标 + `A` + 打开管理器」的**按键提示**，代码把 `A` 丢了、
+  只剩手柄，于是一个「打开文件管理器」的按钮顶着游戏手柄，18dp 下还容易被看成两个字母。
+  换成 `folder-open`（`NavIcons.tsx` 的 `FolderOpenIcon`）。
+- **本机验证**：`npx tsc --noEmit`、`npm run build`、`node scripts/audit-ui.mjs --strict` 全过；
+  截图核对了提示条（`Ⓐ 启动`/`Ⓑ 卡片菜单`/`≡ 设置抽屉`，肩键仍是文字角标）与卡片 A 角标。
+  文件页的 X/Y 角标在页面上要先选中文件才看得见，所以**用 CDP 驱动真页面**跳到文件页核对：
+  DOM 里是 `k7-key is-keycap` + `tabler-icon-circle-letter-{x,y}-filled`，实测 20×20，
+  截图确认「Ⓧ 复制 / Ⓨ 移动」与提示条「Ⓐ 打开 / Ⓑ 返回 / Ⓧ 多选 / Ⓨ 菜单」都画得出来。
 
 ## 0.1.64：存储空间从「第一块盘」改成「所有内置盘相加」（2026-10-05，用户反馈，已发布）
 
@@ -58,7 +177,7 @@
 ## 0.1.62：工具箱页改成「快照 + 手动自检」（2026-10-05，用户反馈）
 
 - **问题**：切到工具箱页会自检一遍（`toolbox_runtimes` / `toolbox_tdp_driver_status` + `tdp_status` + `toolbox_driver_version` / `toolbox_maintenance`），命令回来之前卡片写的是灰底占位（「正在读取…」「—」「无」，按钮还带 0.5 透明度）→ 用户看到「屏幕就会灰一次」。而且每切一次都重读，其中 `toolbox_driver_version` 要起一次 PowerShell、`toolbox_maintenance` 要量缓存目录 —— 切页本来不该等于重新体检。
-- **改法**：这一页的状态存**模块作用域快照**（`ToolboxPanel.tsx` 顶部的 `snapshot`），组件 state 的初值全部取自它；**本次会话第一次进这一页才自动读**，之后切来切去直接画快照，想刷新按页头那颗「自检」。页里自己改状态的动作（装驱动 / 装运行库 / 立即清理）跑完各重读一次；Mod 列表扫到的行也一起记着（切回来卡片照样写「装了哪一版」，弹窗不自己开）。
+- **改法**：这一页的状态存**模块作用域快照**（`ToolboxPanel.tsx` 顶部的 `snapshot`），组件 state 的初值全部取自它；**本次会话第一次进这一页才自动读**，之后切来切去直接画快照，想刷新按页头那颗「自检」。页里自己改状态的动作（装运行库 / 立即清理）跑完各重读一次；Mod 列表扫到的行也一起记着（切回来卡片照样写「装了哪一版」，弹窗不自己开）。
 - **坑**：「记回快照」的 effect 在挂载时就会把 `snapshot` 写成非 null，所以「这次挂载要不要自动读」在**渲染时**定下来（`useRef(snapshot === null)`）—— 放 effect 里看 `snapshot` 的话，两个 effect 顺序一被调换就变成永不自动读，界面上看不出来。
 - **本机验证**：`npx tsc --noEmit` + `node scripts/audit-ui.mjs --strict` 通过；这几条命令在 macOS 上全走回退分支，所以「灰不灰」只能真机看。
 
@@ -78,7 +197,7 @@
 - **安全弹出为什么不用 `CM_Request_Device_Eject`**：那要先 SetupAPI 枚举把盘符反查成设备实例（一串 SetupDi* 调用）。而**锁卷 + 卸载**已经做到了用户要的那件事：写缓存落盘、盘符从系统里消失、可以拔了。锁卷要**重试**（资源管理器只要还停在那块盘的目录上，第一次必然失败 —— 直接回「设备忙」用户也不知道是哪个程序占着）。固定盘上「弹介质」必然失败，那不是错误。前端把这一步做成向导里的一个勾选（默认不勾：用户可能还要拷第二趟），**搬失败时不弹**。
 - **盘镜像魔数：认不出来就别猜**。判据三条（偏移 0 的 `00 00 00 20` = PS2、偏移 `0x8000` 的 `PSP GAME`、偏移 `0x8001` 的 `CD001`），都不中就落到「必须手选目标」的那一组。`.cso` / `.chd` **不探测**：CHD 的头部不是这几条，探了反而会把 PSP 的 CHD 踢出 PSP 组（`MComprHD` 我没写判据，就不该去动它）。探测封顶 120 个文件 / 4 秒：SD 卡上每个文件一次开门，不封顶会把「选完来源」拖成几十秒。
 - **封面只读缓存、绝不触发扫描**：文件页的预览是「焦点一动就更新」，在预览里挂一次 `scan_games` 等于用户每进一个新目录都等几十秒。`gameCoverFor` 只读 `localStorage` 里那份扫描缓存，没有就什么都不显示 —— 少一张封面，比整页卡住强得多。
-- **界面缩放 / 手柄死区为什么放 localStorage 而不是 settings.json**：两者都只影响**这台机器上的这块屏**，后端一个字都不用知道（写 MSR 的 TDP 才必须走后端）。文件页的布局与双栏开关也是这么存的。死区要**当场生效**，所以做成带订阅的模块级状态（`settings/prefs.ts` + `useSyncExternalStore`）—— `useGamepadNav` 是在 App 里跑的另一个闭包，拿不到设置抽屉的 `state`。
+- **界面缩放 / 手柄死区为什么放 localStorage 而不是 settings.json**：两者都只影响**这台机器上的这块屏**，后端一个字都不用知道（要读系统状态、要写硬件的才必须走后端）。文件页的布局与双栏开关也是这么存的。死区要**当场生效**，所以做成带订阅的模块级状态（`settings/prefs.ts` + `useSyncExternalStore`）—— `useGamepadNav` 是在 App 里跑的另一个闭包，拿不到设置抽屉的 `state`。
 - **`.k2-search` 的宽度坑**：`flex-wrap` 是拿 **flex-basis** 判断换不换行的。写死 `flex-basis: 365dp`（画板上那颗搜索框的宽度）的话，英文界面下旁边四颗工具栏按钮更宽，这一行会被判成放不下、整条工具栏折成两行，头部高出 40dp、卡片第一行就落不到画板的 134。改成 `flex: 1 1 auto` + `max-width: 365dp` 之后既保持画板宽度、又允许收缩。同理，标题右边那句小结必须和标题**同一行**（多一行也顶高 50dp）。
 - **焦点环被裁的老账**：`.ft-jobs` 是 `overflow: hidden`，右上那颗「清空记录」的环压在它的角上 —— 文件页的任务中心一挂载就会中，只是探针以前没点进那一页看。修法是头部整体往里收 7dp；**「padding 7 + 负 margin 7」那招在这里不管用**（盒子大了、按钮位置没动，环照样被裁）。
 - **空态必须留一个可聚焦的出口**：手柄导航只在 `[data-focusable]` 之间走，一个页面「一条可聚焦的都没有」等于走进死胡同（探针的「侧栏按右出得来」也是这个要求）。首页空态给「去游戏库」、下载空态给「去文件页」。
@@ -173,7 +292,7 @@ M0 定的顺序里的第一页：游戏库换成画板 K1 的横向卡片条。*
 M1–M4 逐页换完视觉之后，`global.css` 里那批「只被旧页面用」的规则没人引用了。这轮把它们清掉，并给探针补一条**英文一遍**（改造包 §16 的验收项「中英双语切换后无截断、无溢出」）。
 
 - **清掉 40 条死规则**（`global.css` 1756 → 1415 行）：先用一个脚本把 `global.css` 里的类名和 `src/**`（含 `src/frontend/`、`index.html`）里的引用对一遍，只删**选择器里每个类名都没人引用**的规则（混着活类名的分组选择器一律保留）。删掉的是 K1/K2/K7/K4/K3 迁完之后留下的那批：`files-title-row / file-view* / file-sort* / file-panes / file-pane* / file-crumb* / file-tile* / file-check / file-progress* / toolbox-panel|block|list|row / group-switch* / lang-switch / settings-foot / power-menu`。
-  - **`file-row` / `file-list` / `file-mark` / `file-name` / `file-size` / `file-picker-*` 留着了** —— 「选择程序」对话框（FilePicker）还在用；`toolbox-block-body` / `tdp-status` 也留着 —— 独立前端的面板在用。
+  - **`file-row` / `file-list` / `file-mark` / `file-name` / `file-size` / `file-picker-*` 留着了** —— 「选择程序」对话框（FilePicker）还在用；`toolbox-block-body` / `tdp-status` 当时留着是给独立前端的面板用（**两者在 0.1.65 随小组件与 TDP 一起删掉了**）。
   - 副作用是好的：手写 px 的「待迁移」数从 44 → **30**（audit 仍然是 0 阻塞）。
 - **英文一遍**（`scripts/probe-ui.mjs` 新增 `englishPass()`）：把 `localStorage` 的语言设成 `en`、刷新，**按侧栏位置**逐页点过去（英文里侧栏文字是 Home / Library…，按文字找会全 miss），每页查两件事 —— ① 整页没有横向溢出；② 交互控件（侧栏项 / 工具按钮 / chip / 面包屑 / 提示条按键对 / K4 的卡按钮）的字没被截（`scrollWidth > clientWidth`）。正文不查：文件名那一列本来就该省略号收尾。1280×720 与 1920×1080 全过，截图存 `docs/redesign/preview/m6-en-files-1280.png`。
 - **本机验证**：`npx tsc --noEmit` / `npm run build` / `node scripts/audit-ui.mjs`（0 阻塞 / 待迁移 30）；探针三个部分（几何 + 六页签巡检 + 英文一遍）在 1280×720 与 1920×1080 全绿；另把英文下的文件页与工具箱截图看过（长文案自己换行，没有挤破卡片）。**真机（Windows 掌机）没装过**。

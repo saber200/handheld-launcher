@@ -7,8 +7,7 @@
  *      的游戏才会出现）；
  *   2. 「最近安装的软件」= 扫描缓存里按注册表 `InstallDate` 倒序的前几个（缓存里没有就
  *      不显示这一段，绝不触发一次全盘扫描 —— 首页要秒开）；
- *   3. 底部状态条四格 = `tdp_status` / `system_power_status` / `system_storage` /
- *      `toolbox_driver_version`，读不到就写「—」。
+ *   3. 底部状态条两格 = `system_power_status` / `system_storage`，读不到就写「—」。
  *
  * 画板上还有「详情」「查看全部」「正在更新」那几处：详情 / 查看全部是跳去游戏库（那边才有
  * 卡片菜单与完整信息），「正在更新」要 Steam 的下载进度 —— 启动器看不到，所以不画。
@@ -22,8 +21,6 @@ import { cachedApps, gameCoverFor, launchLibraryItem } from "../library/useLocal
 import { useRecentLaunches, type RecentLaunch } from "../library/recent";
 import { driveTotal, useDriveSpace } from "../system/drives";
 
-type TdpInfo = { watts: number | null; supported: boolean };
-type TdpDriverStatus = { ready: boolean; installed: boolean; elevated: boolean; message: string };
 type PowerStatus = {
   hasBattery: boolean;
   percent: number;
@@ -69,41 +66,20 @@ export function HomePage({
   const games = useMemo(() => recent.filter((row) => row.kind === "game"), [recent]);
   const hero = games[0] ?? null;
   const [status, setStatus] = useState("");
-  const [tdp, setTdp] = useState<TdpInfo | null>(null);
   const [power, setPower] = useState<PowerStatus | null>(null);
   // 盘容量：与侧栏那颗卡共用一份快照（见 system/drives.ts），不重复问系统。
   // 数字是**所有内置盘之和**（一块硬盘拆成 C: + D: 时要画整块盘，不认第一块）。
   const drives = useDriveSpace();
   const storage = driveTotal(drives);
-  const [driver, setDriver] = useState<TdpDriverStatus | null>(null);
-  const [driverVersion, setDriverVersion] = useState("");
 
   // 缓存里的软件列表：读一次就够（它只是为了首页那一行，不进依赖）。
   const apps = useMemo(() => (inTauri() ? cachedApps().slice(0, 4) : []), []);
 
   useEffect(() => {
     if (!inTauri()) return;
-    void invoke<TdpInfo>("tdp_status")
-      .then(setTdp)
-      .catch(() => setTdp(null));
     void invoke<PowerStatus>("system_power_status")
       .then(setPower)
       .catch(() => setPower(null));
-    // 驱动那两格：**「装没装」看状态命令**（ready / installed / 设备能不能打开），
-    // 版本是另一条命令、只是锦上添花。
-    //
-    // 这里踩过坑：原先只读版本号，读不到就写「未安装」—— 真机上驱动装好了、
-    // 设备也打得开（`.sys` 里没有版本资源，或有别的信息读不到），首页却一直写未安装。
-    // 装了就是装了，版本读不到最多是不写数字。
-    //
-    // 代价：这条命令在「装了但服务没起来」时会把服务拉起来（工具箱那边也是这么干的，
-    // 见 toolbox.rs 的 tdp_driver_status），所以首页这一次读顺便就把驱动带起来了。
-    void invoke<TdpDriverStatus>("toolbox_tdp_driver_status")
-      .then(setDriver)
-      .catch(() => setDriver(null));
-    void invoke<string>("toolbox_driver_version")
-      .then((value) => setDriverVersion(value || ""))
-      .catch(() => setDriverVersion(""));
   }, []);
 
   const cover = hero ? (gameCoverFor(hero.installPath ?? "")?.cover ?? null) : null;
@@ -225,14 +201,8 @@ export function HomePage({
         </section>
       )}
 
-      {/* 底部状态条（画板 K5 最下面那四格）。四格都是真读数，读不到写「—」。 */}
+      {/* 底部状态条（画板 K5 最下面那几格）。剩下的两格都是真读数，读不到写「—」。 */}
       <section className="k5-status" aria-label={m.statusStorage}>
-        <div className="k5-status-cell">
-          <span className="k5-status-label">{m.statusTdp}</span>
-          <strong className="k5-status-value tnum">
-            {tdp?.supported && tdp.watts != null ? m.tdpValue(String(tdp.watts)) : m.statusNone}
-          </strong>
-        </div>
         <div className="k5-status-cell">
           <span className="k5-status-label">{m.statusBattery}</span>
           <strong className="k5-status-value tnum">
@@ -251,18 +221,6 @@ export function HomePage({
             {storage
               ? m.freeOf(formatSize(storage.freeBytes), formatSize(storage.totalBytes))
               : m.statusNone}
-          </strong>
-        </div>
-        <div className="k5-status-cell">
-          <span className="k5-status-label">{m.statusDriver}</span>
-          <strong className="k5-status-value tnum">
-            {/* 装了就是装了：版本号读得到就带上（「已安装 1.2.0」），读不到写「已安装」。
-                `ready` 也算装了 —— 设备能打开就说明驱动在系统里，哪怕文件不在我们目录下。 */}
-            {driverVersion
-              ? m.driverInstalled(driverVersion)
-              : driver?.ready || driver?.installed
-                ? m.driverInstalledPlain
-                : m.driverMissing}
           </strong>
         </div>
       </section>

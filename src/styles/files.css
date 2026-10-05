@@ -726,7 +726,7 @@
 
 /*
  * chip 里的按键角标：比提示条那颗（--focus-badge = 26dp）小一号 ——
- * 它嵌在 28dp 高的 chip 里，用 26dp 会把 chip 顶高。正圆 / 矩形圆角的规矩和提示条一致。
+ * 它嵌在 28dp 高的 chip 里，用 26dp 会把 chip 顶高。矩形圆角的规矩和提示条一致。
  */
 .k7-key {
   display: grid;
@@ -743,10 +743,18 @@
   font-weight: 600;
 }
 
-.k7-key.is-round {
+/* 同提示条：字母键改由图标画圆框，span 不能再描边 + 上底色（图标自己带圆）。 */
+.k7-key.is-keycap {
+  min-width: 0;
   width: calc(18 * var(--dp));
   padding: 0;
-  border-radius: calc(18 * var(--dp) / 2);
+  border: 0;
+  background: none;
+}
+
+.k7-key.is-keycap .icon {
+  width: calc(18 * var(--dp));
+  height: calc(18 * var(--dp));
 }
 
 .k7-chip:disabled {

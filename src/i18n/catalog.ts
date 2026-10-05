@@ -57,10 +57,8 @@ export type Catalog = {
     viewAll: string;
     appsTitle: string;
     installedOn: (date: string) => string;
-    statusTdp: string;
     statusBattery: string;
     statusStorage: string;
-    statusDriver: string;
     /** 这台机器上读不到那一格时显示的字（就是一个破折号）。 */
     statusNone: string;
     empty: string;
@@ -73,11 +71,6 @@ export type Catalog = {
     batteryLeft: (time: string) => string;
     charging: string;
     freeOf: (free: string, total: string) => string;
-    tdpValue: (watts: string) => string;
-    driverInstalled: (version: string) => string;
-    /** 装上了但读不到版本号时那一格写什么（读到版本才用 driverInstalled）。 */
-    driverInstalledPlain: string;
-    driverMissing: string;
   };
   downloads: {
     title: string;
@@ -122,7 +115,7 @@ export type Catalog = {
     languageHint: string;
     autostart: string;
     autostartHint: string;
-    /* ── 功能 14 第 5 条补的三行 ── */
+    /* ── 功能 14 第 5 条补的两行 ── */
     scaleTitle: string;
     scaleHint: string;
     /** 自动档的读数：参数是算出来的倍率（「1.13」）。 */
@@ -132,11 +125,6 @@ export type Catalog = {
     scaleSmall: string;
     scaleNormal: string;
     scaleBig: string;
-    powerTitle: string;
-    powerHint: string;
-   /** 当前功耗（「15 W」）；拿不到就是空串，界面写「—」。 */
-    powerValue: (watts: string) => string;
-    powerUnavailable: string;
     deadzoneTitle: string;
     deadzoneHint: string;
     /** 参数是百分比整数（「35」）。 */
@@ -169,9 +157,6 @@ export type Catalog = {
     desktopDone: string;
     desktopFailed: (detail: string) => string;
     fseOpenFailed: (detail: string) => string;
-    widgetRegister: string;
-    widgetRegisterHint: string;
-    widgetPreview: string;
     powerPreview: string;
     slept: string;
     powerFailed: (detail: string) => string;
@@ -186,29 +171,12 @@ export type Catalog = {
     toolboxReinstall: string;
     toolboxWorking: string;
     toolboxInstalling: string;
-    tdpDriverBody: string;
-    tdpDriverInstall: string;
-    tdpDriverReinstall: string;
-    tdpDriverInstalling: string;
     runtimesTitle: string;
     runtimesBody: string;
     runtimesEmpty: string;
-    // 画板 K4（工具箱）：页面小标题、自检按钮、四张卡的短文案。
+    // 画板 K4（工具箱）：页面小标题、自检按钮、各卡的短文案。
     toolboxSubtitle: string;
     toolboxSelfCheck: string;
-    toolboxDriverLabel: string;
-    toolboxDriverTitle: string;
-    toolboxStateLabel: string;
-    toolboxVersionLabel: string;
-    toolboxStateReady: string;
-    toolboxStateInstalled: string;
-    toolboxStateMissing: string;
-    toolboxBackendLabel: string;
-    toolboxBackendNone: string;
-    toolboxPermLabel: string;
-    toolboxAdmin: string;
-    toolboxStandardUser: string;
-    toolboxDriverNote: string;
     toolboxModTitle: string;
     toolboxModBody: string;
     toolboxModAction: string;
@@ -823,10 +791,8 @@ export const zh: Catalog = {
     viewAll: "查看全部",
     appsTitle: "最近安装的软件",
     installedOn: (date) => `安装于 ${date}`,
-    statusTdp: "性能档位",
     statusBattery: "续航预估",
     statusStorage: "存储空间",
-    statusDriver: "TDP 驱动",
     statusNone: "—",
     empty: "还没有启动记录",
     emptyBody:
@@ -838,10 +804,6 @@ export const zh: Catalog = {
     batteryLeft: (time) => `约 ${time}`,
     charging: "充电中",
     freeOf: (free, total) => `可用 ${free} / ${total}`,
-    tdpValue: (watts) => `性能 · ${watts} W`,
-    driverInstalled: (version) => `已安装 ${version}`,
-    driverInstalledPlain: "已安装",
-    driverMissing: "未安装",
   },
   downloads: {
     title: "下载",
@@ -875,10 +837,6 @@ export const zh: Catalog = {
     scaleSmall: "小",
     scaleNormal: "标准",
     scaleBig: "大",
-    powerTitle: "性能与功耗",
-    powerHint: "每游戏可覆盖（需要管理员权限）",
-    powerValue: (watts) => `${watts} W`,
-    powerUnavailable: "这台机器上调不了 TDP",
     deadzoneTitle: "手柄死区",
     deadzoneHint: "摇杆方向判定阈值",
     deadzoneValue: (percent) => `${percent}%`,
@@ -896,9 +854,6 @@ export const zh: Catalog = {
     fseOpenSettings: "打开系统全屏体验设置",
     fseOpenSettingsHint: "把主页应用选成「幻想枢纽」",
     fsePreview: "浏览器预览无法登记全屏体验",
-    widgetRegister: "安装小组件",
-    widgetRegisterHint: "Game Bar 小组件就是前端界面；随启动器自动装，点这里重装一次",
-    widgetPreview: "浏览器预览无法安装小组件",
     quit: "退出启动器",
     quitHint: "退出并回到桌面",
     autostartReadFailed: "无法读取开机自启状态（需在打包后的桌面端测试）",
@@ -926,29 +881,11 @@ export const zh: Catalog = {
     toolboxReinstall: "重装",
     toolboxWorking: "…",
     toolboxInstalling: "正在下载并安装，请稍候…",
-    tdpDriverBody:
-      "调节 TDP 需要内核驱动。可一键下载并安装；需管理员权限。若安全中心提示风险，属已知情况，允许后即可用。",
-    tdpDriverInstall: "安装 TDP 驱动",
-    tdpDriverReinstall: "重新安装",
-    tdpDriverInstalling: "正在下载并安装 TDP 驱动…",
     runtimesTitle: "游戏运行库",
     runtimesBody: "从微软官方源下载常见运行库（参考 3DM 合集体验，组件会陆续加全）。",
     runtimesEmpty: "暂时没有可安装的运行库项。",
-    toolboxSubtitle: "运行库 · 驱动 · 系统维护",
+    toolboxSubtitle: "运行库 · Mod · 系统维护",
     toolboxSelfCheck: "自检",
-    toolboxDriverLabel: "TDP 驱动",
-    toolboxDriverTitle: "WinRing0 驱动",
-    toolboxStateLabel: "状态",
-    toolboxVersionLabel: "版本",
-    toolboxStateReady: "已就绪",
-    toolboxStateInstalled: "已安装",
-    toolboxStateMissing: "未安装",
-    toolboxBackendLabel: "后端",
-    toolboxBackendNone: "不可用",
-    toolboxPermLabel: "权限",
-    toolboxAdmin: "管理员",
-    toolboxStandardUser: "普通用户",
-    toolboxDriverNote: "驱动缺失时 TDP 只读，其余功能不受影响",
     toolboxModTitle: "游戏 Mod / 工具",
     toolboxModBody: "在游戏卡片菜单里对单个游戏安装",
     toolboxModAction: "去游戏库",
@@ -1538,10 +1475,8 @@ export const en: Catalog = {
     viewAll: "See all",
     appsTitle: "Recently installed apps",
     installedOn: (date) => `Installed ${date}`,
-    statusTdp: "Power profile",
     statusBattery: "Battery estimate",
     statusStorage: "Storage",
-    statusDriver: "TDP driver",
     statusNone: "—",
     empty: "No launches recorded yet",
     emptyBody:
@@ -1553,10 +1488,6 @@ export const en: Catalog = {
     batteryLeft: (time) => `about ${time}`,
     charging: "charging",
     freeOf: (free, total) => `${free} free of ${total}`,
-    tdpValue: (watts) => `Performance · ${watts} W`,
-    driverInstalled: (version) => `Installed ${version}`,
-    driverInstalledPlain: "Installed",
-    driverMissing: "Not installed",
   },
   downloads: {
     title: "Downloads",
@@ -1590,10 +1521,6 @@ export const en: Catalog = {
     scaleSmall: "Small",
     scaleNormal: "Default",
     scaleBig: "Large",
-    powerTitle: "Power",
-    powerHint: "Per-game override (needs admin)",
-    powerValue: (watts) => `${watts} W`,
-    powerUnavailable: "TDP can't be changed on this machine",
     deadzoneTitle: "Stick deadzone",
     deadzoneHint: "Direction threshold for the analog stick",
     deadzoneValue: (percent) => `${percent}%`,
@@ -1611,9 +1538,6 @@ export const en: Catalog = {
     fseOpenSettings: "Open Windows FSE settings",
     fseOpenSettingsHint: "Choose FantasyHub as the home app",
     fsePreview: "Browser preview can't register fullscreen experience",
-    widgetRegister: "Install widget",
-    widgetRegisterHint: "The Game Bar widget is the frontend UI; ships with the launcher, click to reinstall",
-    widgetPreview: "Browser preview can't install the widget",
     quit: "Quit",
     quitHint: "Leave and return to the desktop",
     autostartReadFailed: "Couldn't read the startup setting. Try the installed app.",
@@ -1642,29 +1566,11 @@ export const en: Catalog = {
     toolboxReinstall: "Reinstall",
     toolboxWorking: "…",
     toolboxInstalling: "Downloading and installing…",
-    tdpDriverBody:
-      "TDP control needs a kernel driver. One-click download and install; admin required. Defender may warn — that's expected; allow it to continue.",
-    tdpDriverInstall: "Install TDP driver",
-    tdpDriverReinstall: "Reinstall",
-    tdpDriverInstalling: "Downloading and installing TDP driver…",
     runtimesTitle: "Game runtimes",
     runtimesBody: "Official Microsoft redistributables first; more packages later.",
     runtimesEmpty: "No runtime packages available yet.",
-    toolboxSubtitle: "Runtimes · Driver · Maintenance",
+    toolboxSubtitle: "Runtimes · Mods · Maintenance",
     toolboxSelfCheck: "Self-check",
-    toolboxDriverLabel: "TDP driver",
-    toolboxDriverTitle: "WinRing0 driver",
-    toolboxStateLabel: "State",
-    toolboxVersionLabel: "Version",
-    toolboxStateReady: "Ready",
-    toolboxStateInstalled: "Installed",
-    toolboxStateMissing: "Not installed",
-    toolboxBackendLabel: "Backend",
-    toolboxBackendNone: "Unavailable",
-    toolboxPermLabel: "Rights",
-    toolboxAdmin: "Administrator",
-    toolboxStandardUser: "Standard user",
-    toolboxDriverNote: "Without the driver TDP stays read-only; everything else keeps working",
     toolboxModTitle: "Game mods / tools",
     toolboxModBody: "Install per game from its card menu",
     toolboxModAction: "Open library",

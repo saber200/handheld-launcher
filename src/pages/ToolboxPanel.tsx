@@ -11,21 +11,6 @@ type RuntimePackage = {
   installed: boolean;
 };
 
-/** WinRing0 驱动的状态（`toolbox_tdp_driver_status`，形状在共享内核里）。 */
-type TdpDriverStatus = {
-  ready: boolean;
-  elevated: boolean;
-  installed: boolean;
-  message: string;
-};
-
-/** `tdp_status` 里这一页要用的字段（后端名）。 */
-type TdpInfo = {
-  backend: string;
-  supported: boolean;
-  message: string;
-};
-
 /** 系统维护卡读到的数（`toolbox_maintenance`，见 Rust 侧 maintain.rs）。 */
 type MaintenanceScan = {
   shaderCacheBytes: number;
@@ -56,23 +41,19 @@ type InstalledMod = {
  * 这一页读到的状态，**存在模块作用域**（不是组件 state）。
  *
  * 为什么非得放外面：App.tsx 里每个页签是 `<div key={tab}>`，切走再切回来组件会整个卸载重建，
- * 组件内的 state 每次都从空开始 —— 于是每切一次就把三条命令重读一遍（其中 `toolbox_driver_version`
- * 要起一次 PowerShell 读版本资源、`toolbox_maintenance` 要量缓存目录），读到之前卡片上写的是一片
- * 灰底字（「正在读取…」「—」「无」，按钮还带 0.5 透明度的 disabled 态）。用户原话：「切换到
- * 工具箱页面就会自检一遍，屏幕就会灰一次」。
+ * 组件内的 state 每次都从空开始 —— 于是每切一次就把这几条命令重读一遍（其中 `toolbox_maintenance`
+ * 要量缓存目录），读到之前卡片上写的是一片灰底字（「正在读取…」「—」「无」，按钮还带 0.5 透明度的
+ * disabled 态）。用户原话：「切换到工具箱页面就会自检一遍，屏幕就会灰一次」。
  *
  * 现在的约定：**这一页 = 快照 + 手动自检**。
  * - 本次会话第一次进这一页读一次，之后切来切去都直接画这份快照；
  * - 想刷新按页头右上角那颗「自检」；
- * - 页里自己改动了状态的动作（装驱动 / 装运行库 / 立即清理）跑完仍然各自重读一次；
- * - 别处改了同一件事（比如小组件那边调了 TDP）这里不会自己跟 —— 那也是按「自检」。这是刻意的：
+ * - 页里自己改动了状态的动作（装运行库 / 立即清理）跑完仍然各自重读一次；
+ * - 别处改了同一件事这里不会自己跟 —— 那也是按「自检」。这是刻意的：
  *   切页不等于要求重新体检。
  */
 type ToolboxSnapshot = {
   runtimes: RuntimePackage[];
-  driver: TdpDriverStatus | null;
-  tdp: TdpInfo | null;
-  driverVersion: string;
   maintenance: MaintenanceScan | null;
   /** Mod 列表扫出来的行（弹窗开着才有；关掉/切页都留着 —— 卡片状态行要用它写装了哪一版）。 */
   modRows: InstalledMod[];
@@ -85,18 +66,13 @@ function inTauri(): boolean {
 }
 
 /**
- * 工具箱页（画板 K4）：TDP 驱动主卡 + 游戏 Mod 工具 / 运行库 / 系统维护。
+ * 工具箱页（画板 K4）：游戏 Mod 工具 + 运行库 + 系统维护三张卡。
  *
  * 为什么页头也在这里：右上那颗「自检」就是**把这一页的状态全部重读一遍**，跟下面几张卡
  * 用的是同一批命令，放在同一个组件里才不用绕一圈回调。
  *
  * 这一页的数据是**快照**（模块作用域，见下面 `ToolboxSnapshot`）：切走再切回不重读 ——
- * 只有「自检」和页里那几个动作（装驱动 / 装运行库 / 立即清理）会重新读。
- *
- * 卡里写的都是真字段：驱动状态来自 `toolbox_tdp_driver_status`（ready / installed /
- * elevated），后端名来自 `tdp_status`。**画板上的「版本 1.3.0」与「系统维护」那三项不画** ——
- * 前者没有数据源（驱动版本没暴露出来），后者要新的系统信息 / 清理命令；照项目一贯做法
- * 如实写清、不摆假数字。
+ * 只有「自检」和页里那几个动作（装运行库 / 立即清理）会重新读。
  */
 export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   const m = text().toolbox;
@@ -105,12 +81,7 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   const [busyId, setBusyId] = useState("");
   const [note, setNote] = useState("");
   // 下面这批的初值全部取自快照：切回这一页时第一帧就是上次读到的内容（不再先灰一下）。
-  const [driver, setDriver] = useState<TdpDriverStatus | null>(snapshot?.driver ?? null);
-  const [tdp, setTdp] = useState<TdpInfo | null>(snapshot?.tdp ?? null);
-  const [driverBusy, setDriverBusy] = useState(false);
   const [checking, setChecking] = useState(false);
-  /** 主卡「版本」那一格：驱动文件里真实的版本号，拿不到是空串（界面写「—」）。 */
-  const [driverVersion, setDriverVersion] = useState(snapshot?.driverVersion ?? "");
   /** 系统维护那三行 + 清理结果。 */
   const [maintenance, setMaintenance] = useState<MaintenanceScan | null>(snapshot?.maintenance ?? null);
   const [cleaning, setCleaning] = useState(false);
@@ -130,20 +101,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
       .catch((err) => setNote(m.toolboxFailed(String(err))));
     // m 每次渲染都是新对象（语言包），但这里只用它拼提示行，不进依赖数组
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const refreshDriver = useCallback(() => {
-    if (!inTauri()) return;
-    void invoke<TdpDriverStatus>("toolbox_tdp_driver_status")
-      .then(setDriver)
-      .catch(() => setDriver(null));
-    void invoke<TdpInfo>("tdp_status")
-      .then(setTdp)
-      .catch(() => setTdp(null));
-    // 版本单独一条命令：拿不到就空串，卡片写「—」（不猜一个版本号）。
-    void invoke<string>("toolbox_driver_version")
-      .then((value) => setDriverVersion(value || ""))
-      .catch(() => setDriverVersion(""));
   }, []);
 
   /** 系统维护那三行：着色器缓存 / 启动项 / 日志。读一次几毫秒到几百毫秒（量缓存目录）。 */
@@ -205,7 +162,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   const selfCheck = useCallback(() => {
     setNote("");
     refreshRuntimes();
-    refreshDriver();
     refreshMaintenance();
     if (!inTauri()) {
       // 浏览器预览下没有后端：卡片自己会写「请在 Windows 掌机上使用」，
@@ -216,7 +172,7 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
     setChecking(true);
     window.setTimeout(() => setChecking(false), 600);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshDriver, refreshMaintenance, refreshRuntimes]);
+  }, [refreshMaintenance, refreshRuntimes]);
 
   /**
    * 这次挂载要不要自动读一遍。
@@ -253,14 +209,11 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   useEffect(() => {
     snapshot = {
       runtimes,
-      driver,
-      tdp,
-      driverVersion,
       maintenance,
       // modList 为 null 时保留上次扫到的行：别把「装了哪一版」抹掉。
       modRows: modList ? modList.rows : (snapshot?.modRows ?? []),
     };
-  }, [runtimes, driver, tdp, driverVersion, maintenance, modList]);
+  }, [runtimes, maintenance, modList]);
 
 
 
@@ -279,26 +232,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
       setNote(m.toolboxFailed(String(err)));
     } finally {
       setBusyId("");
-    }
-  };
-
-  /** 装 / 重装 WinRing0：命令在启动器侧（要 UAC）。 */
-  const installDriver = async () => {
-    if (!inTauri()) {
-      setNote(m.toolboxPreview);
-      return;
-    }
-    setDriverBusy(true);
-    setNote(m.tdpDriverInstalling);
-    try {
-      const next = await invoke<TdpDriverStatus>("toolbox_install_tdp_driver");
-      setDriver(next);
-      setNote(next.message);
-      refreshDriver();
-    } catch (err) {
-      setNote(m.toolboxFailed(String(err)));
-    } finally {
-      setDriverBusy(false);
     }
   };
 
@@ -335,19 +268,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   const startupRowText = maintenance ? m.toolboxStartupRow(maintenance.startupItems) : "";
   const logRowText = maintenance ? m.toolboxLogRow(bytesText(maintenance.logBytes)) : "";
 
-  // 驱动那三格：拿不到就如实写「不可用」，不假装已装。
-  const stateText = !driver
-    ? tauri
-      ? m.toolboxWorking
-      : m.toolboxBackendNone
-    : driver.ready
-      ? m.toolboxStateReady
-      : driver.installed
-        ? m.toolboxStateInstalled
-        : m.toolboxStateMissing;
-  const stateClass = !driver ? "is-off" : driver.ready || driver.installed ? "is-on" : "is-warn";
-  const backendText = tdp && tdp.backend && tdp.backend !== "none" ? tdp.backend : m.toolboxBackendNone;
-
   return (
     <>
       <div className="k4-head">
@@ -363,53 +283,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
 
       <div className="k4-body" ref={panelRef}>
         <div className="k4-row">
-          {/* 主卡：TDP 驱动（画板 616×196，accent 2dp 描边） */}
-          <section className="k4-main" aria-label={m.toolboxDriverTitle}>
-            <div className="k4-card">
-              <p className="k4-label">{m.toolboxDriverLabel}</p>
-              <h3 className="k4-card-title">{m.toolboxDriverTitle}</h3>
-              <p className="k4-card-body">{m.tdpDriverBody}</p>
-              <dl className="k4-stats">
-                <div className="k4-stat">
-                  <dt>{m.toolboxStateLabel}</dt>
-                  <dd className={stateClass}>{stateText}</dd>
-                </div>
-                <div className="k4-stat">
-                  <dt>{m.toolboxVersionLabel}</dt>
-                  {/* 驱动文件里真实的版本号；读不到写「—」——
-                      画板上那一格写着「1.3.0」，但没装驱动时不该有数字。 */}
-                  <dd className={driverVersion ? "tnum" : "is-off"}>{driverVersion || "—"}</dd>
-                </div>
-                <div className="k4-stat">
-                  <dt>{m.toolboxBackendLabel}</dt>
-                  <dd className={backendText === m.toolboxBackendNone ? "is-off" : undefined}>{backendText}</dd>
-                </div>
-                <div className="k4-stat">
-                  <dt>{m.toolboxPermLabel}</dt>
-                  <dd className={driver?.elevated ? "is-warn" : "is-off"}>
-                    {driver?.elevated ? m.toolboxAdmin : m.toolboxStandardUser}
-                  </dd>
-                </div>
-              </dl>
-              <div className="k4-actions">
-                <button
-                  type="button"
-                  className="k4-primary"
-                  data-focusable
-                  disabled={driverBusy}
-                  onClick={() => void installDriver()}
-                >
-                  {driverBusy
-                    ? m.tdpDriverInstalling
-                    : driver?.installed
-                      ? m.tdpDriverReinstall
-                      : m.tdpDriverInstall}
-                </button>
-                <p className="k4-note">{m.toolboxDriverNote}</p>
-              </div>
-            </div>
-          </section>
-
           <div className="k4-side">
             <section className="k4-card" aria-label={m.toolboxModTitle}>
               <div className="k4-card-head">

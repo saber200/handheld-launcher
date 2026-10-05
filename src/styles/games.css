@@ -347,7 +347,11 @@
   padding-right: calc(30 * var(--dp));
 }
 
-/* A 角标：只在聚焦卡上出现（画板右下角那颗） */
+/*
+ * A 角标：只在聚焦卡上出现（画板右下角那颗**实心 accent 圆 + 挖空的 A**）。
+ * 圆和字母都由图标画，所以这里不描边、不铺底色 —— 26dp 的盒子里只有那枚图标，
+ * 再画一圈就是双层圈（图标自己带圆）。颜色用 `--accent` 实心，压在封面图上照样看得清。
+ */
 .k1-a {
   position: absolute;
   right: calc(6 * var(--dp));
@@ -356,18 +360,18 @@
   height: var(--focus-badge);
   display: grid;
   place-items: center;
-  border-radius: calc(var(--focus-badge) / 2);
-  border: 1px solid var(--accent);
-  background: rgba(6, 36, 32, 0.86);
-  color: var(--accent-hi);
-  font-size: calc(12 * var(--dp));
-  font-weight: 700;
+  color: var(--accent);
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-soft);
 }
 
 .k1-item.is-current .k1-a {
   opacity: 1;
+}
+
+.k1-a.is-keycap .icon {
+  width: var(--focus-badge);
+  height: var(--focus-badge);
 }
 
 /* 聚焦卡上的「时长 · 体积」（画板 §3.2 的第二行）。
@@ -479,6 +483,19 @@
 
 .k1-info-fields dd.is-running {
   color: var(--accent);
+}
+
+/* 「来源」= 平台标记 + 文字。图标比常规 18dp 小一档，好跟 caption 的字重对齐；
+   手动添加的游戏没有品牌标记，这里就只剩文字，不能因为 flex 掉了对齐。 */
+.k1-source {
+  display: flex;
+  align-items: center;
+  gap: calc(6 * var(--dp));
+}
+
+.k1-source .icon {
+  width: calc(14 * var(--dp));
+  height: calc(14 * var(--dp));
 }
 
 .k1-path {

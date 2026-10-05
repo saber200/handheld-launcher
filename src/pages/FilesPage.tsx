@@ -11,6 +11,7 @@ import {
   SortIcon,
   UpIcon,
 } from "../components/NavIcons";
+import { KeyCap } from "../components/KeyCap";
 import {
   jobId,
   toFileError,
@@ -176,13 +177,9 @@ const CHIP_KEYS = {
   cut: "Y",
 } as const;
 
-/** 角标：单个按键是正圆（规范里允许的两类正圆之一），多字符的用矩形圆角 —— 同提示条。 */
+/** 角标：字母键与 ≡ 走 Tabler 图标，肩键（多字符）仍用矩形圆角文字 —— 同提示条。 */
 function KeyBadge({ label }: { label: string }) {
-  return (
-    <span className={label.length === 1 ? "k7-key is-round" : "k7-key"} aria-hidden>
-      {label}
-    </span>
-  );
+  return <KeyCap label={label} className="k7-key" />;
 }
 
 export function FilesPage() {

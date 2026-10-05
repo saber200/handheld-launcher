@@ -5,9 +5,7 @@ export type SfxId =
   | "switchOff"
   | "paste"
   | "loading"
-  | "done"
-  | "tdpUp"
-  | "tdpDown";
+  | "done";
 
 const FILES: Record<SfxId, string> = {
   tab: "tab.wav",
@@ -17,8 +15,6 @@ const FILES: Record<SfxId, string> = {
   paste: "paste.wav",
   loading: "loading.wav",
   done: "done.wav",
-  tdpUp: "tdp-up.wav",
-  tdpDown: "tdp-down.wav",
 };
 
 const cache = new Map<SfxId, HTMLAudioElement>();

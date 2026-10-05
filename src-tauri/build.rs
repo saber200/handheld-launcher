@@ -1,18 +1,11 @@
 fn main() {
     let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    // FSE 身份文件（identity.msix / .cer / CustomCapability.SCCD）由 CI 现编现签，
+    // 本地 dev 构建没有，就落一个空占位 —— 缺文件时 Tauri 打包会直接失败。
     for name in [
         "fse/identity.msix",
         "fse/identity.cer",
         "fse/CustomCapability.SCCD",
-        "drivers/WinRing0x64.sys",
-        // Game Bar 小组件（CI 的 gamebar 作业现编现签，见 frontend/gamebar/package-payload.ps1）：
-        // 同样是空占位兜底 —— 装包时 register-widget.ps1 会认出 0 字节的占位并说"这个版本没带小组件"，
-        // 而不会静默装个坏包。依赖包的三个文件名来自 MSBuild 的 Dependencies\x64 输出，Debug 配置。
-        "payload/gamebar/widget.msix",
-        "payload/gamebar/widget.cer",
-        "payload/gamebar/deps/Microsoft.NET.CoreRuntime.2.2.appx",
-        "payload/gamebar/deps/Microsoft.NET.CoreFramework.Debug.2.2.appx",
-        "payload/gamebar/deps/Microsoft.VCLibs.x64.Debug.14.00.appx",
     ] {
         let path = manifest_dir.join(name);
         if !path.exists() {

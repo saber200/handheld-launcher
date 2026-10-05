@@ -1,5 +1,5 @@
 /*
- * 工具箱（画板 K4）：标题行 + 四张卡（TDP 驱动主卡 / 游戏 Mod 工具 / 运行库 / 系统维护）。
+ * 工具箱（画板 K4）：标题行 + 三张卡（游戏 Mod 工具 / 运行库 / 系统维护）。
  *
  * 为什么单开一个文件：global.css 里那套 `.toolbox-*` 是「一列两块」的旧排法，
  * 这里只写 K4 自己的 `k4-*`。
@@ -100,10 +100,6 @@
   min-height: 0;
 }
 
-.k4-main {
-  flex: 0 0 calc(616 * var(--dp));
-}
-
 .k4-side {
   flex: 1;
   min-width: 0;
@@ -112,9 +108,8 @@
   gap: var(--gutter);
 }
 /* ── 卡片本体 ── */
-/* 主卡 616×196：改造包 §8 的「聚焦态 accent 2dp 描边」。这里是**页面一进来就聚焦的那张**
-   （手柄导航的起点在它里面的按钮上），所以直接把 accent 描边当常态 —— 不然一进工具箱
-   就少一半视觉重点。焦点环仍然按通用规范走（4 外扩 + 3 描边）。 */
+/* 每张卡都是「小标签 + 标题 + 正文 + 右下按钮」同一个壳子；高度按行给死，
+   长句子不能把卡顶开（正文多的省略）。 */
 .k4-card {
   position: relative;
   min-width: 0;
@@ -126,15 +121,6 @@
   background: var(--panel);
 }
 
-.k4-main .k4-card {
-  flex: 1;
-  height: calc(196 * var(--dp)); /* 画板实测 98..294.5 */
-  border: calc(2 * var(--dp)) solid var(--accent);
-  padding: var(--pad-card); /* 描边多吃 2dp，内边距补回来 */
-  overflow: hidden;
-}
-
-/* 右侧两张小卡各 90dp：90 + 16 + 90 = 196，正好和主卡同高 */
 .k4-side .k4-card {
   flex: none;
   height: calc(90 * var(--dp));
@@ -162,7 +148,7 @@
   overflow: hidden;
 }
 
-/* 卡片小标签（TDP 驱动 10dp ink-4） */
+/* 卡片小标签（10dp ink-4） */
 .k4-label {
   flex: none;
   margin: 0;
@@ -239,43 +225,7 @@
   font-weight: 600;
 }
 
-/* ── 主卡里的状态四格（画板实测：标签 10dp ink-4 在上、数值 13dp 在下，格宽 118） ── */
-.k4-stats {
-  display: flex;
-  gap: calc(4 * var(--dp));
-  margin-top: calc(10 * var(--dp));
-}
-
-.k4-stat {
-  flex: 0 0 auto;
-  min-width: calc(118 * var(--dp));
-}
-
-.k4-stat dt {
-  margin: 0;
-  color: var(--ink-4);
-  font-size: var(--font-micro);
-}
-
-.k4-stat dd {
-  margin: calc(4 * var(--dp)) 0 0;
-  font-size: var(--font-h3);
-  color: var(--ink);
-}
-
-.k4-stat dd.is-on {
-  color: var(--accent);
-}
-
-.k4-stat dd.is-warn {
-  color: var(--warning);
-}
-
-.k4-stat dd.is-off {
-  color: var(--ink-4);
-}
-
-/* 主卡底部：主按钮 + 右边那行说明（画板实测按钮 132×40，说明 10.5dp ink-4） */
+/* 卡片底部：主按钮 + 右边那行说明（画板实测按钮 132×40，说明 10.5dp ink-4） */
 .k4-actions {
   display: flex;
   align-items: center;

@@ -10,36 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  # Game Bar 小组件那份 payload（签好名的 msix + 签名证书 + 三个框架依赖）在这里编。
-  # 为什么单独一个作业：Widget.csproj 写死 TargetPlatformVersion=10.0.22621.0，只有
-  # windows-2022 镜像带那个 SDK 和 UWP 工作负载；而发布链路一直跑在 windows-latest 上，
-  # 不动它更稳。两个作业并行跑，主作业的耗时不受影响。
-  gamebar-payload:
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v4
-
-      # 编不出来也不该让发布失败：src-tauri/build.rs 在那几个资源路径上留了 0 字节占位，
-      # 少了小组件的安装包照发，只是那个包不带小组件（启动器会明确说"这个版本没带小组件"）。
-      # 小组件的硬闸门在 gamebar.yml（源码/资源形状检查那条）。
-      - name: Build + sign widget payload
-        continue-on-error: true
-        shell: pwsh
-        run: ./frontend/gamebar/package-payload.ps1 -Configuration Debug -OutDir frontend/gamebar/AppPackages/payload
-
-      # 不管成功失败都留证据：这份 artifact 也能直接下载来手动装（里面有 INSTALL.txt）。
-      - name: Upload widget payload
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gamebar-widget-payload
-          if-no-files-found: warn
-          path: frontend/gamebar/AppPackages/payload/**
-
   windows:
-    # 小组件编挂了也得照常发版，所以这里写 always()，缺的 artifact 由下面那步兜住。
-    needs: gamebar-payload
-    if: always()
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,40 +62,6 @@ jobs:
           }
           Write-Host "FSE identity ready: msix=$($msix.Length) cer=$($cer.Length)"
 
-      - name: Fetch WinRing0 for offline TDP install
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path src-tauri/drivers | Out-Null
-          $out = "src-tauri/drivers/WinRing0x64.sys"
-          # G-Helper removed the raw .sys from main; use LHM 0.9.3 (still ships WinRing0).
-          $urls = @(
-            "https://cdn.jsdelivr.net/gh/LibreHardwareMonitor/LibreHardwareMonitor@0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
-            "https://raw.githubusercontent.com/LibreHardwareMonitor/LibreHardwareMonitor/0.9.3/LibreHardwareMonitorLib/Resources/WinRing0x64.sys",
-            "https://github.com/seerge/g-helper/releases/download/v0.150/PluginAdvancedSettings.zip"
-          )
-          foreach ($u in $urls) {
-            Write-Host "try $u"
-            if ($u.ToLower().EndsWith(".zip")) {
-              $zip = "src-tauri/drivers/winring0-src.zip"
-              $extract = "src-tauri/drivers/winring0-extract"
-              & curl.exe -fsSL --connect-timeout 20 --max-time 180 -A FantasyHub -o $zip $u
-              if ($LASTEXITCODE -ne 0) { continue }
-              if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
-              Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
-              $sys = Get-ChildItem -Path $extract -Recurse -Filter "WinRing0x64.sys" | Select-Object -First 1
-              if ($sys -and $sys.Length -gt 10000) {
-                Copy-Item $sys.FullName $out -Force
-              }
-            } else {
-              & curl.exe -fsSL --connect-timeout 20 --max-time 120 -A FantasyHub -o $out $u
-            }
-            if ((Test-Path $out) -and (Get-Item $out).Length -gt 10000) {
-              Write-Host "WinRing0 ready $((Get-Item $out).Length) bytes"
-              exit 0
-            }
-          }
-          throw "Failed to fetch WinRing0x64.sys for bundling"
-
       # 编译闸门：放在打包之前。坏代码在这里 1~2 分钟就报出来，不用等 20 分钟
       # （v0.1.46 前两轮 tag 都栽在编译错误上，而失败都在最后那个 tauri-action 里，
       # 日志混在打包输出中很难看）。这一步同时让后面两个 tauri-action 命中已编译的依赖。
@@ -134,28 +71,7 @@ jobs:
       - name: Compile check
         run: cargo check --workspace --locked
 
-      # Game Bar 小组件 payload：由上面那个 gamebar-payload 作业编好（现签的证书 + 依赖包），
-      # 这里放进启动器的资源目录 —— 启动器安装包会带上它，安装时自动注册到当前用户
-      # （tauri.conf.json 的 resources + nsis/installer.nsh 的 NSIS_HOOK_POSTINSTALL）。
-      # 下载不下来也要能发版，所以 continue-on-error。
-      - name: Stage Game Bar widget payload
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: gamebar-widget-payload
-          path: src-tauri/payload/gamebar
-
-      - name: Report widget payload
-        shell: pwsh
-        run: |
-          $msix = "src-tauri/payload/gamebar/widget.msix"
-          if (Test-Path $msix) {
-            Write-Host "widget payload ready: $((Get-Item $msix).Length) bytes"
-          } else {
-            Write-Warning "no widget payload in this build; the installer will ship without the Game Bar widget"
-          }
-
-      # 启动器安装包：含 FSE 身份、WinRing0，以及上一步就位的 Game Bar 小组件 payload。
+      # 启动器安装包：含 web 产物与 FSE 身份。
       - name: Build launcher (Windows) + Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -169,7 +85,7 @@ jobs:
           releaseBody: |
             Windows 安装包。掌机直接下载安装即可，无需开发环境。
 
-            - 安装包：`FantasyHub_*_x64-setup.exe`（NSIS；前端界面是随包安装的 Game Bar 小组件）
+            - 安装包：`FantasyHub_*_x64-setup.exe`（NSIS）
             - 也可在 Artifacts 中下载未安装的 `FantasyHub.exe`
           releaseDraft: false
           prerelease: ${{ github.ref_type != 'tag' }}

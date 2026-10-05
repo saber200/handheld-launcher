@@ -60,7 +60,7 @@ function typingTarget(): HTMLInputElement | HTMLTextAreaElement | null {
   return null;
 }
 
-/** Focused range input (the TDP slider) — steering adjusts it instead of leaving it. */
+/** Focused range input — steering adjusts it instead of leaving it. */
 function rangeTarget(): HTMLInputElement | null {
   const el = document.activeElement;
   if (!(el instanceof HTMLInputElement)) return null;
@@ -75,8 +75,8 @@ export const GAMEPAD_COMMIT = "gamepad-commit";
 const VIEW_DOUBLE_MS = 450;
 
 /**
- * One step on a focused slider. Left / right used to walk the focus ring, so the
- * TDP slider could not be changed with a gamepad at all, and A clicked a range
+ * One step on a focused slider. Left / right used to walk the focus ring, so a
+ * slider could not be changed with a gamepad at all, and A clicked a range
  * (which does nothing).
  */
 function stepRange(el: HTMLInputElement, dir: number) {

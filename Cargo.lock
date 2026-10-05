@@ -1571,7 +1571,6 @@ name = "handheld-launcher"
 version = "0.1.64"
 dependencies = [
  "fh-core",
- "getrandom 0.2.17",
  "image",
  "serde",
  "serde_json",

@@ -359,8 +359,8 @@
   color: var(--ink-3);
 }
 
-/* 按键角标：单个按键（A/B/X/Y）是正圆 26dp —— 规范里允许的两类正圆之一；
-   多字符的键（LT/RT、LB/RB、≡）用矩形圆角 + 左右内边距，否则字会从圆里溢出来。 */
+/* 按键角标：字母键与 ≡ 现在走 `KeyCap`（图标自带形状，见下面的 `is-keycap`）；
+   剩下走这条的是**多字符的肩键**（LT/RT、LB/RB）—— 矩形圆角 + 左右内边距，圆框装不下。 */
 .hint-key {
   min-width: var(--focus-badge);
   height: var(--focus-badge);
@@ -376,10 +376,23 @@
   font-weight: 600;
 }
 
-.hint-key.is-round {
+/*
+ * A/B/X/Y 与 ≡ 换成 Tabler 图标之后，**圆框由图标自己画** —— 这里必须把 border 与底色
+ * 去掉，否则图标里那圈圆外面再套一圈，就是双层圈。`min-width` 也要清掉，不然比图标宽。
+ * 实心图标是「浅圆 + 深字母」，所以颜色给到一个偏亮的 ink，别再走原来的深底浅字。
+ */
+.hint-key.is-keycap {
+  min-width: 0;
   width: var(--focus-badge);
   padding: 0;
-  border-radius: calc(var(--focus-badge) / 2);
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+}
+
+.hint-key.is-keycap .icon {
+  width: var(--focus-badge);
+  height: var(--focus-badge);
 }
 
 /* ── 排期中的页面（首页 / 下载） ── */

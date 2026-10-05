@@ -863,21 +863,6 @@ export function useLocalGames() {
       .sort((a, b) => a.name.localeCompare(b.name, currentLocale()));
   }, [extra.extras, scanned.items]);
 
-  // 把游戏清单发布到 `library.json`：小组件的后端（就在启动器进程里，见
-  // `src-tauri/src/widget.rs`）读这份文件来判断「哪个游戏在跑 / 退掉它」。
-  // 发布的是**数据**，不是控制通道 —— 小组件只能读它 + 发它自己的四条命令。
-  useEffect(() => {
-    if (!inTauri()) return;
-    void invoke("library_publish", {
-      items: items.map((item) => ({
-        id: item.id,
-        name: item.name,
-        launchPath: item.launchPath ?? "",
-        installPath: item.installPath ?? "",
-      })),
-    }).catch(() => {});
-  }, [items]);
-
   const restorable = useMemo(() => {
     const hidden = new Set(extra.extras.hidden);
     if (hidden.size === 0) return [];

@@ -14,7 +14,15 @@ import { fileActions } from "./files/actions";
 import { useFileJobs } from "./files/useFileJobs";
 import { libraryActions } from "./library/actions";
 import { NAV, NAV_ROUTES, type TabId } from "./types";
-import { BatteryIcon, GamepadIcon, LockIcon, NavIcon, SearchIcon } from "./components/NavIcons";
+import {
+  BatteryIcon,
+  FolderOpenIcon,
+  GamepadIcon,
+  LockIcon,
+  NavIcon,
+  SearchIcon,
+} from "./components/NavIcons";
+import { KeyCap } from "./components/KeyCap";
 import { text, useI18n } from "./i18n";
 import type { HintPage } from "./i18n/catalog";
 import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
@@ -429,7 +437,7 @@ export default function App() {
                 setTab("files");
               }}
             >
-              <GamepadIcon />
+              <FolderOpenIcon />
               {m.shell.storageAction}
             </button>
           </div>
@@ -451,7 +459,7 @@ export default function App() {
       <footer key={tab} className="shell-hint">
         {m.hintPairs[hintPage].map(([key, label]) => (
           <span key={key} className="hint-pair">
-            <span className={key.length === 1 ? "hint-key is-round" : "hint-key"}>{key}</span>
+            <KeyCap label={key} className="hint-key" />
             {label}
           </span>
         ))}

@@ -5,6 +5,8 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
+**未发布（0.1.65）：Game Bar 小组件与 TDP 全部界面已从仓库删掉** —— 一句话：界面上不再有小组件、也不再能调瓦数，只留启动器本身的功能（游戏库 / 软件库 / 工具箱 / 文件 / 设置）。细则见下面「未发布（0.1.65）」。
+
 **最新（0.1.64）：存储空间改成「所有内置盘相加」** —— 0.1.63 把 ACL 修好、数字终于出来之后，用户接着说「不应该是只有 C 盘的 而是所有盘符的总合 因为目前我用的是一个硬盘」。侧栏那颗卡与首页那一格取的都是**第一块内置盘**（`drives.find(kind === "fixed")`），一台机器只有**一块物理盘**却拆成 C: + D: 时「第一块」就是 C:，画出来的数字比机器真实存储小一大截；`sysinfo.rs` 一直是对的（它本来就返回**所有**卷），错在取数之后的展示。`src/system/drives.ts` 新增 `driveTotal(rows)`：总量 = 各内置盘容量相加、用量 = 各内置盘已用相加，`App.tsx` 与 `pages/HomePage.tsx` 都改读它（两处继续共用同一份快照，数字必然一致）；**只加 `kind === "fixed"`** 是为了 U 盘 / SD 卡插上拔下不让这颗卡的数字自己跳，但**一块内置盘都没认出来时退回把所有盘相加**（宁可把移动盘也算进去，也不要让这张卡空着），一盘没读到仍是「容量读取待接入」（不写 0）。标签新增双语 `shell.storageVolumes`：单块盘仍是「`C:` 卷标」，多块盘写「`C: + D: · 合计`」—— 数字是相加的、标签还写单个盘符就成了另一种假象。**已发布 `v0.1.64`（2026-10-05）**：一个安装包 `FantasyHub_0.1.64_x64-setup.exe` **27.34 MB**（0.1.63 是 27.33 MB —— 这几行前端代码的体积回声）；CI 三项全绿 —— **Lint** 2m14s、**Game Bar (Windows)** 3m21s、tag 触发的 **Build Windows**（`gamebar-payload` 4m19s + `windows` 10m32s）都 success。**装包这一步在你手上**：要确认两件事 —— 侧栏与首页两处**都出数字且一致**、那个总量**约等于你这块硬盘的标称容量**（比如 512 GB 的盘 ≈ 476 GB 可用）；逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.64）」。细则见下面「0.1.64」一节。
 
 **上一版（0.1.63）：命令权限漏登记 —— 「存储空间一直待接入」的真根因** —— 上一版（0.1.62）真机复测回来说「TDP 驱动修好了，存储空间还是没读出来，而且日志里一行 `sysinfo:` 都没有」，顺着这句话查到根因：**`system_storage` 从来没被写进 `src-tauri/permissions/*.toml`**。本仓库自己定义了 ACL 清单，Tauri v2 就**连应用自己的命令也逐条查权限**（tauri-2.12.0 `src/webview/mod.rs` 的 `has_app_acl_manifest` 分支），清单里没有就直接 `Command xxx not allowed by ACL` 拒掉 —— 前端 `.catch()` 一吞，界面只剩「读不出来 / 那个按钮没反应」，**0.1.62 那版加的补读与 WMI 兜底一次都没被执行到**。把「前端 invoke 的命令」与权限清单逐条比对后**一共补了 14 条 allow + 2 条漏注册的命令**（`toolbox_mod_list`、`file_probe_disc`），并新增 `scripts/audit-acl.mjs` 当硬闸门（本机 pre-commit + CI 的 Lint 都跑）。**已发布 `v0.1.63`（2026-10-05）**：只有一个安装包 `FantasyHub_0.1.63_x64-setup.exe` **27.33 MB**（和 0.1.62 一模一样大 —— 这版只动了权限清单与文档，界面和 payload 一个字节没改）；CI 三项全绿 —— **Lint**（`windows-latest`）**1m59s**，这一关现在多了 `node scripts/audit-acl.mjs`（新增的命令权限审计），**Game Bar (Windows)** 2m40s、tag 触发的 **Build Windows**（`gamebar-payload` 2m08s + `windows` 10m39s）都 success。**装包这一步在你手上**：真机要重试的那几条（存储 / 电池 / 驱动版本 / 系统维护 / Mod 列表 / 缩略图 / 暂停 / 回收站 / 弹出 / 验碟 / 设置里小组件那行）逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.63）」。细则见下面「0.1.63」一节。
@@ -26,6 +28,109 @@
 **这一版（0.1.61）= 把上一版记下的欠账一次还掉**：`FUTURE.md` 功能 15 的 5 条（清空回收站 / U 盘安全弹出 / 任务暂停继续 / `.iso` 魔数判定 / 游戏目录显示封面）**全做**；功能 14 里能做的也一并做掉 —— 工具箱补「驱动版本 / 系统维护三行 / Mod 查看列表」、设置抽屉补画板 K3 那三行（界面缩放 / 性能与功耗 / 手柄死区）、软件库补画板的搜索框与底部操作条（+「运行中」进程探测）、**首页 K5 与下载 K6 从「排期中」占位换成真数据**（新数据源：启动记录 / 盘容量 / 电池 / 注册表安装日期）、`audit-ui --strict` **归零**、文件页把「读不了」和「空文件夹」分开说。Rust 侧新增三个文件级能力：`winfs.rs`（回收站 / 安全弹出 / 读盘镜像头）、`maintain.rs`（系统维护）、`sysinfo.rs`（容量 / 电池），并把传输循环改成可暂停。**还没做的**：K8 前端浮层（M5，独立程序、要在 Windows 上编）、软件库的「预置软件角标 / 有新版本」（没有数据源）、商店与社区两页（设计材料里没有），以及**一切真机验证** —— 见 `FUTURE.md` 功能 14 / 15 里剩下的勾选框，逐条写了「为什么没做」。细则见下面「0.1.61」一节。
 
 **界面大改的现在**：M0–M4 已落地，**K5 首页 / K6 下载这一版补上了**（真数据），**M5（K8 前端浮层）仍未动**；`FUTURE.md` 功能 14 是**当前唯一的还账清单**，功能 15（文件管理那 5 条）已清空、只留真机验证。
+
+## 未发布（0.1.65）：删掉 Game Bar 小组件与 TDP 全部界面（2026-10-06，用户要求）
+
+用户原话是「把小组件和 TDP 相关的所有内容都删掉，只留启动器本身的功能」。这一版就是照做：
+小组件（UWP）那套前端、它的后端（`widget*.rs` / `library.rs`）、TDP 那条链路
+（`tdp.rs` + WinRing0 驱动 + 提权安装）连同界面上的入口，全部移出仓库。
+
+### 删了什么
+
+- **整套小组件前端**：`frontend/gamebar/**` —— Widget 的 XAML/C#（`WidgetPage` / `LaunchPage` /
+  `Models.cs` / `Strings.cs` / `BridgeConnection.cs`）、同包 Bridge（`Loopback.cs` / `Program.cs`
+  / 两个 `.csproj` / `App.config`）、`Package.appxmanifest`、`Assets/` 图标、
+  `GameBar/index.txt`、`Properties/Default.rd.xml`、`build-windows.ps1`、
+  `package-payload.ps1`、`check-static.py`，以及那份契约文档 `HANDOFF.txt`。
+- **小组件专用 CI 作业**：`.github/workflows/gamebar.yml` 整个删掉；
+  `build-windows.yml` 去掉 `gamebar-payload` 作业与它的 `needs` / `if`、去掉「Fetch WinRing0
+  for offline TDP install」步骤、去掉「Stage Game Bar widget payload」与「Report widget
+  payload」两步，发布说明里也不再提小组件。
+- **启动器侧后端**：`src-tauri/src/widget.rs`、`widget_protocol.rs`、`widget_discovery.rs`、
+  `library.rs`、`tdp.rs`，以及 `crates/fh-core/src/tdp.rs`（`fh-core` 现在只剩日志 / 文案 /
+  进程三块）。`lib.rs` 的 `invoke_handler!` 去掉 8 条命令：`tdp_status`、`set_tdp`、
+  `widget_status`、`register_widget`、`library_publish`、`toolbox_tdp_driver_status`、
+  `toolbox_install_tdp_driver`、`toolbox_driver_version`。
+- **权限与打包**：`permissions/*.toml` 与 `capabilities/default.json` 里对应的 8 条 `allow-*`
+  一并删掉；`tauri.conf.json` 的 `resources` 只剩 FSE 三项（`identity.msix` / `identity.cer` /
+  `CustomCapability.SCCD`）；`build.rs` 的占位清单同步收窄（不再补 `drivers/WinRing0x64.sys`
+  与 `payload/gamebar/**`）；`src-tauri/Cargo.toml` 去掉只给小组件回环令牌用的 `getrandom`；
+  `src-tauri/gamebar/register-widget.ps1`、`src-tauri/drivers/` 整个删掉。
+- **界面**：工具箱页删掉那张主卡（`k4-main`：驱动状态 / 后端 / 权限三格）与它的样式；
+  首页底部那一排从四格回到两格（不再有「TDP 驱动」）；设置抽屉删掉「性能与功耗」整行
+  （−/＋ 调瓦数）与「装小组件」那颗按钮；`src/i18n/catalog.ts` 删掉 `tdp*` / `driver*` /
+  `power*` / `widget*` 全部中英文案；`src/audio/sfx.ts` 去掉 `tdpUp` / `tdpDown` 两个音效（连带
+  `public/sounds/tdp-up.wav` / `tdp-down.wav`）；`DeviceIcons.tsx` 去掉 `TdpIcon`；
+  `library/useLocalLibrary.ts` 去掉给小组件喂数据的 `library_publish` 调用。
+- **仓库配置与文档**：`.gitignore` 去掉 WinRing0 / `payload/` / `frontend/gamebar` 的忽略项
+  （这些东西已经不存在了）；`.clinerules` 里「版本号共 4 处」改成 **3 处**；`README.md` 不再写
+  「前端界面是随启动器安装的 Game Bar 小组件」。
+
+### 故意没删的
+
+- **`nsis/installer.nsh` 里那两个空宏**：Tauri 的 NSIS 模板会插入它们，缺一个就是编译期报错，
+  所以留着壳不动。
+- **同一文件里「升级时清掉旧 `FantasyHub.GameBar` 包」那两行 PowerShell**：0.1.61 之前装过
+  小组件的用户机器上，那个包还注册着；不主动清掉，Win+G 里会留一个打不开的壳 —— 用户会以为
+  「这版把它删坏了」。
+- **文案里「Game Bar 录像 / Captures」那几条**：那是 **Windows 自带**的录屏目录，与本项目的
+  小组件无关；删了会让文件页「处理截图」那条任务找不到源目录。
+- **`startup.rs` 里那句关于 Xbox Game Bar 的注释**：同理，那说的是 Windows 自己的 Game Bar，
+  不是我们的小组件。
+
+### 本机验证与边界
+
+- `npm run build`（`tsc --noEmit` + `vite build`）通过；`node scripts/audit-ui.mjs` 通过。
+- `cargo clippy --workspace --all-targets` 通过（本机 macOS 只能编到非 Windows 分支）。
+- `node scripts/audit-acl.mjs` 通过：删完之后「前端 invoke 49 个 / 后端注册 56 个 / 权限 56 条」
+  仍然三步齐全，没有留下「前端还在调、后端已经删」的死引用。
+- **没验证的**：UWP / NSIS / WinRing0 这些都是 Windows 专属，本机编不了，靠 CI 的 Windows Lint；
+  真机也一次没装过这一版。装机时要看的就一件事 —— **小组件那几处入口消失后其余页面照旧**
+  （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
+  （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
+
+## 未发布：图标换成 Tabler + 掌机品牌 / 硬件图标（2026-10-05）
+
+用户要的是「给这个项目找一套可用的、适合掌机的开源图标」。结论：**Tabler Icons（MIT）当主力**，
+`simple-icons`（CC0-1.0）当品牌 logo 的出处。
+
+- **改了什么**：`src/components/NavIcons.tsx` 22 个手绘 path 全换成 `@tabler/icons-react` 的同名图标
+  （**导出名与签名没变，调用点一行没动**，描边统一压到 1.7 对齐画板规格）；新增
+  `src/components/DeviceIcons.tsx`（Steam / Epic 实心品牌标记 + Xbox / Windows / PS 按键 +
+  TDP / 风扇 / 温度 / CPU / SD 卡 / USB / 亮度 / 音量 / Wi-Fi / 蓝牙 / 仪表）。
+- **为什么不是 Lucide / Phosphor / Iconoir**：这三家都**没有品牌图标**（Steam / Xbox / PlayStation /
+  Epic 命中数 0），而本项目的游戏来源扫描、Xbox / FSE 模式、手柄提示都要用。
+- **接线范围**：只接了两处**有真实数据源、画板上也有图标位**的 —— 游戏库「来源」那格
+  （Steam / Epic 标记）和顶栏电量（四档电池）。`DeviceIcons.tsx` 里其余图标**故意没硬塞**：
+  K3 设置行 / K4 工具箱卡 / K5 首页底部四格在画板上本来就没有图标位，加图标是改设计稿。
+- **体积**：JS 512.74 kB → 521.36 kB（gzip 151.79 → 155.39 kB）；tree-shake 已验证
+  （随便挑一枚没 import 的图标 `abacus`，path 在 `dist` 里 0 命中）。
+- **怎么核对的**：把 Lucide / Tabler / Phosphor / Iconoir 四个包下载到临时目录，逐项比对许可证、
+  图标总数、以及本项目需要的**精确文件名是否存在**（不是看介绍页）。品牌 logo 从 `simple-icons`
+  **内联 path**、不引运行时依赖（该包挪到 devDependencies 只作出处）。
+  **坑**：Simple Icons 因商标方要求下架了 `xbox` / `nintendoswitch` / `battlenet` / `ea`，
+  所以 Xbox 只能用 Tabler 的线性 `brand-xbox` 顶上。
+- **验证边界**：`npx tsc --noEmit`、`npm run build`、`node scripts/audit-ui.mjs --strict` 全过；
+  **真渲染截图**（生产构建 + headless Chrome）确认侧栏 / 顶栏 / 播放键 / 卡片菜单 / 「Steam + Steam」
+  都画得出来，Steam 与 Epic 两枚品牌 path 另起一页单独渲染核对。**没做的**：真机（Windows）
+  一次都没跑过 —— 掌机上 18dp 的实际观感（Tabler 图标与原手绘的粗细差异）要装包才知道。
+
+### 同一批：手柄按键角标也换成图标（用户看截图后提的）
+
+用户原话：「这里面的 absy 按钮也给我换成 icon，不要自己手绘，太难看了」。指的是三处
+**用字符 + CSS 画圆框**的角标：底部提示条的 `A`/`B`/`X`/`Y`/`≡`、文件页 chip 的 `X`/`Y`、
+游戏卡右下角那颗 `A`。
+
+- **改法**：新增 `src/components/KeyCap.tsx` 收口，三处都改调它；字母键用 Tabler 的
+  **实心** `circle-letter-*-filled`（画板里就是「实心圆 + 挖空字母」，线性版套进圆框会变双层圈），
+  `≡` 用 `menu-2`；三处 CSS 的 `is-keycap` 把 border / 底色去掉，`is-round` 两条旧规则删掉。
+- **肩键刻意不换**：`LT/RT` / `LB/RB` 是两个字母的标签，四个库都没有肩键图标（命中 0），
+  硬套只会更看不懂，继续走文字角标。
+- **顺手修的**：侧栏「打开管理器」以前是**手柄**图标（画板那颗本来是「手柄 + `A` + 文字」的按键提示，
+  代码把 `A` 丢了）→ 换成 `folder-open`。
+- **验证边界**：`tsc` / `build` / `audit-ui --strict` 全过；提示条与卡片角标用静态截图核对，
+  文件页的 X/Y 角标**用 CDP 驱动真页面**跳到文件页核对（DOM 是 `k7-key is-keycap` +
+  `tabler-icon-circle-letter-{x,y}-filled`，实测 20×20，截图确认）。**真机仍未跑过。**
 
 ## 0.1.64：存储空间改成「所有内置盘相加」（2026-10-05，用户反馈）
 
