@@ -52,6 +52,34 @@ type InstalledMod = {
   hook: string;
 };
 
+/**
+ * 这一页读到的状态，**存在模块作用域**（不是组件 state）。
+ *
+ * 为什么非得放外面：App.tsx 里每个页签是 `<div key={tab}>`，切走再切回来组件会整个卸载重建，
+ * 组件内的 state 每次都从空开始 —— 于是每切一次就把三条命令重读一遍（其中 `toolbox_driver_version`
+ * 要起一次 PowerShell 读版本资源、`toolbox_maintenance` 要量缓存目录），读到之前卡片上写的是一片
+ * 灰底字（「正在读取…」「—」「无」，按钮还带 0.5 透明度的 disabled 态）。用户原话：「切换到
+ * 工具箱页面就会自检一遍，屏幕就会灰一次」。
+ *
+ * 现在的约定：**这一页 = 快照 + 手动自检**。
+ * - 本次会话第一次进这一页读一次，之后切来切去都直接画这份快照；
+ * - 想刷新按页头右上角那颗「自检」；
+ * - 页里自己改动了状态的动作（装驱动 / 装运行库 / 立即清理）跑完仍然各自重读一次；
+ * - 别处改了同一件事（比如小组件那边调了 TDP）这里不会自己跟 —— 那也是按「自检」。这是刻意的：
+ *   切页不等于要求重新体检。
+ */
+type ToolboxSnapshot = {
+  runtimes: RuntimePackage[];
+  driver: TdpDriverStatus | null;
+  tdp: TdpInfo | null;
+  driverVersion: string;
+  maintenance: MaintenanceScan | null;
+  /** Mod 列表扫出来的行（弹窗开着才有；关掉/切页都留着 —— 卡片状态行要用它写装了哪一版）。 */
+  modRows: InstalledMod[];
+};
+
+let snapshot: ToolboxSnapshot | null = null;
+
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -62,6 +90,9 @@ function inTauri(): boolean {
  * 为什么页头也在这里：右上那颗「自检」就是**把这一页的状态全部重读一遍**，跟下面几张卡
  * 用的是同一批命令，放在同一个组件里才不用绕一圈回调。
  *
+ * 这一页的数据是**快照**（模块作用域，见下面 `ToolboxSnapshot`）：切走再切回不重读 ——
+ * 只有「自检」和页里那几个动作（装驱动 / 装运行库 / 立即清理）会重新读。
+ *
  * 卡里写的都是真字段：驱动状态来自 `toolbox_tdp_driver_status`（ready / installed /
  * elevated），后端名来自 `tdp_status`。**画板上的「版本 1.3.0」与「系统维护」那三项不画** ——
  * 前者没有数据源（驱动版本没暴露出来），后者要新的系统信息 / 清理命令；照项目一贯做法
@@ -70,21 +101,23 @@ function inTauri(): boolean {
 export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   const m = text().toolbox;
   const panelRef = useRef<HTMLDivElement>(null);
-  const [runtimes, setRuntimes] = useState<RuntimePackage[]>([]);
+  const [runtimes, setRuntimes] = useState<RuntimePackage[]>(snapshot?.runtimes ?? []);
   const [busyId, setBusyId] = useState("");
   const [note, setNote] = useState("");
-  const [driver, setDriver] = useState<TdpDriverStatus | null>(null);
-  const [tdp, setTdp] = useState<TdpInfo | null>(null);
+  // 下面这批的初值全部取自快照：切回这一页时第一帧就是上次读到的内容（不再先灰一下）。
+  const [driver, setDriver] = useState<TdpDriverStatus | null>(snapshot?.driver ?? null);
+  const [tdp, setTdp] = useState<TdpInfo | null>(snapshot?.tdp ?? null);
   const [driverBusy, setDriverBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   /** 主卡「版本」那一格：驱动文件里真实的版本号，拿不到是空串（界面写「—」）。 */
-  const [driverVersion, setDriverVersion] = useState("");
+  const [driverVersion, setDriverVersion] = useState(snapshot?.driverVersion ?? "");
   /** 系统维护那三行 + 清理结果。 */
-  const [maintenance, setMaintenance] = useState<MaintenanceScan | null>(null);
+  const [maintenance, setMaintenance] = useState<MaintenanceScan | null>(snapshot?.maintenance ?? null);
   const [cleaning, setCleaning] = useState(false);
   /** 「查看列表」弹窗；`rows` 关掉弹窗也留着（卡片状态行要用它显示装了哪一版）。 */
   const [modList, setModList] = useState<{ open: boolean; busy: boolean; rows: InstalledMod[]; error: string } | null>(
-    null,
+    // 上次扫到过就带着行回来（弹窗本身不开：切页回来弹出的窗是打扰）。
+    snapshot?.modRows.length ? { open: false, busy: false, rows: snapshot.modRows, error: "" } : null,
   );
 
   const refreshRuntimes = useCallback(() => {
@@ -165,7 +198,10 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshMaintenance]);
 
-  /** 自检 = 把这一页读的状态全部重读一遍（这一页没有「测试」，只有状态）。 */
+  /**
+   * 自检 = 把这一页读的状态全部重读一遍（这一页没有「测试」，只有状态）。
+   * **只在用户点它时跑**：切页不再重读（见上面 `snapshot` 的说明）。
+   */
   const selfCheck = useCallback(() => {
     setNote("");
     refreshRuntimes();
@@ -182,9 +218,20 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshDriver, refreshMaintenance, refreshRuntimes]);
 
+  /**
+   * 这次挂载要不要自动读一遍。
+   *
+   * 刻意在**渲染时**就把答案定下来（而不是等 effect 里再看 snapshot）：下面那个「记回快照」的
+   * effect 在挂载时就会把 snapshot 写成非 null，两个 effect 的先后顺序一旦被后人调换，这里会
+   * 静默变成「永远不自动读」—— 那种坏法在界面上看不出来（数字只是不再更新）。
+   */
+  const autoCheck = useRef(snapshot === null);
+
   useEffect(() => {
     // 只在挂载时跑一次（selfCheck 的依赖都是空依赖 useCallback）
-    selfCheck();
+    // 本次会话第一次进这一页才自动读；读过就直接画快照 —— 切页不等于重新体检，
+    // 想刷新按页头右上角那颗「自检」。
+    if (autoCheck.current) selfCheck();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -197,6 +244,23 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
       panel?.querySelector<HTMLElement>("[data-focusable]")?.focus();
     }
   }, []);
+
+  /**
+   * 状态一有变化就把这份快照记下来（唯一写入口，省得十个 setState 旁边各写一句、
+   * 漏掉一个就出现「切回来数字变回灰的」）。它必须排在「自动读」那个 effect **后面**，
+   * 否则第一次挂载时 snapshot 会先被写成非 null —— 上面的 autoCheck 就是为这个兜的底。
+   */
+  useEffect(() => {
+    snapshot = {
+      runtimes,
+      driver,
+      tdp,
+      driverVersion,
+      maintenance,
+      // modList 为 null 时保留上次扫到的行：别把「装了哪一版」抹掉。
+      modRows: modList ? modList.rows : (snapshot?.modRows ?? []),
+    };
+  }, [runtimes, driver, tdp, driverVersion, maintenance, modList]);
 
 
 

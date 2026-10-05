@@ -56,6 +56,13 @@
 - 依赖与配置：`getrandom = "0.2"`（令牌随机源，从 `fh-core` 搬来；`Cargo.lock` 已更新，CI 用 `--locked`）；启动器 `windows-sys` 补 `Win32_Security_Authorization` + `Win32_System_Com`（发现文件的 ACL 与 `CoTaskMemFree`）。
 - `widget::start()` **失败不致命**（老前端那里是 `?` —— 那时整个进程只干这一件事）：起不来记一行日志，启动器照常起。
 
+### 工具箱页改成「快照 + 手动自检」（2026-10-05，用户反馈）
+
+- **问题**（用户原话）：「只要切换到工具箱页面就会自检一遍，屏幕就会灰一次……那些东西不是应该获取过一次之后就写到缓存里吗？如果用户想再次获取，应该按自检按钮就可以了」。三个原因叠在一起：① `App.tsx` 用 `<div key={tab}>` 换页，工具箱组件**每次切回都是新挂载**，组件内 state 从空开始；② 挂载时 `selfCheck()` 重读三条命令（`toolbox_runtimes` / `toolbox_tdp_driver_status`+`tdp_status`+`toolbox_driver_version` / `toolbox_maintenance`），回来之前卡片写的是灰底占位（「正在读取…」「—」「无」，按钮还带 0.5 透明度）；③ 其中 `toolbox_driver_version` 要起一次 PowerShell 读版本资源、`toolbox_maintenance` 要量缓存目录，都是慢命令 —— 灰着的时间就长。
+- **改法**：这一页的状态存**模块作用域快照**（`ToolboxPanel.tsx` 顶部的 `snapshot`），组件 state 的初值全部取自它；**本次会话第一次进这一页才自动读**，之后切来切去直接画快照，想刷新按页头那颗「自检」。页里自己改状态的动作（装驱动 / 装运行库 / 立即清理）跑完仍然各自重读一次；Mod 列表扫到的行也一起记着（切回来卡片照样写「装了哪一版」，但弹窗不自己开）。
+- **坑**：「记回快照」那个 effect 在挂载时就会把 `snapshot` 写成非 null，所以「这次挂载要不要自动读」必须在**渲染时**定下来（`useRef(snapshot === null)`）。要是放在 effect 里看 `snapshot`，两个 effect 的顺序一被后人调换就变成「永远不自动读」—— 界面上看不出来，只是数字不再更新。
+- **边界**：快照只活在进程内，重启启动器后第一次进这一页仍会读一次；别处改了同一件事（比如小组件调了 TDP）这一页不会自己跟 —— 那是「自检」的活。
+
 ### 验证边界
 
 - 本机（macOS）：`npm run build` 通过；`cargo clippy --workspace --all-targets` 退出 0；`cargo test --workspace` **67 passed** —— 含本次新加的两条（真开一条回环连接跑完 `status`，并断言 `minW` / `maxW` / `driver.ready` / `driver.installed` / `games` / `locale` 这些 C# 侧逐字写死的字段名；令牌不对必须回 `Unauthorized` 且不带 `data`），另有协议层原有的一组（本次去掉 `set_autostart` 用例）；`node scripts/audit-ui.mjs --strict` 0 处；`python3 frontend/gamebar/check-static.py` PASS（C# 未改动）。

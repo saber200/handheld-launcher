@@ -19,6 +19,13 @@
 > 取回旧代码：`git show v0.1.61:<路径>`（如 `git show v0.1.61:frontend/src-tauri/src/main.rs`）。
 > 逐条清单与验证边界见 `STATUS.md` 的「未发布（0.1.62）」。
 
+## 未发布（0.1.62）：工具箱页改成「快照 + 手动自检」（2026-10-05，用户反馈）
+
+- **问题**：切到工具箱页会自检一遍（`toolbox_runtimes` / `toolbox_tdp_driver_status` + `tdp_status` + `toolbox_driver_version` / `toolbox_maintenance`），命令回来之前卡片写的是灰底占位（「正在读取…」「—」「无」，按钮还带 0.5 透明度）→ 用户看到「屏幕就会灰一次」。而且每切一次都重读，其中 `toolbox_driver_version` 要起一次 PowerShell、`toolbox_maintenance` 要量缓存目录 —— 切页本来不该等于重新体检。
+- **改法**：这一页的状态存**模块作用域快照**（`ToolboxPanel.tsx` 顶部的 `snapshot`），组件 state 的初值全部取自它；**本次会话第一次进这一页才自动读**，之后切来切去直接画快照，想刷新按页头那颗「自检」。页里自己改状态的动作（装驱动 / 装运行库 / 立即清理）跑完各重读一次；Mod 列表扫到的行也一起记着（切回来卡片照样写「装了哪一版」，弹窗不自己开）。
+- **坑**：「记回快照」的 effect 在挂载时就会把 `snapshot` 写成非 null，所以「这次挂载要不要自动读」在**渲染时**定下来（`useRef(snapshot === null)`）—— 放 effect 里看 `snapshot` 的话，两个 effect 顺序一被调换就变成永不自动读，界面上看不出来。
+- **本机验证**：`npx tsc --noEmit` + `node scripts/audit-ui.mjs --strict` 通过；这几条命令在 macOS 上全走回退分支，所以「灰不灰」只能真机看。
+
 ## 0.1.61：还欠账（功能 15 五条 + 功能 14 能做的，2026-10-05）
 
 这一版补的那些能力记设计与坑；逐条清单与验证边界在 `STATUS.md` 的 0.1.61。
