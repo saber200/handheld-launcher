@@ -1,11 +1,13 @@
-# 进度对照（v0.1.62）
+# 进度对照（v0.1.63）
 
 > **发布基准：`v0.1.0` 稳定版** — 内容与内部构建 0.1.38 一致（见 `v0.1.0` 标签 / `release/0.1.0` 分支）。
 > `0.1.31`–`0.1.60` 均为测试版，仅内部验证用，不作为发布版。
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
-**最新（0.1.62）：删掉独立前端 + 修两个真机误报** —— ① 独立前端程序整个删掉，前端界面现在只剩随启动器的 Game Bar 小组件，小组件的后端**改成启动器进程自己**（回环服务 + `widget-ipc.json` 发现文件从删掉的前端搬进了 `src-tauri/src/widget*.rs`）；② 工具箱页改成「快照 + 手动自检」（切页不再重读、不再灰一下）；③ 修 0.1.61 真机上的两个误报 —— 首页「TDP 驱动」明明装了却写「未安装」（判据从版本号改成驱动状态）、侧栏「存储空间」一直写「容量读取待接入」（两处改成一份共享快照 + 失败自动补读，后端放开盘类型白名单并加了 WMI 兜底）。**已发布 `v0.1.62`（2026-10-05）**：现在只有**一个**安装包 `FantasyHub_0.1.62_x64-setup.exe` **27.33 MB**（0.1.61 是启动器 30.60 MB + 前端包 3.24 MB —— 差的那 3.24 MB 就是「删掉独立前端」在包大小上的回声），>7.8 MB 说明小组件 payload 带上了；CI 三项全绿 —— **Lint**（`windows-latest`，`cargo clippy --workspace --all-targets --locked`）**1m47s**，跑的正是 ③ 那两段 `#[cfg(windows)]` 新代码（本机 macOS 编不到，这一关是它唯一的类型检查）；**Game Bar (Windows)** 2m48s（产出 `FantasyHub.GameBar.Widget_0.1.62.0_x64_Debug.msix` —— 四处版本号里 appxmanifest 那处确实生效）；tag 触发的 **Build Windows**（`gamebar-payload` 2m31s + `windows` 10m26s）都 success。**装包这一步在你手上**：真机要看三件事 —— 首页「TDP 驱动」写「已安装」、侧栏与首页的存储都出数字且两处一致、小组件还能正常读数据与调 TDP（它的后端这一版并进了启动器进程）；**怎么试、不对时发我什么，逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.62）」**。细则见下面三节「0.1.62」。
+**最新（0.1.63）：命令权限漏登记 —— 「存储空间一直待接入」的真根因** —— 上一版（0.1.62）真机复测回来说「TDP 驱动修好了，存储空间还是没读出来，而且日志里一行 `sysinfo:` 都没有」，顺着这句话查到根因：**`system_storage` 从来没被写进 `src-tauri/permissions/*.toml`**。本仓库自己定义了 ACL 清单，Tauri v2 就**连应用自己的命令也逐条查权限**（tauri-2.12.0 `src/webview/mod.rs` 的 `has_app_acl_manifest` 分支），清单里没有就直接 `Command xxx not allowed by ACL` 拒掉 —— 前端 `.catch()` 一吞，界面只剩「读不出来 / 那个按钮没反应」，**0.1.62 那版加的补读与 WMI 兜底一次都没被执行到**。把「前端 invoke 的命令」与权限清单逐条比对后**一共补了 14 条 allow + 2 条漏注册的命令**（`toolbox_mod_list`、`file_probe_disc`），并新增 `scripts/audit-acl.mjs` 当硬闸门（本机 pre-commit + CI 的 Lint 都跑）。**待打包**：本机门禁已全过，装到掌机上要看的那几条逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.63）」。细则见下面「0.1.63」一节。
+
+**上一版（0.1.62）：删掉独立前端 + 修两个真机误报** —— ① 独立前端程序整个删掉，前端界面现在只剩随启动器的 Game Bar 小组件，小组件的后端**改成启动器进程自己**（回环服务 + `widget-ipc.json` 发现文件从删掉的前端搬进了 `src-tauri/src/widget*.rs`）；② 工具箱页改成「快照 + 手动自检」（切页不再重读、不再灰一下）；③ 修 0.1.61 真机上的两个误报 —— 首页「TDP 驱动」明明装了却写「未安装」（判据从版本号改成驱动状态）、侧栏「存储空间」一直写「容量读取待接入」（两处改成一份共享快照 + 失败自动补读，后端放开盘类型白名单并加了 WMI 兜底）。**已发布 `v0.1.62`（2026-10-05）**：现在只有**一个**安装包 `FantasyHub_0.1.62_x64-setup.exe` **27.33 MB**（0.1.61 是启动器 30.60 MB + 前端包 3.24 MB —— 差的那 3.24 MB 就是「删掉独立前端」在包大小上的回声），>7.8 MB 说明小组件 payload 带上了；CI 三项全绿 —— **Lint**（`windows-latest`，`cargo clippy --workspace --all-targets --locked`）**1m47s**，跑的正是 ③ 那两段 `#[cfg(windows)]` 新代码（本机 macOS 编不到，这一关是它唯一的类型检查）；**Game Bar (Windows)** 2m48s（产出 `FantasyHub.GameBar.Widget_0.1.62.0_x64_Debug.msix` —— 四处版本号里 appxmanifest 那处确实生效）；tag 触发的 **Build Windows**（`gamebar-payload` 2m31s + `windows` 10m26s）都 success。**装包这一步在你手上**：真机要看三件事 —— 首页「TDP 驱动」写「已安装」、侧栏与首页的存储都出数字且两处一致、小组件还能正常读数据与调 TDP（它的后端这一版并进了启动器进程）；**怎么试、不对时发我什么，逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.62）」**。细则见下面三节「0.1.62」。
 
 **这一版（0.1.60）= 文件管理增强（桌面「FantasyHub-文件管理增强」改造包的 8 项全做）**：把「文件管理」从「通用文件管理器」变成「按目标选」的任务层 —— 8 个任务入口（导入 ROM / 装 Mod / 备份存档 / 恢复存档 / 处理截图 / 清理空间 / U 盘 / 最近传输）+ 四步向导 + 快速预览面板（含缩略图）+ 后台任务中心（+ 侧栏进度环）+ 批量重命名对照表 + 冲突「应用到全部」+ 确认前置总量摘要。**只新增了 1 个 Rust 命令 `file_thumb`**（改造包 §6 允许的那一个），另给 `file_extract` 加了一个 `listOnly` 可选参数（复用它的「看一眼包里有什么」，不解压）。**已发布 `v0.1.60`（2026-10-05）**：启动器包 `FantasyHub_0.1.60_x64-setup.exe` **30.56 MB**（>7.8 MB 说明小组件 payload 带上了）、前端包 `FantasyHubFrontend_0.1.60_x64-setup.exe` 3.23 MB；CI 三项全绿 —— **Lint**（windows-latest，`cargo clippy --workspace --all-targets --locked`）2m31s、**Game Bar (Windows)** 2m41s、tag 触发的 **Build Windows**（`gamebar-payload` 2m36s + `windows` 7m36s）都 success。**Windows Lint 这一关是这版最要紧的验收**：`file_thumb` 的 `image` 解码与 zip 列表那段 PowerShell 都在 `#[cfg(windows)]` 里，本机编不到。**装包这一步在你手上** —— 真机要看什么逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.60）」。细则见下面「0.1.60」一节。
 
@@ -22,6 +24,37 @@
 **这一版（0.1.61）= 把上一版记下的欠账一次还掉**：`FUTURE.md` 功能 15 的 5 条（清空回收站 / U 盘安全弹出 / 任务暂停继续 / `.iso` 魔数判定 / 游戏目录显示封面）**全做**；功能 14 里能做的也一并做掉 —— 工具箱补「驱动版本 / 系统维护三行 / Mod 查看列表」、设置抽屉补画板 K3 那三行（界面缩放 / 性能与功耗 / 手柄死区）、软件库补画板的搜索框与底部操作条（+「运行中」进程探测）、**首页 K5 与下载 K6 从「排期中」占位换成真数据**（新数据源：启动记录 / 盘容量 / 电池 / 注册表安装日期）、`audit-ui --strict` **归零**、文件页把「读不了」和「空文件夹」分开说。Rust 侧新增三个文件级能力：`winfs.rs`（回收站 / 安全弹出 / 读盘镜像头）、`maintain.rs`（系统维护）、`sysinfo.rs`（容量 / 电池），并把传输循环改成可暂停。**还没做的**：K8 前端浮层（M5，独立程序、要在 Windows 上编）、软件库的「预置软件角标 / 有新版本」（没有数据源）、商店与社区两页（设计材料里没有），以及**一切真机验证** —— 见 `FUTURE.md` 功能 14 / 15 里剩下的勾选框，逐条写了「为什么没做」。细则见下面「0.1.61」一节。
 
 **界面大改的现在**：M0–M4 已落地，**K5 首页 / K6 下载这一版补上了**（真数据），**M5（K8 前端浮层）仍未动**；`FUTURE.md` 功能 14 是**当前唯一的还账清单**，功能 15（文件管理那 5 条）已清空、只留真机验证。
+
+## 0.1.63：命令权限漏登记 —— 「存储空间一直待接入」的真根因（2026-10-05，真机复测）
+
+用户原话：「其他的都没问题了 存储空间还是没读出来」。
+
+### 怎么查到的
+
+上一版把「存储空间」当成**读数逻辑**的问题修（共享快照 + 有限补读、Rust 放开盘类型白名单 + WMI 兜底），而 `FEEDBACK.md` 里请用户「还是空就把日志里带 `sysinfo:` 的行发我」。**复测回来一行 `sysinfo:` 都没有** —— 这句话本身就是答案：`sysinfo.rs` 里那条 `drives()` 至少会在「跳过网络盘 / 退到 WMI」时写日志，两处都没写，说明**命令根本没跑到 Rust 这边**。
+
+于是查 ACL（`src-tauri/capabilities/default.json` + `src-tauri/permissions/*.toml`）：`allow-system-power`（断电/重启那条 `system_power`）在，**`allow-system-storage` 不在** —— `system_storage` 这条命令前端调了、后端注册了，唯独没人给它 allow。
+
+**为什么会被拒**：本仓库在 `src-tauri/permissions/` 里定义了自己的 ACL 清单，而 Tauri v2 里只要「应用自己定义了清单」（tauri-2.12.0 `src/webview/mod.rs` 里那个 `has_app_acl_manifest` 分支）就会对**应用自己的命令**也逐条查权限，查不到直接 `Command xxx not allowed by ACL` 拒掉；前端那边 `.catch(() => { current = []; })` 一吞，界面上就只剩「读不出来」。**本机（macOS）测不出来、tsc / clippy 也不会说话** —— 这条规矩 0.1.46 时就写进过 `STATUS.md`（「漏一个就是运行期被拒，本机测不出来」），0.1.60/0.1.61 新加命令时又漏了。
+
+### 补了什么（把「前端 invoke 的命令」与权限清单逐条比对）
+
+- **14 条命令补 allow**：`system_storage`、`system_power_status`（首页电池格）、`toolbox_driver_version`、`toolbox_maintenance` / `toolbox_maintenance_clean`、`toolbox_mod_list`、`file_thumb`（缩略图）、`file_pause`（暂停）、`recycle_bin_info` / `recycle_bin_empty`（回收站）、`file_eject`（安全弹出）、`file_probe_disc`（`.iso` 验碟）、`widget_status` / `register_widget`（设置抽屉那行）。**这些地方在真机上一直是静默失效的**（不报错，只是绕过去 / 永远空着），用户没报是因为不影响主流程。
+- **2 条命令压根没注册进 `invoke_handler!`**：`toolbox_mod_list`（工具箱「已装 Mod → 查看列表」，点了必然没反应）、`file_probe_disc`（0.1.61 加 `.iso` 验碟时漏的）。现在都注册上了。
+- 新增 `src-tauri/permissions/winfs.toml`（回收站 / 弹出 / 验碟）与 `system.toml`（容量 / 电池 / 系统维护）；`files.toml`、`scan.toml` 各补两条。
+
+### 防复发的闸门（这次的重点）
+
+- 新增 **`scripts/audit-acl.mjs`**：扫 `src/**` 里所有 `invoke("<命令>")` 字面量，逐个验证「**（1）注册进 `lib.rs` 的 `invoke_handler!` →（2）某个 permission 的 `commands.allow` 里有它 →（3）那条 permission 被 `capabilities/*.json` 引用**」，缺一步就报错退出。顺带报告「定义了却没人引用的 permission」（等于没生效）。
+  - 唯一看不出来的一处（`useLocalLibrary.ts` 的 `useScanned(command)`）在脚本头部写清了为什么漏不掉：那两个名字在同一个文件里以字面量出现过。
+  - 写脚本时也踩了自己的坑：第一版按 `,` 切 `invoke_handler!`，把**最后一条**（后面没有逗号）漏了，于是反过来冤枉 `file_probe_disc`「没注册」—— 改成按行读、读到缩进的 `])` 收尾。
+- 接进 **`.githooks/pre-commit`**（暂存里有 `.ts/.tsx/.rs/.toml/.json` 就跑）与 **CI 的 Lint 作业**（`npm run audit:acl` 是这个脚本的 npm 名）。纯文本扫描、毫秒级，不增加 CI 时间上的感知。
+
+### 本机验证
+
+- `node scripts/audit-acl.mjs`：修之前 **14 处必须修**（12 条「没有任何 permission 允许它」+ 2 条「没注册进 `invoke_handler!`」；后两条同样缺 allow，一并补了）；修之后 **0 处**（前端 invoke 57 条 / 后端注册 64 条 / 权限 64 条）。
+- `npx tsc --noEmit`、`npm run build`、`node scripts/audit-ui.mjs --strict`（0 处）、`cargo clippy --workspace --all-targets`、`cargo test -p handheld-launcher --lib`（67 项）全过；`cargo metadata` 顺手把 `Cargo.lock` 里两个工作区包版本从 0.1.62 更到 0.1.63（`cargo check --locked` 复核过）。
+- **验证边界**：ACL 的实际拒绝行为发生在 Windows 上的 Tauri 运行时，本机（macOS）只能靠源码读通（`has_app_acl_manifest` 那条分支）+ 这次写的静态审计；**真机效果要看复测**，复测项逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.63）」。
 
 ## 0.1.62：首页「TDP 驱动」误报未安装 + 存储空间一直「待接入」（2026-10-05，用户反馈）
 

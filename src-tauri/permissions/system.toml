@@ -1,0 +1,25 @@
+# 只读的系统读数与系统维护（对应 src-tauri/src/sysinfo.rs 和 maintain.rs）。
+#
+# 首页那几格（存储 / 电池）和工具箱最后一行的「系统维护」都走这些命令。
+# 0.1.62 真机上「存储空间一直显示容量读取待接入」就是这里漏了 `allow-system-storage`：
+# 命令在、前端也在调，唯独没人给它 allow，于是被 ACL 悄悄拒掉 —— 本机（macOS）编不到
+# #[cfg(windows)] 那段、tsc/clippy 也不会说话。详见 scripts/audit-acl.mjs。
+[[permission]]
+identifier = "allow-system-storage"
+description = "Read drive capacity and free space for the home page and sidebar."
+commands.allow = ["system_storage"]
+
+[[permission]]
+identifier = "allow-system-power-status"
+description = "Read battery percentage and charging state."
+commands.allow = ["system_power_status"]
+
+[[permission]]
+identifier = "allow-toolbox-maintenance"
+description = "Scan temp files, Windows Update cache and the recycle bin for cleanup."
+commands.allow = ["toolbox_maintenance"]
+
+[[permission]]
+identifier = "allow-toolbox-maintenance-clean"
+description = "Clean the items the maintenance scan found."
+commands.allow = ["toolbox_maintenance_clean"]

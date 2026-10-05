@@ -1,0 +1,28 @@
+# 文件管理的 Windows 专属原语（对应 src-tauri/src/winfs.rs）。
+#
+# 为什么单独一个文件：这几条都只在 Windows 上存在（回收站走 SHEmptyRecycleBin、
+# 弹盘走 CM_Request_Device_Eject、验碟要读扇区），和 files.rs 那套通用文件操作分开写，
+# 真机上报「这按钮没反应」时一眼能看出是哪一层。
+#
+# 注意：本仓库自己定义了 ACL 清单，Tauri v2 就**连应用自己的命令也逐条查权限**，
+# 查不到直接 `Command xxx not allowed by ACL` 拒掉，前端 catch 一吞界面只剩「没反应」。
+# 漏一条的后果和排查成本见 scripts/audit-acl.mjs 顶部说明。
+[[permission]]
+identifier = "allow-recycle-bin-info"
+description = "Read how many items and how much space the recycle bin holds."
+commands.allow = ["recycle_bin_info"]
+
+[[permission]]
+identifier = "allow-recycle-bin-empty"
+description = "Empty the recycle bin."
+commands.allow = ["recycle_bin_empty"]
+
+[[permission]]
+identifier = "allow-file-eject"
+description = "Safely eject a removable drive."
+commands.allow = ["file_eject"]
+
+[[permission]]
+identifier = "allow-file-probe-disc"
+description = "Probe an inserted game disc for its label and whether it is bootable."
+commands.allow = ["file_probe_disc"]

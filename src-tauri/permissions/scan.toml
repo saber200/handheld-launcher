@@ -142,3 +142,23 @@ commands.allow = ["toolbox_tdp_driver_status"]
 identifier = "allow-toolbox-install-tdp-driver"
 description = "Download and install the WinRing0 TDP driver."
 commands.allow = ["toolbox_install_tdp_driver"]
+[[permission]]
+identifier = "allow-toolbox-driver-version"
+description = "Read the installed WinRing0 TDP driver version."
+commands.allow = ["toolbox_driver_version"]
+
+[[permission]]
+identifier = "allow-toolbox-mod-list"
+description = "List the mod files installed next to a game."
+commands.allow = ["toolbox_mod_list"]
+
+[[permission]]
+identifier = "allow-widget-status"
+description = "Read the last Game Bar widget install result."
+commands.allow = ["widget_status"]
+
+[[permission]]
+identifier = "allow-register-widget"
+description = "Register the Game Bar widget package again."
+commands.allow = ["register_widget"]
+

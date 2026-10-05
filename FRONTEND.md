@@ -18,6 +18,17 @@
 > 已经不在仓库里。**§10（手柄归属）与 §11（文件管理器）仍是现行设计。**
 > 取回旧代码：`git show v0.1.61:<路径>`（如 `git show v0.1.61:frontend/src-tauri/src/main.rs`）。
 > 逐条清单与验证边界见 `STATUS.md` 的「0.1.62」。
+>
+> **0.1.63（2026-10-05）：把「前端 invoke 的命令必须四步齐全」变成硬闸门。** 真机上
+> 「存储空间还是没读出来」的根因不是读数代码，而是 `system_storage` **从来没被写进**
+> `src-tauri/permissions/*.toml`：本仓库自己定义了 ACL 清单，Tauri v2 就**连应用自己的
+> 命令也逐条查权限**（tauri-2.12.0 `src/webview/mod.rs` 的 `has_app_acl_manifest` 分支），
+> 查不到直接 `Command xxx not allowed by ACL` 拒掉；前端 `.catch()` 一吞，界面上只剩
+> 「读不出来 / 那个按钮没反应」。这一版补齐 14 条漏 allow 的命令（存储 / 电池 / 驱动版本 /
+> 系统维护 / Mod 列表 / 小组件状态 / 缩略图 / 暂停 / 回收站 / 弹出 / 验碟）、把 2 条没注册
+> 的命令（`toolbox_mod_list`、`file_probe_disc`）注册上，并写了 `scripts/audit-acl.mjs` 把
+> 「**前端调用 → 后端注册 → 权限 allow → capability 引用**」四步对一遍 —— pre-commit 与
+> CI 的 Lint 都会跑。**以后新加命令，这四步缺一步都会被拦下。** 细则见 `STATUS.md` 的「0.1.63」。
 
 ## 0.1.62：工具箱页改成「快照 + 手动自检」（2026-10-05，用户反馈）
 

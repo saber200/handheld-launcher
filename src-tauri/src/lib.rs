@@ -149,6 +149,8 @@ pub fn run() {
             toolbox::toolbox_tdp_driver_status,
             toolbox::toolbox_install_tdp_driver,
             toolbox::toolbox_driver_version,
+            // 游戏文件夹里装了哪些 mod（工具箱「已装 Mod」那一行）。
+            toolbox::toolbox_mod_list,
             maintain::toolbox_maintenance,
             maintain::toolbox_maintenance_clean,
             sysinfo::system_storage,

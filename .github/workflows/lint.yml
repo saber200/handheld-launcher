@@ -41,6 +41,14 @@ jobs:
       - name: UI spec audit
         run: node scripts/audit-ui.mjs
 
+      # 命令权限审计（scripts/audit-acl.mjs）：前端 invoke 的每个命令都要
+      # 「注册进 invoke_handler → 有 permission allow → capability 引用」三步齐全。
+      # 本仓库自己定义了 ACL 清单，Tauri v2 就**连应用自己的命令也逐条查权限**，
+      # 漏一步的后果是运行期被拒 + 前端 catch 吞掉 —— 界面上只剩「读不出来 / 没反应」，
+      # tsc / clippy / 本机 macOS 全绿。v0.1.62 的「存储空间一直待接入」就是这么来的。
+      - name: Command ACL audit
+        run: node scripts/audit-acl.mjs
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:

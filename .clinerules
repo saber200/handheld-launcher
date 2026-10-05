@@ -12,6 +12,11 @@
 
 ## 2. 改代码时
 
+- 新增 / 改名一个 Tauri 命令要同时改三处：`src-tauri/src/lib.rs` 的 `invoke_handler!`、
+  `src-tauri/permissions/*.toml` 里 allow 它、`src-tauri/capabilities/default.json` 引用那条
+  permission。少一处 = 真机上被 ACL **静默拒掉**（本仓库自己定义了清单，Tauri v2 连应用自己的
+  命令也逐条查），前端 catch 一吞就只剩「读不出来 / 那按钮没反应」，本机 macOS 测不出来。
+  `node scripts/audit-acl.mjs` 会拦（pre-commit 与 CI 的 Lint 都跑），别绕过它。
 - 注释用中文，写**为什么**这么写（尤其踩过的坑），不写"这行在赋值"。
 - 面向 Windows 的实现本机（macOS）编不了 —— 靠 CI 的 Windows Lint 作业过类型检查，别在本地假装验证过。
 - 提交前跑：`npm run build` + `cargo clippy --workspace --all-targets`（pre-commit 钩子也会跑 clippy）。

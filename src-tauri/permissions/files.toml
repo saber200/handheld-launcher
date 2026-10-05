@@ -99,6 +99,16 @@ description = "Zip the selected items next to themselves."
 commands.allow = ["file_compress"]
 
 [[permission]]
+identifier = "allow-file-thumb"
+description = "Cache a thumbnail for an image or video file."
+commands.allow = ["file_thumb"]
+
+[[permission]]
+identifier = "allow-file-pause"
+description = "Pause or resume a running copy, move or search."
+commands.allow = ["file_pause"]
+
+[[permission]]
 identifier = "allow-files-show-keyboard"
 description = "Open the Windows touch keyboard."
 commands.allow = ["files_show_keyboard"]
