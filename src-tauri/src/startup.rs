@@ -346,6 +346,44 @@ mod windows {
         }
     }
 
+    /// 找随包的全屏体验身份文件（`fse/identity.msix` + `identity.cer`）。
+    ///
+    /// 为什么列一串候选目录：资源摆放位置随打包方式变 —— NSIS 装出来是
+    /// `<安装目录>/resources/fse`，`cargo run` 时在 `target/debug/resources/fse`，
+    /// 手工解包又可能直接把 `fse/` 摆在 exe 旁边。三种都得认出来。
+    ///
+    /// 为什么用「文件大于 200 字节」当存在判据：`build.rs` 在本地没有真文件时会落一个
+    /// 空占位（不落的话 Tauri 打包直接失败），把 0 字节的占位交给 Add-AppxPackage
+    /// 只会得到一个看不懂的报错；在这里就挡掉，报「这版没带身份文件」，用户能看懂。
+    fn fse_payload(resource_dir: Option<&std::path::Path>) -> Result<(PathBuf, PathBuf), String> {
+        let mut dirs = Vec::new();
+        if let Some(dir) = resource_dir {
+            dirs.push(dir.join("fse"));
+            dirs.push(dir.to_path_buf());
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                dirs.push(parent.join("resources").join("fse"));
+                dirs.push(parent.join("fse"));
+                dirs.push(parent.join("resources"));
+            }
+        }
+        for dir in dirs {
+            let msix = dir.join("identity.msix");
+            let cer = dir.join("identity.cer");
+            let msix_ok = std::fs::metadata(&msix).map(|m| m.len() > 200).unwrap_or(false);
+            let cer_ok = std::fs::metadata(&cer).map(|m| m.len() > 200).unwrap_or(false);
+            if msix_ok && cer_ok {
+                return Ok((msix, cer));
+            }
+        }
+        Err(pick(
+            "安装包里没有全屏体验身份文件。请安装带这个功能的版本。",
+            "This build has no fullscreen experience identity. Install a version that includes it.",
+        )
+        .into())
+    }
+
     pub fn fse_status() -> String {
         state_dir()
             .and_then(|dir| std::fs::read_to_string(dir.join("fse-status.txt")).ok())
