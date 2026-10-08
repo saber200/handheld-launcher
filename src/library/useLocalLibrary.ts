@@ -123,7 +123,10 @@ export async function quitLibraryGame(item: {
 
 /** Rust 侧 `toolbox.rs::OptiScalerStatus` 的形状。 */
 export type ModStatus = {
+  /** 文件落点：主程序 exe 所在目录（官方要求装这儿，不是游戏根目录）。 */
   dir: string | null;
+  /** 主程序 exe 的文件名；null = 没认出来，这次会装到游戏根目录兜底。 */
+  exe: string | null;
   installed: boolean;
   version: string | null;
   hook: string | null;

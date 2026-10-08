@@ -5,7 +5,9 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
-**未发布（0.1.65）：Game Bar 小组件与 TDP 全部界面已从仓库删掉** —— 一句话：界面上不再有小组件、也不再能调瓦数，只留启动器本身的功能（游戏库 / 软件库 / 工具箱 / 文件 / 设置）。细则见下面「未发布（0.1.65）」。
+**未发布（0.1.66）：OptiScaler 落点修正** —— 拖了五版的真机问题（`FEEDBACK.md` v0.1.58 问题 1「装不上」）这次照用户当时的要求先读了官方文档，根因是**装错了地方**：官方要求「全部文件解压到**主程序 exe 旁边**」，旧实现只认扫描出来的 `install_path`（Steam 的 `steamapps\common\<游戏>` = 游戏根目录），主程序在子目录的游戏（UE 的 `Binaries\Win64`、Cyberpunk 的 `bin\x64`、HITMAN 3 的 `Retail`）装完游戏根本不会加载。文件与拷贝规则核对后确认本来就是对的（官方包 SHA-256 对得上、23 项结构逐条核过），这次只改落点；卸载 / 还原（含 0.1.5x 装在根目录那批）一起核了。细则见下面「未发布（0.1.66）：OptiScaler 装在「主程序 exe 旁边」」。
+
+**最新（0.1.65）：Game Bar 小组件与 TDP 全部界面已从仓库删掉** —— 一句话：界面上不再有小组件、也不再能调瓦数，只留启动器本身的功能（游戏库 / 软件库 / 工具箱 / 文件 / 设置）。细则见下面「未发布（0.1.65）：删掉 Game Bar 小组件与 TDP 全部界面」。
 
 **最新（0.1.64）：存储空间改成「所有内置盘相加」** —— 0.1.63 把 ACL 修好、数字终于出来之后，用户接着说「不应该是只有 C 盘的 而是所有盘符的总合 因为目前我用的是一个硬盘」。侧栏那颗卡与首页那一格取的都是**第一块内置盘**（`drives.find(kind === "fixed")`），一台机器只有**一块物理盘**却拆成 C: + D: 时「第一块」就是 C:，画出来的数字比机器真实存储小一大截；`sysinfo.rs` 一直是对的（它本来就返回**所有**卷），错在取数之后的展示。`src/system/drives.ts` 新增 `driveTotal(rows)`：总量 = 各内置盘容量相加、用量 = 各内置盘已用相加，`App.tsx` 与 `pages/HomePage.tsx` 都改读它（两处继续共用同一份快照，数字必然一致）；**只加 `kind === "fixed"`** 是为了 U 盘 / SD 卡插上拔下不让这颗卡的数字自己跳，但**一块内置盘都没认出来时退回把所有盘相加**（宁可把移动盘也算进去，也不要让这张卡空着），一盘没读到仍是「容量读取待接入」（不写 0）。标签新增双语 `shell.storageVolumes`：单块盘仍是「`C:` 卷标」，多块盘写「`C: + D: · 合计`」—— 数字是相加的、标签还写单个盘符就成了另一种假象。**已发布 `v0.1.64`（2026-10-05）**：一个安装包 `FantasyHub_0.1.64_x64-setup.exe` **27.34 MB**（0.1.63 是 27.33 MB —— 这几行前端代码的体积回声）；CI 三项全绿 —— **Lint** 2m14s、**Game Bar (Windows)** 3m21s、tag 触发的 **Build Windows**（`gamebar-payload` 4m19s + `windows` 10m32s）都 success。**装包这一步在你手上**：要确认两件事 —— 侧栏与首页两处**都出数字且一致**、那个总量**约等于你这块硬盘的标称容量**（比如 512 GB 的盘 ≈ 476 GB 可用）；逐条写在 `FEEDBACK.md` 的「掌机试用问题（v0.1.64）」。细则见下面「0.1.64」一节。
 
@@ -29,7 +31,7 @@
 
 **界面大改的现在**：M0–M4 已落地，**K5 首页 / K6 下载这一版补上了**（真数据），**M5（K8 前端浮层）仍未动**；`FUTURE.md` 功能 14 是**当前唯一的还账清单**，功能 15（文件管理那 5 条）已清空、只留真机验证。
 
-## 未发布（0.1.65）：删掉 Game Bar 小组件与 TDP 全部界面（2026-10-06，用户要求）
+## 0.1.65（已打 tag）：删掉 Game Bar 小组件与 TDP 全部界面（2026-10-06，用户要求）
 
 用户原话是「把小组件和 TDP 相关的所有内容都删掉，只留启动器本身的功能」。这一版就是照做：
 小组件（UWP）那套前端、它的后端（`widget*.rs` / `library.rs`）、TDP 那条链路
@@ -88,6 +90,70 @@
   真机也一次没装过这一版。装机时要看的就一件事 —— **小组件那几处入口消失后其余页面照旧**
   （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
   （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
+
+## 未发布（0.1.66）：OptiScaler 装在「主程序 exe 旁边」，不是游戏根目录（2026-10-09，`FEEDBACK.md` v0.1.58 问题 1）
+
+拖了五版的真机问题（2026-10-04 报的「OptiScaler 装不上」，当时用户说「暂时先不做」，条件是**先把官方文档读一遍**）。
+这次照办：官方 Wiki「Manual Installation」第 1 条、官方 `setup_windows.bat`、真机包本身都核对了一遍，结论是一句话 ——
+**文件没装错，装错了地方**。
+
+### 根因
+
+官方口径（Wiki「Manual Installation」第 1 条）是「把压缩包里的**全部文件解压到主程序 exe 旁边**」；
+`setup_windows.bat` 里还有一句专门给 UE 游戏看的：「Found Engine folder. If this is an Unreal Engine game,
+then please extract Optiscaler to #CODENAME#\Binaries\Win64」（例子 `\Jedi Survivor\SwGame\Binaries\Win64`）。
+而 0.1.58 的 `resolve_game_dir` 只认扫描出来的 `install_path` —— Steam 那边它就是
+`steamapps\common\<游戏名>`，**游戏根目录**。`install_exe`（主程序）当时只被用来查位数（x64），
+**没参与落点选择**。于是凡主程序在子目录的游戏（UE 的 `<游戏>\<代号>\Binaries\Win64`、
+Cyberpunk 的 `bin\x64`、HITMAN 3 的 `Retail`）都被装在游戏根目录 —— 那里没有任何东西会去加载
+`dxgi.dll`，进游戏按 `Insert` 自然没反应。
+
+### 改了什么
+
+- `toolbox.rs` 新增 `InstallPlan { dir, exe, root }` + `install_plan()`：落点 = **主程序 exe 所在目录**，
+  认不出主程序才退回游戏根目录（并在面板上明说）。主程序按官方规则找：`*-Win64-Shipping.exe` /
+  `*-WinGDK-Shipping.exe` 优先（`setup_windows.bat` 就是拿这两个名字匹配支持列表的）、其次名字跟
+  游戏目录对得上、最后才是体积最大的；`Engine` / `redist` / `Tools` 这类目录不进（官方文档专门强调
+  UE 要忽略 `Engine`），`unins000` / `UnityCrashHandler*` 这类 exe 不当主程序（深度放到 4 层，
+  UE 的 exe 在第 3 层）。
+- 状态面板多一行「主程序：xxx.exe」；认不出主程序时改说「这次会装到游戏根目录，不生效就把文件移到
+  主程序旁边」—— 装哪儿必须让用户看得见（`OptiScalerStatus` 新增 `exe`、i18n 新增 `modsExe` / `modsNoExe`）。
+- **卸载/还原一起核**（用户当时特意交代「别只改装不改卸」）：账本可能记在主程序旁（新版），也可能记在
+  游戏根目录（0.1.5x 那批装错位置的），`read_installed` 两处都认，并且**照账本所在的那个目录**拼相对路径、
+  删文件、还原 `.bak`；只有纯文本标记的老安装也两处都查。「查看列表」报的是文件**真实所在**的目录。
+- 顺手收紧了「原地更新」的判据（`keeps_previous_backup`）：必须**账本就在这个目录 + 注入名相同**才算我们
+  上次装的那个 DLL。账本在游戏根目录那批落点不同，目标目录里的同名文件是**游戏自己的** —— 按老判据会
+  不备份直接覆盖，`.bak` 里那份游戏原文件就被冲掉、再也还原不回来。
+- 拷贝规则**没动**（核对后确认本来就是对的）：`OptiScaler.dll` 改名成注入名、`OptiScaler.ini` 保持原名
+  （Wiki 原话「Please don't rename the ini file」）、`D3D12_Optiscaler/` 与 `Licenses/` 跟着走、
+  `!! README…` 与两个 setup 脚本不进游戏目录。
+- 为了本机能验，把**纯文件操作**从 `#[cfg(windows)]` 里搬了出来（账本读写 / 卸载还原 / 老标记清理 /
+  拷贝安装包 / Mod 列表）—— 这是仓库里 `resolve_game_dir`、`pe_is_x64` 已经在用的老办法，
+  搬出来才好在 macOS 上跑单测。
+
+### 核对过的证据（不是照着文档猜的）
+
+- 官方包拉下来核过：`Optiscaler_0.9.4-final.20260718._MM.7z`，**SHA-256 与 GitHub release API 给的
+  digest 一致**（`575cb4df…ef0ad`）；包内 23 项，`OptiScaler.dll` / `OptiScaler.ini` / `fakenvapi.dll` /
+  `fakenvapi.ini` / `dlssg_to_fsr3_amd_is_better.dll` / `libxess*.dll` / `amd_fidelityfx_*.dll` 全平铺在
+  包根，另加 `D3D12_Optiscaler/`、`Licenses/` 两个子目录，不进游戏目录的只有 `!! README_EXTRACT ALL
+  FILES TO GAME FOLDER !!.txt` 与 `setup_windows.bat` / `setup_linux.sh`。
+- 解压这条路实测过：用仓库里那个 `sevenz-rust2 0.21.6`（`[target.'cfg(windows)'.dependencies]` 里那条）
+  在 macOS 上解这份官方包 —— **成功**，BCJ2 没问题，`OptiScaler.dll` 就在解压根（`find_optiscaler_root`
+  算出来的「包根」是对的）。
+
+### 本机验证与边界
+
+- `cargo test --workspace` **63 项全过**（toolbox 20 项，其中 8 项是这次新增的）：UE 布局落到
+  `Binaries\Win64`、非 UE 子目录（`bin\x64`）靠名字认、名字赢过体积、认不出退回根目录、卸载器不当主程序、
+  官方包按真实结构铺完再卸一遍（原 `dxgi.dll` 要还原回来、自己建的目录要清掉）、老账本在游戏根目录也能卸、
+  「原地更新」判据四条、Mod 列表三态（新装 / 老位置 / 只有标记，没装的不出现）。
+- `cargo clippy --workspace --all-targets` 0 error；`npm run build`（`tsc --noEmit` + `vite build`）通过；
+  `node scripts/audit-acl.mjs`、`node scripts/audit-ui.mjs` 通过（没动命令与权限，只是复核）。
+- **没验证的**：`optiscaler_status` / `install_optiscaler` / `uninstall_optiscaler` 里剩下的 Windows 专属
+  部分本机编不到（`cargo check --target x86_64-pc-windows-msvc` 在本机过不去：依赖里的 `ring` 要 MSVC 头
+  文件），照惯例靠 CI 的 Windows Lint 过类型检查；**真机一次没装过** —— 装上后进游戏按 `Insert` 能不能出
+  OptiScaler 菜单，是这一条唯一算数的验收（怎么试写在 `FEEDBACK.md` 问题 1）。
 
 ## 未发布：图标换成 Tabler + 掌机品牌 / 硬件图标（2026-10-05）
 
@@ -779,7 +845,7 @@ M1 自查里留了一条：信息面板与聚焦卡上的「时长 · 体积」�
 
 1. **FSE**：已被识别为主应用（0.1.28+）；0.1.29 修开机找不到 `FantasyHub.exe`
 2. **前端手柄**：0.1.28 修开即关；掌机验证 D-pad / A / B
-3. **OptiScaler**：**0.1.41** 起吃官方 `.7z`（含 BCJ2），此前只认 `.zip` 所以一直装不上；目录定位 / 注入名 / 版本选择 / 卸载还原 / 进度取消已重做（见开头「0.1.58 这一版（一）」），**真机第一次装没成功**（用户要求先按官方文档核对安装方式，`FEEDBACK.md`「掌机试用问题（v0.1.58）」问题 1）
+3. **OptiScaler**：**0.1.41** 起吃官方 `.7z`（含 BCJ2），此前只认 `.zip` 所以一直装不上；目录定位 / 注入名 / 版本选择 / 卸载还原 / 进度取消已重做（见开头「0.1.58 这一版（一）」）；**2026-10-09 修掉落点错误**（官方要求装到「主程序 exe 旁边」，旧实现装到游戏根目录 → 主程序在子目录的游戏不生效），见开头「未发布（0.1.66）：OptiScaler 装在「主程序 exe 旁边」」——**剩下的是真机验收**：装上后进游戏按 `Insert` 出不出菜单（`FEEDBACK.md`「掌机试用问题（v0.1.58）」问题 1）
 4. **扫描**：GOG、Game Pass、微软商店应用等
 5. **风扇 / Game++**：明确延后（见 `FUTURE.md`）
 6. 无代码签名（SmartScreen）；无自动化测试（**0.1.47 起有 lint 门**：编辑器 / pre-commit / 每次推送的 Windows lint 作业 / 打包前编译检查；单元测试仍未做）

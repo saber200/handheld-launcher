@@ -173,8 +173,8 @@
 - 怎么操作才出现：装了 0.1.58，按面板流程选注入名 / 版本后点安装（2026-10-04 真机反馈，是这一版装着之后试的第一条）
 - 现在的表现：没装成功。**用户没给具体报错**，也还不知道是「下载失败」还是「解压 / 落盘失败」还是「装上了但游戏里不生效」—— 下次复现时麻烦把面板上那行提示原文截下来（后端每步都有明确文案，能直接定位）
 - 希望改成：装上并真的生效
-- 状态：**待查，暂时先不做**（用户原话「暂时先不做」）。用户判断「安装的方法不对」，并明确要求**到时候先把 OptiScaler 官方文档读一遍、照着核对安装方式**再动手。要点提示：真源是 `github.com/optiscaler/OptiScaler`（`toolbox.rs` 里查的就是这个仓库的 releases），官方文档在仓库 wiki / README，**重点核对「压缩包里到底哪个文件要放到游戏目录、放到哪一层、要不要改名、DXGI 之类的配置怎么走」**—— 现在这套「解压到主程序旁并整体改名成 `<hook>.dll`」的假设就是嫌疑点（官方包里的目录结构、是否还有 `OptiScaler.asi` / `nvngx.dll` / `fakenvapi` 这类旁文件、以及 AMD/Intel 平台是不是要额外文件，都得照文档对）
-- 顺带记一句：卸载路径（账本 + `.bak` 还原）是否也受影响要一起核，别只改装不改卸
+- 状态：**已定位、已改（2026-10-09），等真机验证**。照你当时的要求，先把官方文档通读了一遍再动手，根因就一条：**落点错了**。官方口径（Wiki「Manual Installation」第 1 条；官方 `setup_windows.bat` 里也再提示一次）是「把压缩包里的**全部文件解压到主程序 exe 旁边**」，而 0.1.58 只认扫描出来的 `install_path` —— Steam 的 `steamapps\common\<游戏名>` 就是**游戏根目录**。主程序在子目录的游戏一抓一大把：UE 是 `<游戏>\<代号>\Binaries\Win64\<代号>-Win64-Shipping.exe`（官方脚本原话「Found Engine folder. If this is an Unreal Engine game, then please extract Optiscaler to #CODENAME#\Binaries\Win64」）、Cyberpunk 是 `bin\x64`、HITMAN 3 是 `Retail`。把 `dxgi.dll` 丢在游戏根目录，游戏根本不会去加载它 —— 表现就是「装完了、进游戏按 Insert 没反应」。**文件本身没错**：官方包 2026-10-09 拉下来核过（`Optiscaler_0.9.4-final.20260718._MM.7z`，SHA-256 与 GitHub 上那份一致），23 项里只有 `!! README_EXTRACT ALL FILES TO GAME FOLDER !!.txt` 与 `setup_windows.bat` / `setup_linux.sh` 不进游戏目录，其余（含 `D3D12_Optiscaler/`、`Licenses/`、捆绑的 `fakenvapi.dll` / `dlssg_to_fsr3_amd_is_better.dll`）都该平铺在主程序旁；`OptiScaler.dll` 改名成注入名、`OptiScaler.ini` **保持原名**（Wiki 原话：Please don't rename the ini file）—— 这两条原实现本来就是对的，所以这次只改落点，拷贝规则没动。7z 那条路也实测了：用仓库里那个 `sevenz-rust2 0.21.6` 在 macOS 上解这份官方包能解开（BCJ2 没问题），`OptiScaler.dll` 就在解压根。**真机还没试** —— 装上后进游戏按 `Insert` 能不能出 OptiScaler 菜单，是这一条唯一算数的验收。
+- 顺带记一句：卸载路径（账本 + `.bak` 还原）是否也受影响要一起核，别只改装不改卸 —— **已核完**：老安装（0.1.5x 把文件铺在游戏根目录、账本也写在那儿）新版认得出、照**原目录**卸干净并把备份还原回去；「原地更新」的判据也收紧了 —— 只有「账本就在这个目录 + 注入名相同」才不重新备份，否则会把 `.bak` 里那份游戏原文件覆盖掉、从此再也还原不回来。
 
 ## 问题 2（下一轮：界面大改，材料待补）
 

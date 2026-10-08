@@ -250,6 +250,8 @@ export type Catalog = {
     modsTitle: (name: string) => string;
     modsLoading: string;
     modsDir: (dir: string) => string;
+    modsExe: (name: string) => string;
+    modsNoExe: string;
     modsNoDir: string;
     modsInstalled: (version: string, hook: string) => string;
     modsInstalledLegacy: string;
@@ -959,6 +961,8 @@ export const zh: Catalog = {
     modsTitle: (name) => `${name} · OptiScaler`,
     modsLoading: "正在检查游戏目录…",
     modsDir: (dir) => `安装到：${dir}`,
+    modsExe: (name) => `主程序：${name}（官方要求装在它旁边）`,
+    modsNoExe: "没认出主程序 exe，这次会装到游戏根目录；如果游戏不生效，把这些文件移到主程序旁边。",
     modsNoDir: "找不到游戏目录。Steam 游戏请先在卡片菜单里用「修改路径」选中游戏的 exe。",
     modsInstalled: (version, hook) => `已安装 v${version}（${hook}）`,
     modsInstalledLegacy: "已安装（旧版装的，没有完整记录）",
@@ -1644,6 +1648,8 @@ export const en: Catalog = {
     modsTitle: (name) => `${name} · OptiScaler`,
     modsLoading: "Checking the game folder…",
     modsDir: (dir) => `Installs into: ${dir}`,
+    modsExe: (name) => `Main executable: ${name} (the mod goes next to it, as the docs require)`,
+    modsNoExe: "Couldn't identify the main exe, so files go to the game root; if the mod doesn't load, move them next to the game exe.",
     modsNoDir: "Couldn't find the game folder. For Steam games, pick the game exe via \"Change path\" first.",
     modsInstalled: (version, hook) => `Installed v${version} (${hook})`,
     modsInstalledLegacy: "Installed (legacy install, no full record)",

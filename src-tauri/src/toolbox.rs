@@ -107,8 +107,11 @@ pub struct ModBackup {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OptiScalerStatus {
-    /// 解析出来的游戏目录；找不到就是 None（Steam 游戏没设过路径时就是这种）。
+    /// 文件落点：**主程序 exe 所在目录**（官方要求装这儿，不是游戏根目录）。
+    /// 找不到游戏目录时是 None（Steam 游戏没设过路径时就是这种）。
     pub dir: Option<String>,
+    /// 主程序 exe 的文件名。None = 没认出主程序，这次会装到游戏根目录兜底。
+    pub exe: Option<String>,
     pub installed: bool,
     /// 安装的版本（旧版标记没记版本，就是 None）。
     pub version: Option<String>,
@@ -174,15 +177,7 @@ pub async fn toolbox_mod_list(app: tauri::AppHandle) -> Vec<InstalledMod> {
 }
 
 fn mod_list_now(games: Vec<crate::scan::ScannedGame>) -> Vec<InstalledMod> {
-    #[cfg(windows)]
-    {
-        return windows::installed_mods(games);
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = games;
-        Vec::new()
-    }
+    installed_mods(games)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -293,6 +288,7 @@ pub async fn toolbox_optiscaler_status(
         .await
         .unwrap_or_else(|err| OptiScalerStatus {
             dir: None,
+            exe: None,
             installed: false,
             version: None,
             hook: None,
@@ -323,6 +319,7 @@ fn toolbox_optiscaler_status_now(
         let _ = (launch_path, install_path, hook);
         OptiScalerStatus {
             dir: None,
+            exe: None,
             installed: false,
             version: None,
             hook: None,
@@ -418,6 +415,392 @@ fn resolve_game_dir(launch_path: &str, install_path: &str) -> Option<PathBuf> {
     game_dir_candidates(launch_path, install_path)
         .into_iter()
         .find(|dir| dir.is_dir())
+}
+
+/// 一次安装的落点。
+///
+/// 官方口径（Wiki「Manual Installation」第 1 条，`setup_windows.bat` 里也再提示了一遍）：
+/// **把压缩包里的全部文件解压到「主程序 exe 所在目录」**，不是游戏根目录。
+/// 主程序在子目录的游戏很常见 —— UE 是 `<游戏>\<代号>\Binaries\Win64\<代号>-Win64-Shipping.exe`
+/// （官方脚本原话：「Found Engine folder. If this is an Unreal Engine game, then please extract
+/// Optiscaler to #CODENAME#\Binaries\Win64」，例子 `\Jedi Survivor\SwGame\Binaries\Win64`），
+/// 另外还有 Cyberpunk 的 `bin\x64`、HITMAN 3 的 `Retail` 这类。
+///
+/// 主程序在子目录时把 `dxgi.dll` 丢进游戏根目录，游戏根本不会去加载它：
+/// 表现就是「装完了、进游戏按 Insert 没反应」。2026-10-04 真机反馈的「没装成功」
+/// 就是这一条（旧实现只认扫描出来的 `install_path`，而它就是游戏根目录）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct InstallPlan {
+    /// 文件落点：主程序 exe 所在目录。
+    pub dir: PathBuf,
+    /// 主程序 exe（认不出就是 None）：位数检查读它，面板也显示它。
+    pub exe: Option<PathBuf>,
+    /// 游戏根目录。0.1.5x 的安装记录写在根目录，卸载时要回查一遍。
+    pub root: PathBuf,
+}
+
+/// 算出这次该装到哪个目录（见 `InstallPlan`）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn install_plan(launch_path: &str, install_path: &str) -> Option<InstallPlan> {
+    let root = resolve_game_dir(launch_path, install_path)?;
+    // 主程序优先在游戏目录里按官方规则找；认不出才退回启动路径里那个 exe。
+    let exe = main_game_exe(&root).or_else(|| {
+        let hinted = PathBuf::from(launch_path.trim().trim_matches('"'));
+        (is_exe_path(&hinted) && hinted.is_file()).then_some(hinted)
+    });
+    let dir = exe
+        .as_deref()
+        .and_then(Path::parent)
+        .filter(|dir| dir.is_dir())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.clone());
+    Some(InstallPlan { dir, exe, root })
+}
+
+/// UE 的主程序在第 3 层（`<游戏>\<代号>\Binaries\Win64`），再深就基本是工具 / 运行库了。
+#[cfg_attr(not(windows), allow(dead_code))]
+const MAIN_EXE_DEPTH: usize = 4;
+
+/// 主程序 = 官方认的那个 exe。
+///
+/// 打分顺序照官方文档来：先认 UE 的 `*-Win64-Shipping.exe` / `*-WinGDK-Shipping.exe`
+/// （`setup_windows.bat` 就是拿这两个名字去匹配支持列表的），再看名字跟游戏目录对不对得上，
+/// 最后才是体积最大的那个（大多数游戏的主程序就是最大的 exe）。
+/// `Engine` 这类目录直接不进（官方文档专门强调 UE 要忽略 `Engine`）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn main_game_exe(root: &Path) -> Option<PathBuf> {
+    let hints = name_hints(root);
+    let mut best: Option<(i32, u64, PathBuf)> = None;
+    let mut found = Vec::new();
+    walk_exes(root, MAIN_EXE_DEPTH, &mut found);
+    for exe in found {
+        let size = std::fs::metadata(&exe).map(|meta| meta.len()).unwrap_or(0);
+        let score = score_main_exe(&exe, &hints);
+        let better = match &best {
+            Some((best_score, best_size, _)) => (score, size) > (*best_score, *best_size),
+            None => true,
+        };
+        if better {
+            best = Some((score, size, exe));
+        }
+    }
+    best.map(|(_, _, exe)| exe)
+}
+
+/// 打分用的名字线索：游戏目录名（Steam 那边一般就是游戏名）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn name_hints(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(name) = root.file_name() {
+        let folded = fold_text(&name.to_string_lossy());
+        // 「games」「common」这类通用名不是线索，留着只会把杂七杂八的 exe 抬上来。
+        if folded.len() >= 4 && !GENERIC_DIRS.contains(&folded.as_str()) {
+            out.push(folded);
+        }
+    }
+    out
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+const GENERIC_DIRS: [&str; 6] = [
+    "games",
+    "steamapps",
+    "common",
+    "programfiles",
+    "programfilesx86",
+    "goggames",
+];
+
+/// 装 Mod 时不该被当成「主程序所在目录」的目录名（引擎自带工具 / 安装器 / 运行库）。
+#[cfg_attr(not(windows), allow(dead_code))]
+const NOISE_DIRS: [&str; 9] = [
+    "engine",
+    "redist",
+    "_commonredist",
+    "directx",
+    "dotnet",
+    "support",
+    "crashpad",
+    "tools",
+    "editor",
+];
+
+/// 只留字母数字并转小写：`Cyberpunk 2077` → `cyberpunk2077`。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn fold_text(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn score_main_exe(path: &Path, hints: &[String]) -> i32 {
+    let stem = fold_text(
+        &path
+            .file_stem()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default(),
+    );
+    if stem.is_empty() {
+        return 0;
+    }
+    let mut score = 0;
+    // 官方点名的 UE 主程序（`setup_windows.bat`：`<代号>-win64-shipping.exe` / `-wingdk-shipping.exe`）。
+    if stem.contains("shipping") {
+        score += 400;
+    }
+    if hints
+        .iter()
+        .any(|hint| !hint.is_empty() && (hint.contains(&stem) || stem.contains(hint)))
+    {
+        score += 200;
+    }
+    // 官方给 UE 指的那一层（`Binaries\Win64` / `WinGDK`）。
+    let parent = path
+        .parent()
+        .and_then(|dir| dir.file_name())
+        .map(|name| fold_text(&name.to_string_lossy()))
+        .unwrap_or_default();
+    if parent == "win64" || parent == "wingdk" {
+        score += 100;
+    }
+    score
+}
+
+/// 递归收集候选 exe：跳过 `Engine` 这类目录，也别把卸载器 / 崩溃处理器当主程序。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn walk_exes(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten().take(120) {
+        if out.len() >= 200 {
+            return;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            let name = fold_text(
+                &path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            );
+            if depth == 0 || NOISE_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+            walk_exes(&path, depth - 1, out);
+            continue;
+        }
+        if is_exe_path(&path) && !is_noise_exe(&path) {
+            out.push(path);
+        }
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_noise_exe(path: &Path) -> bool {
+    let stem = fold_text(
+        &path
+            .file_stem()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default(),
+    );
+    // 带版本 / 位数后缀的（`unins000`、`UnityCrashHandler64`、`vcredist_x64`）用前缀认。
+    const NOISE_PREFIXES: [&str; 6] = [
+        "unins",
+        "unitycrashhandler",
+        "crashreporter",
+        "crashpadhandler",
+        "vcredist",
+        "dxsetup",
+    ];
+    // 这几个名字本身就是通用安装器名：整名相等才算，免得误伤真游戏。
+    const NOISE_EXACT: [&str; 5] = ["setup", "install", "uninstall", "dotnet", "redist"];
+    NOISE_PREFIXES.iter().any(|name| stem.starts_with(name))
+        || NOISE_EXACT.contains(&stem.as_str())
+}
+
+// ---------------------------------------------------------------------------
+// 安装账本（纯文件操作）
+//
+// 为什么这部分不在 `mod windows` 里：装 Mod 的实际落点是 Windows 专属的事，但
+// 「账本记了什么、卸载去哪儿找」是纯 `std::fs` + serde 的逻辑 —— 放在外面本机
+// （macOS）就能跑单测。这一步很值：账本在游戏根目录那批（0.1.5x 装错位置的）
+// 能不能被新版正确卸载、还原，全靠这里。
+// ---------------------------------------------------------------------------
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn marker_present(dir: &Path) -> bool {
+    dir.join(OPTISCALER_MARKER).is_file()
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn manifest_path(dir: &Path) -> PathBuf {
+    dir.join(OPTISCALER_MANIFEST)
+}
+
+/// 账本读不出来（文件坏了 / 是别的东西）就当没有：宁可按「没记录」报错，也不乱删文件。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_manifest(dir: &Path) -> Option<ModManifest> {
+    let text = std::fs::read_to_string(manifest_path(dir)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn write_manifest(dir: &Path, manifest: &ModManifest) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(manifest).map_err(|err| {
+        pick(
+            &format!("无法生成安装记录：{err}"),
+            &format!("Couldn't write the install record: {err}"),
+        )
+    })?;
+    std::fs::write(manifest_path(dir), text).map_err(|err| {
+        pick(
+            &format!("无法写入安装记录：{err}"),
+            &format!("Couldn't save the install record: {err}"),
+        )
+    })
+}
+
+/// 读安装账本：先看主程序旁（新版写这儿），再回查游戏根目录（0.1.5x 装错位置那批）。
+/// 返回值里带上「账本是在哪个目录找到的」：账本记的是相对路径，卸载要照那个目录拼。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_installed(plan: &InstallPlan) -> Option<(ModManifest, PathBuf)> {
+    [&plan.dir, &plan.root]
+        .into_iter()
+        .find_map(|dir| read_manifest(dir).map(|manifest| (manifest, dir.clone())))
+}
+
+/// 只有旧版纯文本标记（没有账本）的安装：主程序旁和游戏根目录都查。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn legacy_installed(plan: &InstallPlan) -> bool {
+    marker_present(&plan.dir) || marker_present(&plan.root)
+}
+
+/// 列出装了 OptiScaler 的游戏：账本优先；只有旧版标记（没账本）的也列出来，
+/// 版本写空串 —— 「装了但不知道装的哪版」是真实状态，不编一个版本号。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn installed_mods(games: Vec<crate::scan::ScannedGame>) -> Vec<InstalledMod> {
+    let mut out = Vec::new();
+    for game in games {
+        let Some(plan) = install_plan(&game.launch_path, &game.install_path) else {
+            continue;
+        };
+        // 报**真实所在**的那个目录：老安装（0.1.5x 把文件铺在游戏根目录那批）要是报主程序旁，
+        // 就把用户指到一个空目录去了。
+        let (dir, version, hook) = match read_installed(&plan) {
+            Some((row, where_)) => (where_, row.version, row.hook),
+            None if marker_present(&plan.dir) => (plan.dir.clone(), String::new(), String::new()),
+            None if marker_present(&plan.root) => (plan.root.clone(), String::new(), String::new()),
+            None => continue,
+        };
+        out.push(InstalledMod {
+            game: game.name,
+            dir: dir.display().to_string(),
+            version,
+            hook,
+        });
+    }
+    out
+}
+
+/// 这次重装能不能把目标目录里那个同名 DLL 当成「我们自己上次装的」。
+///
+/// 必须「账本就在这个目录里」且「注入名相同」两条都满足 —— 否则 `<hook>.fantasyhub.bak`
+/// 里存的那份**游戏原文件**会被上一轮的 OptiScaler 覆盖掉，从此再也还原不回来。
+/// 账本记在游戏根目录那批（0.1.5x）落点不同，目标目录里的同名文件是游戏自己的，不算我们的。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn keeps_previous_backup(
+    previous: Option<&(ModManifest, PathBuf)>,
+    hook: &str,
+    dir: &Path,
+) -> bool {
+    previous.is_some_and(|(found, where_)| found.hook == hook && where_ == dir)
+}
+
+/// 按账本卸载：先删我们写的文件（有备份的路径留给还原），再还原备份，最后删空目录。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn remove_installed_files(dir: &Path, manifest: &ModManifest) -> Result<(), String> {
+    let restored: Vec<&str> = manifest
+        .backups
+        .iter()
+        .map(|backup| backup.file.as_str())
+        .collect();
+    for file in &manifest.files {
+        // 有备份的文件不能删：下一步会用备份覆盖回去。
+        if restored.contains(&file.as_str()) {
+            continue;
+        }
+        let target = dir.join(file);
+        if target.is_file() {
+            let _ = std::fs::remove_file(&target);
+        }
+    }
+    for backup in &manifest.backups {
+        let saved = dir.join(&backup.backup);
+        let target = dir.join(&backup.file);
+        if saved.is_file() {
+            std::fs::copy(&saved, &target).map_err(|err| {
+                pick(
+                    &format!("无法还原 {}：{err}", backup.file),
+                    &format!("Couldn't restore {}: {err}", backup.file),
+                )
+            })?;
+            let _ = std::fs::remove_file(&saved);
+        }
+    }
+    // 目录倒序删（先深后浅），且只在空的时候删 —— 里面有自己的东西就留着。
+    let mut dirs = manifest.dirs.clone();
+    dirs.sort_by_key(|path| std::cmp::Reverse(path.matches(['/', '\\']).count()));
+    for sub in dirs {
+        let _ = std::fs::remove_dir(dir.join(sub));
+    }
+    let _ = std::fs::remove_file(manifest_path(dir));
+    let _ = std::fs::remove_file(dir.join(OPTISCALER_MARKER));
+    Ok(())
+}
+
+/// 旧版（只有纯文本标记）的清理：先还原备份；没备份就删掉标记里记的那个注入 DLL
+/// —— 标记还在，说明那个 DLL 是我们放的，删它不会动游戏自带文件。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn legacy_cleanup(dir: &Path) -> Result<(), String> {
+    for hook in OPTISCALER_HOOKS {
+        let backup = dir.join(format!("{hook}.fantasyhub.bak"));
+        if backup.is_file() {
+            let _ = std::fs::copy(&backup, dir.join(hook));
+            let _ = std::fs::remove_file(&backup);
+        }
+    }
+    let marker = dir.join(OPTISCALER_MARKER);
+    let hook = std::fs::read_to_string(&marker)
+        .ok()
+        .map(|text| text.trim().to_string());
+    if let Some(hook) = hook.filter(|name| !name.is_empty() && !name.contains(['/', '\\'])) {
+        let target = dir.join(&hook);
+        if target.is_file() {
+            let _ = std::fs::remove_file(&target);
+        }
+    }
+    let _ = std::fs::remove_file(dir.join("OptiScaler.ini"));
+    let _ = std::fs::remove_file(&marker);
+    Ok(())
+}
+
+/// 所选注入名在游戏目录里已存在、而且不是我们装的 → 报给前端，让用户改选或知情。
+/// 已经有 `.fantasyhub.bak` 说明上一轮处理过它，不再当冲突。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn hook_conflict(dir: &Path, hook: &str, manifest: Option<&ModManifest>) -> Option<String> {
+    if dir.join(format!("{hook}.fantasyhub.bak")).is_file() {
+        return None;
+    }
+    if let Some(manifest) = manifest {
+        if manifest.hook == hook || manifest.files.iter().any(|file| file == hook) {
+            return None;
+        }
+    }
+    dir.join(hook).is_file().then(|| hook.to_string())
 }
 
 /// 把前端传来的注入名归一成官方拼写；不认识的名字返回 None（不认识的不能拿去当文件名）。
@@ -530,34 +913,51 @@ mod windows {
         hook: Option<&str>,
     ) -> OptiScalerStatus {
         let hook = canonical_hook(hook.unwrap_or("")).unwrap_or(OPTISCALER_DEFAULT_HOOK);
-        let dir = resolve_game_dir(launch_path, install_path);
-        let manifest = dir.as_deref().and_then(read_manifest);
-        let legacy = dir.as_deref().is_some_and(marker_present);
-        let conflict = dir
-            .as_deref()
-            .and_then(|dir| hook_conflict(dir, hook, manifest.as_ref()));
-        let arch = dir.as_deref().and_then(main_exe_arch_problem);
+        let plan = install_plan(launch_path, install_path);
+        // 账本可能记在主程序旁（新版），也可能记在游戏根目录（0.1.5x 那批装错位置的）。
+        let previous = plan.as_ref().and_then(read_installed);
+        let manifest = previous.as_ref().map(|(manifest, _)| manifest.clone());
+        let legacy = plan.as_ref().is_some_and(legacy_installed);
+        let conflict = plan
+            .as_ref()
+            .and_then(|plan| hook_conflict(&plan.dir, hook, manifest.as_ref()));
+        let exe = plan.as_ref().and_then(|plan| plan.exe.clone());
+        let arch = exe.as_deref().and_then(exe_arch_problem);
         let running = !fh_core::process::pids_for_game(launch_path, install_path).is_empty();
-        let message = if dir.is_none() {
-            pick(
+        let message = match plan.as_ref() {
+            None => pick(
                 "找不到游戏目录。Steam 游戏请先在卡片菜单里用「改路径」选中游戏的 exe。",
                 "Couldn't find the game folder. For Steam games, pick the game exe from the card menu first.",
-            )
-        } else if running {
-            pick(
+            ),
+            Some(_) if running => pick(
                 "游戏正在运行，先退出再装。",
                 "The game is running. Quit it first.",
-            )
-        } else if let Some(name) = arch.as_deref() {
-            pick(
-                &format!("{name} 不是 64 位程序，OptiScaler 只有 64 位版，装进去游戏会起不来。"),
-                &format!("{name} isn't 64-bit. OptiScaler is x64-only and would break the game."),
-            )
-        } else {
-            pick("可以安装。", "Ready to install.")
+            ),
+            Some(_) if arch.is_some() => {
+                let name = arch.clone().unwrap_or_default();
+                pick(
+                    &format!("{name} 不是 64 位程序，OptiScaler 只有 64 位版，装进去游戏会起不来。"),
+                    &format!("{name} isn't 64-bit. OptiScaler is x64-only and would break the game."),
+                )
+            }
+            Some(plan) if plan.exe.is_none() => pick(
+                &format!(
+                    "没认出主程序 exe，这次会装到游戏根目录 {}；装完游戏不生效，就把这些文件移到主程序旁边。",
+                    plan.dir.display()
+                ),
+                &format!(
+                    "Couldn't identify the main exe, so files go to {}. If the mod doesn't load, move them next to the game exe.",
+                    plan.dir.display()
+                ),
+            ),
+            Some(_) => pick("可以安装。", "Ready to install."),
         };
         OptiScalerStatus {
-            dir: dir.map(|path| path.display().to_string()),
+            dir: plan.as_ref().map(|plan| plan.dir.display().to_string()),
+            exe: exe
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().to_string()),
             installed: manifest.is_some() || legacy,
             version: manifest.as_ref().map(|found| found.version.clone()),
             hook: manifest
@@ -586,12 +986,14 @@ mod windows {
                 "That hook file name isn't supported.",
             )
         })?;
-        let dir = resolve_game_dir(launch_path, install_path).ok_or_else(|| {
+        // 官方要求放到**主程序 exe 旁边**（见 `InstallPlan`）：游戏根目录 ≠ 落点。
+        let plan = install_plan(launch_path, install_path).ok_or_else(|| {
             pick(
                 "找不到游戏目录。Steam 游戏请先在卡片菜单里用「改路径」选中游戏的 exe。",
                 "Couldn't find the game folder. For Steam games, pick the game exe from the card menu first.",
             )
         })?;
+        let dir = plan.dir.clone();
         if !dir.is_dir() {
             return Err(pick("游戏目录无效。", "Game folder is invalid."));
         }
@@ -602,7 +1004,7 @@ mod windows {
                 "The game is running. Quit it first.",
             ));
         }
-        if let Some(name) = main_exe_arch_problem(&dir) {
+        if let Some(name) = plan.exe.as_deref().and_then(exe_arch_problem) {
             return Err(pick(
                 &format!("{name} 不是 64 位程序，OptiScaler 只有 64 位版。"),
                 &format!("{name} isn't 64-bit; OptiScaler is x64-only."),
@@ -610,15 +1012,22 @@ mod windows {
         }
         // 同一个注入名重装 = 更新：账本里那个 DLL 是「我们自己」的，不能再备份一次
         // （`<hook>.fantasyhub.bak` 里存的是游戏原文件，覆盖掉就再也还原不回来）。
-        let previous = read_manifest(&dir);
-        let hook_is_ours = previous.as_ref().is_some_and(|found| found.hook == hook);
-        // 换注入名重装：先把上一套删干净（含还原备份），否则两套文件会打架。
-        if let Some(previous) = previous {
-            if previous.hook != hook {
-                remove_installed_files(&dir, &previous)?;
+        // 判定条件见 `keeps_previous_backup`：账本在游戏根目录那批（0.1.5x 装在错位置的）
+        // 落点不同，目标目录里那个同名文件不是我们的，必须照备份走。
+        let previous = read_installed(&plan);
+        let hook_is_ours = keeps_previous_backup(previous.as_ref(), hook, &dir);
+        if let Some((found, where_)) = previous {
+            if !hook_is_ours {
+                // 换注入名、或者上一套装在别处：先清干净（含还原备份）再装，否则两套文件会打架。
+                remove_installed_files(&where_, &found)?;
             }
-        } else if marker_present(&dir) {
-            legacy_cleanup(&dir)?;
+        } else if legacy_installed(&plan) {
+            // 老版本只留一个纯文本标记，标记在哪个目录，哪套文件才是我们的。
+            for target in [&dir, &plan.root] {
+                if marker_present(target) {
+                    legacy_cleanup(target)?;
+                }
+            }
         }
 
         let release = optiscaler_release(version)?;
@@ -677,7 +1086,7 @@ mod windows {
     }
 
     pub fn uninstall_optiscaler(launch_path: &str, install_path: &str) -> Result<String, String> {
-        let dir = resolve_game_dir(launch_path, install_path)
+        let plan = install_plan(launch_path, install_path)
             .ok_or_else(|| pick("找不到游戏目录。", "Couldn't find the game folder."))?;
         if !fh_core::process::pids_for_game(launch_path, install_path).is_empty() {
             return Err(pick(
@@ -685,72 +1094,27 @@ mod windows {
                 "The game is running. Quit it before uninstalling.",
             ));
         }
-        if let Some(manifest) = read_manifest(&dir) {
-            remove_installed_files(&dir, &manifest)?;
+        // 账本在哪儿，相对路径就是相对哪儿记的 —— 卸载必须照着记的那个目录来。
+        if let Some((manifest, where_)) = read_installed(&plan) {
+            remove_installed_files(&where_, &manifest)?;
             return Ok(pick(
                 "已卸载 OptiScaler，被覆盖的文件已还原。",
                 "OptiScaler removed and the overwritten files restored.",
             ));
         }
-        if marker_present(&dir) {
-            legacy_cleanup(&dir)?;
-            return Ok(pick(
-                "已卸载 OptiScaler（这是旧版装的，没有完整记录，只清了注入 DLL 与配置）。",
-                "OptiScaler removed (legacy install; only the injected DLL and config were cleaned).",
-            ));
+        for dir in [&plan.dir, &plan.root] {
+            if marker_present(dir) {
+                legacy_cleanup(dir)?;
+                return Ok(pick(
+                    "已卸载 OptiScaler（这是旧版装的，没有完整记录，只清了注入 DLL 与配置）。",
+                    "OptiScaler removed (legacy install; only the injected DLL and config were cleaned).",
+                ));
+            }
         }
         Err(pick(
             "这个目录里没有 FantasyHub 的安装记录，没有能自动卸载的东西。",
             "No FantasyHub install record in this folder; nothing to uninstall.",
         ))
-    }
-
-    /// 列出装了 OptiScaler 的游戏：账本优先；只有旧版标记（没账本）的也列出来，
-    /// 版本写空串 —— 「装了但不知道装的哪版」是真实状态，不编一个版本号。
-    pub fn installed_mods(games: Vec<crate::scan::ScannedGame>) -> Vec<InstalledMod> {
-        let mut out = Vec::new();
-        for game in games {
-            let Some(dir) = resolve_game_dir(&game.launch_path, &game.install_path) else {
-                continue;
-            };
-            let manifest = read_manifest(&dir);
-            if manifest.is_none() && !marker_present(&dir) {
-                continue;
-            }
-            let (version, hook) = manifest
-                .map(|row| (row.version, row.hook))
-                .unwrap_or_default();
-            out.push(InstalledMod {
-                game: game.name,
-                dir: dir.display().to_string(),
-                version,
-                hook,
-            });
-        }
-        out
-    }
-
-    fn find_named_file(root: &Path, name: &str) -> Option<PathBuf> {
-        let direct = root.join(name);
-        if direct.is_file() {
-            return Some(direct);
-        }
-        let entries = fs::read_dir(root).ok()?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if let Some(found) = find_named_file(&path, name) {
-                    return Some(found);
-                }
-            } else if path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.eq_ignore_ascii_case(name))
-            {
-                return Some(path);
-            }
-        }
-        None
     }
 
     fn vc_runtime_installed(arch: &str) -> bool {
@@ -846,35 +1210,6 @@ mod windows {
         ))
     }
 
-    fn marker_present(dir: &Path) -> bool {
-        dir.join(OPTISCALER_MARKER).is_file()
-    }
-
-    fn manifest_path(dir: &Path) -> PathBuf {
-        dir.join(OPTISCALER_MANIFEST)
-    }
-
-    /// 账本读不出来（文件坏了 / 是别的东西）就当没有：宁可按「没记录」报错，也不乱删文件。
-    fn read_manifest(dir: &Path) -> Option<ModManifest> {
-        let text = fs::read_to_string(manifest_path(dir)).ok()?;
-        serde_json::from_str(&text).ok()
-    }
-
-    fn write_manifest(dir: &Path, manifest: &ModManifest) -> Result<(), String> {
-        let text = serde_json::to_string_pretty(manifest).map_err(|err| {
-            pick(
-                &format!("无法生成安装记录：{err}"),
-                &format!("Couldn't write the install record: {err}"),
-            )
-        })?;
-        fs::write(manifest_path(dir), text).map_err(|err| {
-            pick(
-                &format!("无法写入安装记录：{err}"),
-                &format!("Couldn't save the install record: {err}"),
-            )
-        })
-    }
-
     fn now_ms() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -891,86 +1226,6 @@ mod windows {
                 total_bytes,
             },
         );
-    }
-
-    /// 按账本卸载：先删我们写的文件（有备份的路径留给还原），再还原备份，最后删空目录。
-    fn remove_installed_files(dir: &Path, manifest: &ModManifest) -> Result<(), String> {
-        let restored: Vec<&str> = manifest
-            .backups
-            .iter()
-            .map(|backup| backup.file.as_str())
-            .collect();
-        for file in &manifest.files {
-            // 有备份的文件不能删：下一步会用备份覆盖回去。
-            if restored.iter().any(|path| *path == file.as_str()) {
-                continue;
-            }
-            let target = dir.join(file);
-            if target.is_file() {
-                let _ = fs::remove_file(&target);
-            }
-        }
-        for backup in &manifest.backups {
-            let saved = dir.join(&backup.backup);
-            let target = dir.join(&backup.file);
-            if saved.is_file() {
-                fs::copy(&saved, &target).map_err(|err| {
-                    pick(
-                        &format!("无法还原 {}：{err}", backup.file),
-                        &format!("Couldn't restore {}: {err}", backup.file),
-                    )
-                })?;
-                let _ = fs::remove_file(&saved);
-            }
-        }
-        // 目录倒序删（先深后浅），且只在空的时候删 —— 里面有自己的东西就留着。
-        let mut dirs = manifest.dirs.clone();
-        dirs.sort_by_key(|path| std::cmp::Reverse(path.matches(['/', '\\']).count()));
-        for sub in dirs {
-            let _ = fs::remove_dir(dir.join(sub));
-        }
-        let _ = fs::remove_file(manifest_path(dir));
-        let _ = fs::remove_file(dir.join(OPTISCALER_MARKER));
-        Ok(())
-    }
-
-    /// 旧版（只有纯文本标记）的清理：先还原备份；没备份就删掉标记里记的那个注入 DLL
-    /// —— 标记还在，说明那个 DLL 是我们放的，删它不会动游戏自带文件。
-    fn legacy_cleanup(dir: &Path) -> Result<(), String> {
-        for hook in OPTISCALER_HOOKS {
-            let backup = dir.join(format!("{hook}.fantasyhub.bak"));
-            if backup.is_file() {
-                let _ = fs::copy(&backup, dir.join(hook));
-                let _ = fs::remove_file(&backup);
-            }
-        }
-        let marker = dir.join(OPTISCALER_MARKER);
-        let hook = fs::read_to_string(&marker)
-            .ok()
-            .map(|text| text.trim().to_string());
-        if let Some(hook) = hook.filter(|name| !name.is_empty() && !name.contains(['/', '\\'])) {
-            let target = dir.join(&hook);
-            if target.is_file() {
-                let _ = fs::remove_file(&target);
-            }
-        }
-        let _ = fs::remove_file(dir.join("OptiScaler.ini"));
-        let _ = fs::remove_file(&marker);
-        Ok(())
-    }
-
-    /// 所选注入名在游戏目录里已存在、而且不是我们装的 → 报给前端，让用户改选或知情。
-    /// 已经有 `.fantasyhub.bak` 说明上一轮处理过它，不再当冲突。
-    fn hook_conflict(dir: &Path, hook: &str, manifest: Option<&ModManifest>) -> Option<String> {
-        if dir.join(format!("{hook}.fantasyhub.bak")).is_file() {
-            return None;
-        }
-        if let Some(manifest) = manifest {
-            if manifest.hook == hook || manifest.files.iter().any(|file| file == hook) {
-                return None;
-            }
-        }
-        dir.join(hook).is_file().then(|| hook.to_string())
     }
 
     /// 一次下载所需的全部信息（版本号要写进账本、大小用来判断缓存和校验完整性）。
@@ -1155,10 +1410,9 @@ mod windows {
 
     /// 主程序不是 x64 就返回文件名：装进去游戏会起不来。
     /// 认不出主程序（没有 exe / 读不到头）返回 None —— 认不出就不拦，别把能装的挡住了。
-    fn main_exe_arch_problem(dir: &Path) -> Option<String> {
-        let exe = find_main_exe(dir)?;
+    fn exe_arch_problem(exe: &Path) -> Option<String> {
         let mut head = [0u8; 1024];
-        let mut file = fs::File::open(&exe).ok()?;
+        let mut file = fs::File::open(exe).ok()?;
         use std::io::Read;
         let read = file.read(&mut head).ok()?;
         match pe_is_x64(&head[..read]) {
@@ -1167,37 +1421,6 @@ mod windows {
                 .map(|name| name.to_string_lossy().to_string()),
             _ => None,
         }
-    }
-
-    /// 主程序 = 游戏目录里最大的顶层 exe；顶层没有就去下一层找（`Binaries\Win64` 这类布局）。
-    fn find_main_exe(dir: &Path) -> Option<PathBuf> {
-        largest_exe(dir, 2)
-    }
-
-    fn largest_exe(dir: &Path, depth: usize) -> Option<PathBuf> {
-        let mut best: Option<(u64, PathBuf)> = None;
-        for entry in fs::read_dir(dir).ok()?.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if depth > 0 {
-                    if let Some(found) = largest_exe(&path, depth - 1) {
-                        let size = fs::metadata(&found).map(|meta| meta.len()).unwrap_or(0);
-                        if best.as_ref().is_none_or(|(best_size, _)| size > *best_size) {
-                            best = Some((size, found));
-                        }
-                    }
-                }
-                continue;
-            }
-            if !is_exe_path(&path) {
-                continue;
-            }
-            let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
-            if best.as_ref().is_none_or(|(best_size, _)| size > *best_size) {
-                best = Some((size, path));
-            }
-        }
-        best.map(|(_, path)| path)
     }
 
     /// 带进度的下载：要显示百分比、要能取消，所以自己分块读，
@@ -1274,136 +1497,173 @@ mod windows {
         }
         Ok(())
     }
+}
 
-    /// 安装包里的 `OptiScaler.dll` 所在目录即「包根」，展开后可能嵌在子目录里。
-    fn find_optiscaler_root(extract_dir: &Path) -> Option<PathBuf> {
-        let dll = find_named_file(extract_dir, "OptiScaler.dll")
-            .or_else(|| find_named_file(extract_dir, "OptiScaler.ini"))?;
-        Some(
-            dll.parent()
-                .map(|parent| parent.to_path_buf())
-                .unwrap_or_else(|| extract_dir.to_path_buf()),
-        )
+/// 安装包里的 `OptiScaler.dll` 所在目录即「包根」，展开后可能嵌在子目录里。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn find_optiscaler_root(extract_dir: &Path) -> Option<PathBuf> {
+    let dll = find_named_file(extract_dir, "OptiScaler.dll")
+        .or_else(|| find_named_file(extract_dir, "OptiScaler.ini"))?;
+    Some(
+        dll.parent()
+            .map(|parent| parent.to_path_buf())
+            .unwrap_or_else(|| extract_dir.to_path_buf()),
+    )
+}
+
+/// 官方的安装 / 卸载脚本（`setup_windows.bat`、`setup_linux.sh` 等）不进游戏目录。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_setup_script(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [".bat", ".cmd", ".ps1", ".sh"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+/// 递归找一个文件（不区分大小写）。官方包结构变过几次（有时嵌一层目录），
+/// 所以「包根」不能写死，得先找到 `OptiScaler.dll` 再认它所在的目录。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn find_named_file(root: &Path, name: &str) -> Option<PathBuf> {
+    let direct = root.join(name);
+    if direct.is_file() {
+        return Some(direct);
     }
-
-    fn copy_optiscaler_files(
-        from: &Path,
-        to: &Path,
-        hook: &str,
-        hook_is_ours: bool,
-        ledger: &mut ModManifest,
-    ) -> Result<(), String> {
-        let mut copied_dll = false;
-        copy_optiscaler_dir(from, from, to, hook, hook_is_ours, ledger, &mut copied_dll)?;
-        if !copied_dll {
-            return Err(pick(
-                "安装包里没有 OptiScaler.dll。",
-                "Package is missing OptiScaler.dll.",
-            ));
+    let entries = std::fs::read_dir(root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_named_file(&path, name) {
+                return Some(found);
+            }
+        } else if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case(name))
+        {
+            return Some(path);
         }
-        Ok(())
     }
+    None
+}
 
-    /// 逐层拷贝安装包内容：保留 `D3D12_Optiscaler/`、`Licenses/` 等子目录
-    /// （官方 0.9.x 的这些文件必须一起进游戏目录），`OptiScaler.dll` 改名成用户选的
-    /// 注入名（默认 `dxgi.dll`；原来是写死的）放到游戏目录根，**边写边记账**。
-    fn copy_optiscaler_dir(
-        root: &Path,
-        dir: &Path,
-        to: &Path,
-        hook: &str,
-        hook_is_ours: bool,
-        ledger: &mut ModManifest,
-        copied_dll: &mut bool,
-    ) -> Result<(), String> {
-        let entries = fs::read_dir(dir).map_err(|err| {
-            pick(
-                &format!("无法读取 OptiScaler 目录：{err}"),
-                &format!("Couldn't read OptiScaler folder: {err}"),
-            )
-        })?;
-        for entry in entries.flatten() {
-            let src = entry.path();
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            let rel = src.strip_prefix(root).unwrap_or(Path::new(&*name_str));
-            if src.is_dir() {
-                let dest_dir = to.join(rel);
-                let fresh = !dest_dir.exists();
-                fs::create_dir_all(&dest_dir).map_err(|err| {
-                    pick(
-                        &format!("无法创建目录 {}：{err}", dest_dir.display()),
-                        &format!("Couldn't create {}: {err}", dest_dir.display()),
-                    )
-                })?;
-                // 只记「这一趟新建」的目录：卸载时也只删这些，不动游戏原有的目录。
-                if fresh {
-                    ledger.dirs.push(rel.to_string_lossy().to_string());
-                }
-                copy_optiscaler_dir(root, &src, to, hook, hook_is_ours, ledger, copied_dll)?;
-                continue;
-            }
-            if !src.is_file() {
-                continue;
-            }
-            // 官方的「!! EXTRACT ALL FILES !!」提示与 setup/remove 脚本不进游戏目录。
-            if name_str.starts_with("!!") || is_setup_script(&name_str) {
-                continue;
-            }
-            // 已有的 OptiScaler.ini 是用户配置，重装时保留。
-            // 用 rel 而不是写死文件名：子目录（如 D3D12_Optiscaler/）里的 INI 也要查对位置，
-            // 根目录时 rel 就是 OptiScaler.ini，行为不变。
-            if name_str.eq_ignore_ascii_case("OptiScaler.ini") && to.join(rel).is_file() {
-                continue;
-            }
-            let is_optiscaler_dll = name_str.eq_ignore_ascii_case("OptiScaler.dll");
-            let dest_name = if is_optiscaler_dll {
-                *copied_dll = true;
-                PathBuf::from(hook)
-            } else {
-                rel.to_path_buf()
-            };
-            let dest = to.join(&dest_name);
-            if is_optiscaler_dll && dest.is_file() && !hook_is_ours {
-                // 这个名字被占用了（游戏自带 / 别的 Mod）。先把原文件留一份备份并记账，
-                // 卸载时还原。`.bak` 已存在就不再覆盖：里面存的是最初那份原文件。
-                let backup_name = format!("{hook}.fantasyhub.bak");
-                let bak = to.join(&backup_name);
-                if !bak.is_file() {
-                    fs::copy(&dest, &bak).map_err(|err| {
-                        pick(
-                            &format!("无法备份原 {hook}：{err}"),
-                            &format!("Couldn't back up the original {hook}: {err}"),
-                        )
-                    })?;
-                    ledger.backups.push(ModBackup {
-                        file: hook.to_string(),
-                        backup: backup_name,
-                    });
-                }
-            }
-            fs::copy(&src, &dest).map_err(|err| {
+/// 把官方包的内容铺到**主程序旁**（`to`）：`OptiScaler.dll` 改名叫用户选的注入名，
+/// 其余文件（含 `D3D12_Optiscaler/` 这类子目录）原样保留，**边写边记账**。
+///
+/// 照官方包的真实结构对过（2026-10-09 拉 `Optiscaler_0.9.4-final…7z` 验的，23 项全在根目录）：
+/// `OptiScaler.dll` / `OptiScaler.ini` / `fakenvapi.dll` / `fakenvapi.ini` /
+/// `dlssg_to_fsr3_amd_is_better.dll` / `libxess*.dll` / `amd_fidelityfx_*.dll` 平铺在包根，
+/// 外加 `D3D12_Optiscaler/`、`Licenses/` 两个子目录；不进游戏目录的只有
+/// `!! README_EXTRACT ALL FILES TO GAME FOLDER !!.txt` 和 `setup_windows.bat` / `setup_linux.sh`。
+/// 官方文档只管这叫「解压到主程序旁」，没说改名 —— 改名只针对 `OptiScaler.dll` 一个文件，
+/// `OptiScaler.ini` 必须保持原名（Wiki 原话：Please don't rename the ini file）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn copy_optiscaler_files(
+    from: &Path,
+    to: &Path,
+    hook: &str,
+    hook_is_ours: bool,
+    ledger: &mut ModManifest,
+) -> Result<(), String> {
+    let mut copied_dll = false;
+    copy_optiscaler_dir(from, from, to, hook, hook_is_ours, ledger, &mut copied_dll)?;
+    if !copied_dll {
+        return Err(pick(
+            "安装包里没有 OptiScaler.dll。",
+            "Package is missing OptiScaler.dll.",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn copy_optiscaler_dir(
+    root: &Path,
+    dir: &Path,
+    to: &Path,
+    hook: &str,
+    hook_is_ours: bool,
+    ledger: &mut ModManifest,
+    copied_dll: &mut bool,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir).map_err(|err| {
+        pick(
+            &format!("无法读取 OptiScaler 目录：{err}"),
+            &format!("Couldn't read OptiScaler folder: {err}"),
+        )
+    })?;
+    for entry in entries.flatten() {
+        let src = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        let rel = src.strip_prefix(root).unwrap_or(Path::new(&*name_str));
+        if src.is_dir() {
+            let dest_dir = to.join(rel);
+            let fresh = !dest_dir.exists();
+            std::fs::create_dir_all(&dest_dir).map_err(|err| {
                 pick(
-                    &format!("无法写入 {}：{err}", dest_name.display()),
-                    &format!("Couldn't write {}: {err}", dest_name.display()),
+                    &format!("无法创建目录 {}：{err}", dest_dir.display()),
+                    &format!("Couldn't create {}: {err}", dest_dir.display()),
                 )
             })?;
-            // 相对路径记账（子目录用系统分隔符，卸载时照样 join 得回去）。
-            let recorded = dest_name.to_string_lossy().to_string();
-            if !ledger.files.contains(&recorded) {
-                ledger.files.push(recorded);
+            // 只记「这一趟新建」的目录：卸载时也只删这些，不动游戏原有的目录。
+            if fresh {
+                ledger.dirs.push(rel.to_string_lossy().to_string());
+            }
+            copy_optiscaler_dir(root, &src, to, hook, hook_is_ours, ledger, copied_dll)?;
+            continue;
+        }
+        if !src.is_file() {
+            continue;
+        }
+        // 官方的「!! EXTRACT ALL FILES !!」提示与 setup / remove 脚本不进游戏目录。
+        if name_str.starts_with("!!") || is_setup_script(&name_str) {
+            continue;
+        }
+        // 已有的 OptiScaler.ini 是用户配置，重装时保留。
+        // 用 rel 而不是写死文件名：子目录（如 D3D12_Optiscaler/）里的 INI 也要查对位置，
+        // 根目录时 rel 就是 OptiScaler.ini，行为不变。
+        if name_str.eq_ignore_ascii_case("OptiScaler.ini") && to.join(rel).is_file() {
+            continue;
+        }
+        let is_optiscaler_dll = name_str.eq_ignore_ascii_case("OptiScaler.dll");
+        let dest_name = if is_optiscaler_dll {
+            *copied_dll = true;
+            PathBuf::from(hook)
+        } else {
+            rel.to_path_buf()
+        };
+        let dest = to.join(&dest_name);
+        if is_optiscaler_dll && dest.is_file() && !hook_is_ours {
+            // 这个名字被占用了（游戏自带 / 别的 Mod）。先把原文件留一份备份并记账，
+            // 卸载时还原。`.bak` 已存在就不再覆盖：里面存的是最初那份原文件。
+            let backup_name = format!("{hook}.fantasyhub.bak");
+            let bak = to.join(&backup_name);
+            if !bak.is_file() {
+                std::fs::copy(&dest, &bak).map_err(|err| {
+                    pick(
+                        &format!("无法备份原 {hook}：{err}"),
+                        &format!("Couldn't back up the original {hook}: {err}"),
+                    )
+                })?;
+                ledger.backups.push(ModBackup {
+                    file: hook.to_string(),
+                    backup: backup_name,
+                });
             }
         }
-        Ok(())
+        std::fs::copy(&src, &dest).map_err(|err| {
+            pick(
+                &format!("无法写入 {}：{err}", dest_name.display()),
+                &format!("Couldn't write {}: {err}", dest_name.display()),
+            )
+        })?;
+        // 相对路径记账（子目录用系统分隔符，卸载时照样 join 得回去）。
+        let recorded = dest_name.to_string_lossy().to_string();
+        if !ledger.files.contains(&recorded) {
+            ledger.files.push(recorded);
+        }
     }
-
-    /// 官方的安装 / 卸载脚本（`setup_windows.bat`、`setup_linux.sh` 等）不进游戏目录。
-    fn is_setup_script(name: &str) -> bool {
-        let lower = name.to_ascii_lowercase();
-        [".bat", ".cmd", ".ps1", ".sh"]
-            .iter()
-            .any(|ext| lower.ends_with(ext))
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1494,6 +1754,362 @@ mod tests {
         bytes[0x80..0x82].copy_from_slice(b"PE");
         bytes[0x84..0x86].copy_from_slice(&machine.to_le_bytes());
         bytes
+    }
+
+    /// 铺一个游戏目录树：`(相对路径, 字节数)`。
+    fn game_tree(tag: &str, files: &[(&str, usize)]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("fh-toolbox-plan-{tag}"));
+        let _ = std::fs::remove_dir_all(&root);
+        for (rel, size) in files {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("temp dir");
+            std::fs::write(&path, vec![0u8; *size]).expect("temp file");
+        }
+        root
+    }
+
+    fn plan_for(root: &Path) -> InstallPlan {
+        install_plan("", &root.to_string_lossy()).unwrap_or_else(|| panic!("plan for {}", root.display()))
+    }
+
+    fn exe_name(plan: &InstallPlan) -> String {
+        plan.exe
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn install_target_is_the_folder_of_the_main_exe() {
+        // UE 布局：主程序在 `<游戏>\<代号>\Binaries\Win64\`。
+        // 官方文档第一条就是「全部文件解压到主程序 exe 旁边」，`setup_windows.bat` 还专门提示
+        // UE 游戏要装到 `Binaries\Win64`；游戏根目录一个 exe 都没有 —— 旧实现往根目录丢文件，
+        // 游戏永远加载不到，这就是真机反馈的「装不上」。
+        let root = game_tree(
+            "ue",
+            &[
+                ("SwGame/Binaries/Win64/SwGame-Win64-Shipping.exe", 4096),
+                ("SwGame/Content/pakchunk0.pak", 1024),
+                // 引擎自带的 exe 更大，但官方明确要忽略 `Engine`。
+                ("Engine/Binaries/Win64/UnrealEditor.exe", 65536),
+            ],
+        );
+        let plan = plan_for(&root);
+        assert_eq!(plan.dir, root.join("SwGame").join("Binaries").join("Win64"));
+        assert_eq!(exe_name(&plan), "SwGame-Win64-Shipping.exe");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn install_target_follows_non_unreal_subfolders() {
+        // 非 UE 的同类布局（Cyberpunk 的 `bin\x64`、HITMAN 3 的 `Retail`）：靠名字认主程序。
+        let root = game_tree(
+            "bin",
+            &[
+                ("Cyberpunk 2077/bin/x64/Cyberpunk2077.exe", 2048),
+                ("Cyberpunk 2077/bin/x64/tools/Helper.exe", 65536),
+            ],
+        );
+        let plan = plan_for(&root.join("Cyberpunk 2077"));
+        assert_eq!(plan.dir, root.join("Cyberpunk 2077").join("bin").join("x64"));
+        assert_eq!(exe_name(&plan), "Cyberpunk2077.exe");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn install_target_prefers_the_exe_named_after_the_game() {
+        // 名字对得上就赢过体积：工具 exe 比主程序大得多，也不能把文件装到它旁边。
+        let root = game_tree(
+            "named",
+            &[
+                ("Hades/Hades.exe", 2048),
+                ("Hades/Extras/BigTool.exe", 65536),
+            ],
+        );
+        let plan = plan_for(&root.join("Hades"));
+        assert_eq!(plan.dir, root.join("Hades"));
+        assert_eq!(exe_name(&plan), "Hades.exe");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn install_target_falls_back_to_the_game_root() {
+        // 一个 exe 都认不出来时不能瞎猜：落点退回游戏根目录，面板会把这件事写出来。
+        let root = game_tree("noexe", &[("data/pak.pak", 16)]);
+        let plan = plan_for(&root);
+        assert_eq!(plan.dir, root);
+        assert_eq!(plan.exe, None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn install_target_skips_uninstallers_and_crash_handlers() {
+        // 卸载器 / 崩溃处理器不是主程序：只有它们的时候必须认怂（退回根目录），
+        // 不能把 dxgi.dll 装到它们旁边 —— 那才是真的「装错地方」。
+        let root = game_tree(
+            "noise",
+            &[
+                ("unins000.exe", 65536),
+                ("UnityCrashHandler64.exe", 32768),
+            ],
+        );
+        let plan = plan_for(&root);
+        assert_eq!(plan.dir, root);
+        assert_eq!(plan.exe, None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn manifest_for(hook: &str, files: &[&str], backups: &[(&str, &str)]) -> ModManifest {
+        ModManifest {
+            version: "0.9.4".into(),
+            hook: hook.into(),
+            installed_at: 1,
+            files: files.iter().map(|file| (*file).to_string()).collect(),
+            backups: backups
+                .iter()
+                .map(|(file, backup)| ModBackup {
+                    file: (*file).to_string(),
+                    backup: (*backup).to_string(),
+                })
+                .collect(),
+            dirs: Vec::new(),
+        }
+    }
+
+    /// 铺一个「主程序在子目录」的现场：返回 (plan, 游戏根目录, 主程序所在目录)。
+    fn plan_with_subfolder(tag: &str) -> (InstallPlan, PathBuf, PathBuf) {
+        let root = game_tree(tag, &[("Game/Binaries/Win64/Game-Win64-Shipping.exe", 1024)]);
+        let plan = plan_for(&root);
+        let dir = plan.dir.clone();
+        (plan, root, dir)
+    }
+
+    #[test]
+    fn ledger_next_to_the_exe_is_used_for_uninstall() {
+        let (plan, root, dir) = plan_with_subfolder("ledger-new");
+        assert_ne!(dir, root, "主程序在子目录里，落点不该是游戏根目录");
+        let manifest = manifest_for("dxgi.dll", &["dxgi.dll", "OptiScaler.ini"], &[]);
+        write_manifest(&dir, &manifest).expect("write manifest");
+        std::fs::write(dir.join("dxgi.dll"), b"opti").expect("dll");
+
+        let (found, where_) = read_installed(&plan).expect("账本要能找到");
+        assert_eq!(where_, dir, "账本在主程序旁，就该按那个目录卸载");
+        remove_installed_files(&where_, &found).expect("uninstall");
+        assert!(!dir.join("dxgi.dll").exists());
+        assert!(!manifest_path(&dir).exists());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn legacy_ledger_in_the_game_root_still_uninstalls() {
+        // 0.1.5x 把文件装在游戏根目录（错位置）、账本也写在根目录。新版落点改成主程序旁
+        // 之后，卸载必须还能顺着根目录那份账本把东西清干净 —— 否则老安装就永远卸不掉了。
+        let (plan, root, dir) = plan_with_subfolder("ledger-old");
+        assert_ne!(dir, root);
+        std::fs::write(root.join("dxgi.dll"), b"opti").expect("dll");
+        std::fs::write(root.join("OptiScaler.ini"), b"ini").expect("ini");
+        let manifest = manifest_for("dxgi.dll", &["dxgi.dll", "OptiScaler.ini"], &[]);
+        write_manifest(&root, &manifest).expect("write manifest");
+
+        let (found, where_) = read_installed(&plan).expect("根目录那份账本也要认");
+        assert_eq!(where_, root, "账本记的相对路径是相对根目录的");
+        remove_installed_files(&where_, &found).expect("uninstall");
+        assert!(!root.join("dxgi.dll").exists());
+        assert!(!root.join("OptiScaler.ini").exists());
+        assert!(!manifest_path(&root).exists());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn uninstall_restores_the_file_it_overwrote() {
+        let root = game_tree("restore", &[("Game.exe", 64)]);
+        std::fs::write(root.join("dxgi.dll"), b"the game's own dxgi").expect("original");
+        std::fs::copy(root.join("dxgi.dll"), root.join("dxgi.dll.fantasyhub.bak")).expect("backup");
+        std::fs::write(root.join("dxgi.dll"), b"optiscaler").expect("ours");
+        let manifest = manifest_for("dxgi.dll", &["dxgi.dll"], &[("dxgi.dll", "dxgi.dll.fantasyhub.bak")]);
+
+        remove_installed_files(&root, &manifest).expect("uninstall");
+        assert_eq!(
+            std::fs::read(root.join("dxgi.dll")).expect("restored"),
+            b"the game's own dxgi"
+        );
+        assert!(!root.join("dxgi.dll.fantasyhub.bak").exists());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn in_place_update_only_when_the_ledger_sits_in_the_target() {
+        // 这一条弄错就会毁掉 `<hook>.fantasyhub.bak` 里那份游戏原文件（覆盖后无法还原）。
+        let dir = PathBuf::from("/games/foo/bin/x64");
+        let root = PathBuf::from("/games/foo");
+        let here = (manifest_for("dxgi.dll", &["dxgi.dll"], &[]), dir.clone());
+        let elsewhere = (manifest_for("dxgi.dll", &["dxgi.dll"], &[]), root.clone());
+
+        // 账本就在这个目录 + 注入名相同 = 原地更新。
+        assert!(keeps_previous_backup(Some(&here), "dxgi.dll", &dir));
+        // 换了注入名：那个同名文件不是我们上次写的。
+        assert!(!keeps_previous_backup(Some(&here), "winmm.dll", &dir));
+        // 账本在游戏根目录那批：目标目录里的同名文件是游戏自己的。
+        assert!(!keeps_previous_backup(Some(&elsewhere), "dxgi.dll", &dir));
+        assert!(!keeps_previous_backup(None, "dxgi.dll", &dir));
+    }
+
+    /// 官方 0.9.4 包的真实结构（2026-10-09 把 release 的 `.7z` 拉下来核过：
+    /// 文件全部平铺在包根，另有 `D3D12_Optiscaler/`、`Licenses/` 两个子目录，
+    /// 只有「!! README…」和两个 setup 脚本不该进游戏目录）。
+    const OFFICIAL_PACKAGE: [(&str, usize); 19] = [
+        ("!! README_EXTRACT ALL FILES TO GAME FOLDER !!.txt", 8),
+        ("OptiScaler.dll", 4096),
+        ("OptiScaler.ini", 64),
+        ("fakenvapi.dll", 32),
+        ("fakenvapi.ini", 16),
+        ("dlssg_to_fsr3_amd_is_better.dll", 32),
+        ("libxell.dll", 32),
+        ("libxess.dll", 32),
+        ("libxess_dx11.dll", 32),
+        ("libxess_fg.dll", 32),
+        ("amd_fidelityfx_dx12.dll", 32),
+        ("amd_fidelityfx_framegeneration_dx12.dll", 32),
+        ("amd_fidelityfx_upscaler_dx12.dll", 32),
+        ("amd_fidelityfx_vk.dll", 32),
+        ("D3D12_Optiscaler/D3D12Core.dll", 32),
+        ("Licenses/DirectX_LICENSE.txt", 8),
+        ("Licenses/FidelityFX_v1_LICENSE.md", 8),
+        ("setup_windows.bat", 8),
+        ("setup_linux.sh", 8),
+    ];
+
+    #[test]
+    fn package_lands_next_to_the_exe_with_only_the_dll_renamed() {
+        let root = game_tree(
+            "pkg-game",
+            &[("Game/Binaries/Win64/Game-Win64-Shipping.exe", 1024)],
+        );
+        let plan = plan_for(&root);
+        let dir = plan.dir.clone();
+        // 游戏自带一个 dxgi.dll：装完必须变成 OptiScaler，但原文件要留底。
+        std::fs::write(dir.join("dxgi.dll"), b"the game's own dxgi").expect("original dxgi");
+        let package = game_tree("pkg-src", &OFFICIAL_PACKAGE);
+
+        let mut ledger = manifest_for("dxgi.dll", &[], &[]);
+        copy_optiscaler_files(&package, &dir, "dxgi.dll", false, &mut ledger).expect("copy package");
+
+        // 改名只发生在 OptiScaler.dll 上，且落在主程序旁边。
+        assert_ne!(std::fs::read(dir.join("dxgi.dll")).expect("hook dll"), b"the game's own dxgi");
+        assert_eq!(
+            std::fs::read(dir.join("dxgi.dll.fantasyhub.bak")).expect("backup"),
+            b"the game's own dxgi"
+        );
+        // INI 保持原名（Wiki：Please don't rename the ini file）。
+        assert!(dir.join("OptiScaler.ini").is_file());
+        // 捆绑的 Fakenvapi / Nukem 也要平铺在主程序旁，不是塞进子目录。
+        assert!(dir.join("fakenvapi.dll").is_file());
+        assert!(dir.join("fakenvapi.ini").is_file());
+        assert!(dir.join("dlssg_to_fsr3_amd_is_better.dll").is_file());
+        // 子目录原样跟过去（FSR4 on Win10 要 `D3D12_Optiscaler`）。
+        assert!(dir.join("D3D12_Optiscaler").join("D3D12Core.dll").is_file());
+        assert!(dir.join("Licenses").join("DirectX_LICENSE.txt").is_file());
+        // 提示文件与 setup 脚本不进游戏目录。
+        assert!(!dir.join("setup_windows.bat").exists());
+        assert!(!dir.join("setup_linux.sh").exists());
+        assert!(!dir
+            .join("!! README_EXTRACT ALL FILES TO GAME FOLDER !!.txt")
+            .exists());
+
+        // 账本记全：卸载才可能还原得回来。
+        assert!(ledger.files.contains(&"dxgi.dll".to_string()));
+        assert!(ledger.files.contains(&"OptiScaler.ini".to_string()));
+        assert!(ledger.files.contains(&"fakenvapi.dll".to_string()));
+        assert_eq!(ledger.backups.len(), 1);
+        assert_eq!(ledger.backups[0].file, "dxgi.dll");
+        assert!(ledger.dirs.contains(&"D3D12_Optiscaler".to_string()));
+
+        // 装完再卸：游戏原来那个 dxgi.dll 要回来，我们铺的东西一个不剩。
+        remove_installed_files(&dir, &ledger).expect("uninstall");
+        assert_eq!(
+            std::fs::read(dir.join("dxgi.dll")).expect("restored"),
+            b"the game's own dxgi"
+        );
+        assert!(!dir.join("OptiScaler.ini").exists());
+        assert!(!dir.join("fakenvapi.dll").exists());
+        assert!(!dir.join("D3D12_Optiscaler").exists(), "自己建的目录要清掉");
+        assert!(!dir.join("Licenses").exists());
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&package).ok();
+    }
+
+    #[test]
+    fn package_without_optiscaler_dll_is_rejected() {
+        // 认不出包就该报错收场，不能装一半留下半套文件。
+        let root = game_tree("pkg-bad-game", &[("Game.exe", 64)]);
+        let package = game_tree("pkg-bad-src", &[("OptiScaler.ini", 8)]);
+        let mut ledger = manifest_for("dxgi.dll", &[], &[]);
+        let err = copy_optiscaler_files(&package, &root, "dxgi.dll", false, &mut ledger)
+            .expect_err("缺 dll 必须报错");
+        assert!(err.contains("OptiScaler.dll"), "报错要说清缺什么：{err}");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&package).ok();
+    }
+
+    #[test]
+    fn mod_list_reports_where_the_files_actually_are() {
+        let scanned = |name: &str, install: &Path| crate::scan::ScannedGame {
+            id: name.to_string(),
+            name: name.to_string(),
+            cover: String::new(),
+            cover_path: String::new(),
+            install_path: install.to_string_lossy().to_string(),
+            launch_path: String::new(),
+            size_bytes: 0,
+            playtime_minutes: 0,
+        };
+
+        // 新装的一批：账本在主程序旁，列表就该报主程序旁。
+        let (plan, root_new, dir_new) = plan_with_subfolder("list-new");
+        write_manifest(&dir_new, &manifest_for("dxgi.dll", &["dxgi.dll"], &[])).expect("manifest");
+        // 老的一批：账本在游戏根目录，列表必须照实报根目录（报主程序旁会指向空目录）。
+        let (plan_old, root_old, _) = plan_with_subfolder("list-old");
+        write_manifest(&root_old, &manifest_for("winmm.dll", &["winmm.dll"], &[])).expect("manifest");
+        // 只有纯文本标记的旧安装：认得出，但版本写空串。
+        let (plan_legacy, root_legacy, _) = plan_with_subfolder("list-legacy");
+        std::fs::write(root_legacy.join(OPTISCALER_MARKER), "dxgi.dll\n").expect("marker");
+
+        let rows = installed_mods(vec![
+            scanned("新装的", &root_new),
+            scanned("老位置的", &root_old),
+            scanned("只有标记的", &root_legacy),
+            scanned("没装的", &game_tree("list-none", &[("Game.exe", 32)])),
+        ]);
+
+        assert_eq!(rows.len(), 3, "没装的游戏不该出现在列表里");
+        assert_eq!(rows[0].dir, plan.dir.display().to_string());
+        assert_eq!(rows[0].version, "0.9.4");
+        assert_eq!(rows[0].hook, "dxgi.dll");
+        assert_eq!(rows[1].dir, plan_old.root.display().to_string());
+        assert_eq!(rows[1].hook, "winmm.dll");
+        assert_eq!(rows[2].dir, plan_legacy.root.display().to_string());
+        assert_eq!(rows[2].version, "", "旧标记没记版本，不能编一个");
+        for dir in [&root_new, &root_old, &root_legacy] {
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    #[test]
+    fn legacy_marker_installs_are_recognised_and_cleaned() {
+        // 0.1.57 及以前只写一个纯文本标记（内容就是注入名），没有账本。
+        let (plan, root, _dir) = plan_with_subfolder("legacy");
+        std::fs::write(root.join("winmm.dll"), b"opti").expect("dll");
+        std::fs::write(root.join("OptiScaler.ini"), b"ini").expect("ini");
+        std::fs::write(root.join(OPTISCALER_MARKER), "winmm.dll\n").expect("marker");
+        assert!(legacy_installed(&plan), "标记在根目录也要认出来");
+        assert!(read_installed(&plan).is_none(), "旧安装没有账本");
+
+        legacy_cleanup(&root).expect("legacy cleanup");
+        assert!(!root.join("winmm.dll").exists());
+        assert!(!root.join("OptiScaler.ini").exists());
+        assert!(!marker_present(&root));
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

@@ -783,6 +783,13 @@ export function LibraryShelf<T extends Item>({
                 <p className="group-empty">
                   {modState?.dir ? text().library.modsDir(modState.dir) : text().library.modsNoDir}
                 </p>
+                {modState?.dir && (
+                  <p className="group-empty">
+                    {modState.exe
+                      ? text().library.modsExe(modState.exe)
+                      : text().library.modsNoExe}
+                  </p>
+                )}
                 <p className="group-empty">
                   {modState?.installed
                     ? modState.version
