@@ -137,6 +137,11 @@ export type ModStatus = {
   arch: string | null;
   running: boolean;
   hooks: string[];
+  /**
+   * 官方文档对这个游戏指定的注入名（没有就是 null，用默认 dxgi.dll）。
+   * 大镖客 2 就是「默认 dxgi.dll 装了不加载」的那种，面板要拿它当默认值。
+   */
+  recommendedHook: string | null;
   message: string;
 };
 

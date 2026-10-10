@@ -52,6 +52,13 @@
 > 「这次会装到游戏根目录，不生效就把文件移到主程序旁边」（`library.modsExe` / `library.modsNoExe`
 > 两条新文案，`ModStatus.exe` 是新字段）。面板其余部分没动。细则见 `STATUS.md` 的
 > 「未发布（0.1.66）：OptiScaler 装在「主程序 exe 旁边」」。
+>
+> **未发布（0.1.67）：面板的默认注入名可以不等于 `dxgi.dll`。** 真机复测（大镖客 2）暴露两件事：
+> 主程序被认成了 `Social-club-setup.exe`（Rockstar 安装器），以及**这游戏用 `dxgi.dll` 根本不加载** ——
+> 官方 per-game wiki 指定要用 `winmm.dll`。所以面板多了个 `ModStatus.recommendedHook`：**只在「还没装」
+> 时**用它当默认值（`LibraryShelf` 打开面板拿到状态后 `setModHook`），命中时状态行原文换成官方那句
+> 「要用 winmm.dll + 游戏里图形 API 改成 DirectX 12」（文案在 Rust 侧，跟着那张表走）。用户仍然可以
+> 手动改注入名 —— 它只是默认值，不是锁。细则见 `STATUS.md` 的「未发布（0.1.67）」。
 
 ## 未发布：删掉 Game Bar 小组件与 TDP 全部界面
 

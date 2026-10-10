@@ -127,6 +127,9 @@ pub struct OptiScalerStatus {
     pub running: bool,
     /// 可选的注入名，前端照着渲染选项。
     pub hooks: Vec<String>,
+    /// 官方文档对这个游戏指定的注入名（没有就是 None，用默认 dxgi.dll）。
+    /// 前端拿它当默认值 —— 大镖客 2 就属于「默认 dxgi.dll 装了也不加载」的那种。
+    pub recommended_hook: Option<String>,
     pub message: String,
 }
 
@@ -297,6 +300,7 @@ pub async fn toolbox_optiscaler_status(
             arch: None,
             running: false,
             hooks: hook_list(),
+            recommended_hook: None,
             message: err,
         })
 }
@@ -328,6 +332,7 @@ fn toolbox_optiscaler_status_now(
             arch: None,
             running: false,
             hooks: hook_list(),
+            recommended_hook: None,
             message: pick(
                 "OptiScaler 只能在 Windows 上安装。",
                 "OptiScaler can only be installed on Windows.",
@@ -461,6 +466,46 @@ fn install_plan(launch_path: &str, install_path: &str) -> Option<InstallPlan> {
 #[cfg_attr(not(windows), allow(dead_code))]
 const MAIN_EXE_DEPTH: usize = 4;
 
+/// 官方 wiki 的 per-game 页里写明「必须换注入名」的游戏。
+///
+/// 为什么要有这张表：`dxgi.dll` 不是万能的 —— 有的游戏根本不加载它，装完就是「没反应」，
+/// 用户只会以为是启动器装错了。来源（2026-10-10 核）：
+/// OptiScaler wiki「Red Dead Redemption II」页写着 **Filename: `winmm.dll`, `version.dll`**、
+/// 「Use Optiscaler as `winmm.dll` to successfully load」、「DirectX 12 is recommended,
+/// Vulkan is problematic」、AMD/Intel 还要 Fakenvapi（0.9 起已随包带，我们也会一起铺）。
+#[cfg_attr(not(windows), allow(dead_code))]
+struct KnownHook {
+    /// 游戏目录名（折叠后）或主程序名里出现这些片段就算命中。
+    keys: &'static [&'static str],
+    /// 这个游戏该用的注入名（面板默认值换掉）。
+    hook: &'static str,
+    /// 面板上原样显示的一句话：为什么不能用默认的、游戏侧还要配什么。
+    note_zh: &'static str,
+    note_en: &'static str,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+const KNOWN_HOOK_GAMES: [KnownHook; 1] = [KnownHook {
+    keys: &["rdr2", "reddeadredemption"],
+    hook: "winmm.dll",
+    note_zh: "官方文档记着这个游戏要用 winmm.dll（dxgi.dll 装了不加载），而且游戏里要把图形 API 改成 DirectX 12（Vulkan 下不工作）。注入名已经默认选好 winmm.dll。",
+    note_en: "The official docs say this game needs winmm.dll (dxgi.dll won't load), and the game's graphics API must be DirectX 12 (OptiScaler doesn't work under Vulkan). winmm.dll is preselected.",
+}];
+
+/// 这个游戏有官方指定的注入名吗（没有就 None，照默认 `dxgi.dll`）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn known_hook(plan: &InstallPlan) -> Option<&'static KnownHook> {
+    let mut clues = name_hints(&plan.root);
+    if let Some(stem) = plan.exe.as_deref().and_then(Path::file_stem) {
+        clues.push(fold_text(&stem.to_string_lossy()));
+    }
+    KNOWN_HOOK_GAMES.iter().find(|known| {
+        clues
+            .iter()
+            .any(|clue| known.keys.iter().any(|key| clue.contains(key)))
+    })
+}
+
 /// 主程序 = 官方认的那个 exe。
 ///
 /// 打分顺序照官方文档来：先认 UE 的 `*-Win64-Shipping.exe` / `*-WinGDK-Shipping.exe`
@@ -487,15 +532,50 @@ fn main_game_exe(root: &Path) -> Option<PathBuf> {
     best.map(|(_, _, exe)| exe)
 }
 
-/// 打分用的名字线索：游戏目录名（Steam 那边一般就是游戏名）。
+/// 打分用的名字线索：游戏目录名（Steam 那边一般就是游戏名）＋ 它的首字母缩写。
+///
+/// 为什么要有缩写：不少游戏的主程序就叫缩写 —— 大镖客 2 是 `RDR2.exe`，
+/// 而目录名是 `Red Dead Redemption 2`，只比全名一个都对不上，最后只能靠体积决胜，
+/// 于是同目录里的安装器（`Social-Club-Setup.exe`）被选了进来。
 #[cfg_attr(not(windows), allow(dead_code))]
 fn name_hints(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    if let Some(name) = root.file_name() {
-        let folded = fold_text(&name.to_string_lossy());
-        // 「games」「common」这类通用名不是线索，留着只会把杂七杂八的 exe 抬上来。
-        if folded.len() >= 4 && !GENERIC_DIRS.contains(&folded.as_str()) {
-            out.push(folded);
+    let Some(name) = root.file_name() else {
+        return out;
+    };
+    let raw = name.to_string_lossy().to_string();
+    let folded = fold_text(&raw);
+    // 「games」「common」这类通用名不是线索，留着只会把杂七杂八的 exe 抬上来。
+    if folded.len() >= 4 && !GENERIC_DIRS.contains(&folded.as_str()) {
+        out.push(folded);
+    }
+    let acronym = acronym_of(&raw);
+    // 缩写太短（1 个字母）就别当线索，否则能把半个目录的 exe 都匹配上。
+    if acronym.len() >= 2 && !out.contains(&acronym) {
+        out.push(acronym);
+    }
+    out
+}
+
+/// 目录名按词取首字母：`Red Dead Redemption 2` → `rdr2`，`GTA V` → `gtav`。
+/// 已经是大写的词整段留下（`GTA` 不该被压成 `g`），纯数字词也一样（`… 2` → `…2`）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn acronym_of(value: &str) -> String {
+    let mut out = String::new();
+    for word in value.split(|c: char| !c.is_ascii_alphanumeric()) {
+        if word.is_empty() {
+            continue;
+        }
+        let lower = word.to_ascii_lowercase();
+        let digits_only = lower.chars().all(|c| c.is_ascii_digit());
+        let all_caps = word.len() > 1
+            && word
+                .chars()
+                .all(|c| !c.is_ascii_alphabetic() || c.is_ascii_uppercase());
+        if digits_only || all_caps {
+            out.push_str(&lower);
+        } else if let Some(first) = lower.chars().next() {
+            out.push(first);
         }
     }
     out
@@ -513,9 +593,10 @@ const GENERIC_DIRS: [&str; 6] = [
 
 /// 装 Mod 时不该被当成「主程序所在目录」的目录名（引擎自带工具 / 安装器 / 运行库）。
 #[cfg_attr(not(windows), allow(dead_code))]
-const NOISE_DIRS: [&str; 9] = [
+const NOISE_DIRS: [&str; 13] = [
     "engine",
     "redist",
+    "redistributables",
     "_commonredist",
     "directx",
     "dotnet",
@@ -523,6 +604,9 @@ const NOISE_DIRS: [&str; 9] = [
     "crashpad",
     "tools",
     "editor",
+    "installers",
+    "prerequisites",
+    "prereqs",
 ];
 
 /// 只留字母数字并转小写：`Cyberpunk 2077` → `cyberpunk2077`。
@@ -551,7 +635,10 @@ fn score_main_exe(path: &Path, hints: &[String]) -> i32 {
     if stem.contains("shipping") {
         score += 400;
     }
-    if hints
+    // 名字跟游戏目录（或它的缩写）**一模一样**最可信：`RDR2.exe` 对 `Red Dead Redemption 2`。
+    if hints.iter().any(|hint| !hint.is_empty() && *hint == stem) {
+        score += 300;
+    } else if hints
         .iter()
         .any(|hint| !hint.is_empty() && (hint.contains(&stem) || stem.contains(hint)))
     {
@@ -607,19 +694,23 @@ fn is_noise_exe(path: &Path) -> bool {
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_default(),
     );
-    // 带版本 / 位数后缀的（`unins000`、`UnityCrashHandler64`、`vcredist_x64`）用前缀认。
-    const NOISE_PREFIXES: [&str; 6] = [
+    // 名字里带这些词的一律不是游戏主程序（安装器 / 运行库 / 社交客户端安装包）。
+    // `socialclub` 与 `setup` 是 2026-10-10 补的：大镖客 2 目录里躺着 Rockstar 的
+    // `Social-Club-Setup.exe`，体积比 `RDR2.exe` 还大，当时只按「整名等于 setup」判，
+    // 于是它被当成主程序 —— 文件全装到 `Redistributables\` 里去了，游戏当然不加载。
+    const NOISE_PARTS: [&str; 7] = [
+        "setup",
+        "install",
+        "socialclub",
+        "redist",
         "unins",
-        "unitycrashhandler",
-        "crashreporter",
-        "crashpadhandler",
         "vcredist",
-        "dxsetup",
+        "crashhandler",
     ];
-    // 这几个名字本身就是通用安装器名：整名相等才算，免得误伤真游戏。
-    const NOISE_EXACT: [&str; 5] = ["setup", "install", "uninstall", "dotnet", "redist"];
-    NOISE_PREFIXES.iter().any(|name| stem.starts_with(name))
-        || NOISE_EXACT.contains(&stem.as_str())
+    // 这几个用前缀认：后面常跟版本 / 位数（`crashreporter64`、`dotnet48`）。
+    const NOISE_PREFIXES: [&str; 3] = ["crashreporter", "crashpadhandler", "dotnet"];
+    NOISE_PARTS.iter().any(|part| stem.contains(part))
+        || NOISE_PREFIXES.iter().any(|name| stem.starts_with(name))
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +768,43 @@ fn read_installed(plan: &InstallPlan) -> Option<(ModManifest, PathBuf)> {
 #[cfg_attr(not(windows), allow(dead_code))]
 fn legacy_installed(plan: &InstallPlan) -> bool {
     marker_present(&plan.dir) || marker_present(&plan.root)
+}
+
+/// 找出游戏目录里「账本不在当前落点」的那些目录 —— 老版本装错位置留下的（0.1.58–0.1.66
+/// 把文件铺在游戏根目录、或铺在 Social-Club-Setup.exe 所在的 `Redistributables\`）。
+///
+/// 为什么要在装之前扫一遍：落点一改，那些账本**新版再也找不到**（卸载只认落点和游戏根目录），
+/// 于是它们连同几十上百 MB 的 `libxess*.dll` 一起烂在游戏目录里，备份也永远还原不回去。
+/// 这里只认**我们自己的账本文件**，清的时候也只删账本里记过的路径，不碰游戏自己的东西。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn stale_install_dirs(root: &Path, keep: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    walk_manifests(root, 3, &mut found);
+    found.into_iter().filter(|dir| dir != keep).collect()
+}
+
+/// 找出所有带账本的目录。**故意不跳 `NOISE_DIRS`**：用户那台机器上的旧账本恰好就在
+/// `Redistributables\` 里，跳掉就永远清不掉了。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn walk_manifests(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if out.len() >= 50 {
+        return;
+    }
+    if manifest_path(dir).is_file() {
+        out.push(dir.to_path_buf());
+    }
+    if depth == 0 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten().take(200) {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_manifests(&path, depth - 1, out);
+        }
+    }
 }
 
 /// 列出装了 OptiScaler 的游戏：账本优先；只有旧版标记（没账本）的也列出来，
@@ -923,6 +1051,7 @@ mod windows {
             .and_then(|plan| hook_conflict(&plan.dir, hook, manifest.as_ref()));
         let exe = plan.as_ref().and_then(|plan| plan.exe.clone());
         let arch = exe.as_deref().and_then(exe_arch_problem);
+        let known = plan.as_ref().and_then(known_hook);
         let running = !fh_core::process::pids_for_game(launch_path, install_path).is_empty();
         let message = match plan.as_ref() {
             None => pick(
@@ -950,6 +1079,11 @@ mod windows {
                     plan.dir.display()
                 ),
             ),
+            // 官方文档对这个游戏有指定注入名时，把那句话摆在最显眼的位置。
+            Some(_) if known.is_some() => {
+                let known = known.unwrap_or(&KNOWN_HOOK_GAMES[0]);
+                pick(known.note_zh, known.note_en)
+            }
             Some(_) => pick("可以安装。", "Ready to install."),
         };
         OptiScalerStatus {
@@ -969,6 +1103,7 @@ mod windows {
             arch,
             running,
             hooks: super::hook_list(),
+            recommended_hook: known.map(|known| known.hook.to_string()),
             message,
         }
     }
@@ -1027,6 +1162,16 @@ mod windows {
                 if marker_present(target) {
                     legacy_cleanup(target)?;
                 }
+            }
+        }
+        // 落点改过之后，老账本可能留在别的目录（游戏根目录、`Redistributables\` 这类），
+        // 新版再也找不到它 —— 装之前顺手清掉，别让几十上百 MB 的旧文件烂在游戏目录里。
+        for stale in stale_install_dirs(&plan.root, &dir) {
+            if let Some(found) = read_manifest(&stale) {
+                remove_installed_files(&stale, &found)?;
+            }
+            if marker_present(&stale) {
+                legacy_cleanup(&stale)?;
             }
         }
 
@@ -1768,6 +1913,21 @@ mod tests {
         root
     }
 
+    /// 同上，但把游戏目录改名成指定名字 —— 「目录名 → 主程序名」那几条规则（名字线索 / 缩写）
+    /// 只有在目录名真实时才测得准，用 `fh-toolbox-plan-xxx` 当目录名会把规则测假。
+    /// 唯一性靠**上一层**带 tag：几个测试都要叫 `Red Dead Redemption 2`，同级改名会互相踩。
+    fn named_root(tag: &str, folder: &str, files: &[(&str, usize)]) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("fh-toolbox-plan-{tag}"));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join(folder);
+        for (rel, size) in files {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("temp dir");
+            std::fs::write(&path, vec![0u8; *size]).expect("temp file");
+        }
+        root
+    }
+
     fn plan_for(root: &Path) -> InstallPlan {
         install_plan("", &root.to_string_lossy()).unwrap_or_else(|| panic!("plan for {}", root.display()))
     }
@@ -1857,6 +2017,97 @@ mod tests {
         let plan = plan_for(&root);
         assert_eq!(plan.dir, root);
         assert_eq!(plan.exe, None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn install_target_ignores_the_rockstar_installer_in_rdr2() {
+        // 真机 2026-10-10 的现场：`Red Dead Redemption 2\` 里躺着 Rockstar 的
+        // `Social-Club-Setup.exe`，它比 `RDR2.exe` 还大，于是被当成主程序 ——
+        // 文件全装进 `Redistributables\`，游戏当然不加载（用户看到的
+        // 「目录找对了但没生效」）。两条规则缺一不可：安装器类 exe 不当候选、
+        // 目录名的缩写（Red Dead Redemption 2 → rdr2）要能对上主程序名。
+        let root = named_root(
+            "rdr2",
+            "Red Dead Redemption 2",
+            &[
+                ("RDR2.exe", 4096),
+                ("PlayRDR2.exe", 1024),
+                ("Redistributables/Social-Club-Setup.exe", 65536),
+                ("x64/oo2core_5_win64.dll", 512),
+            ],
+        );
+        let plan = plan_for(&root);
+        assert_eq!(plan.dir, root, "主程序在游戏根目录，落点就该是根目录");
+        assert_eq!(exe_name(&plan), "RDR2.exe");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn stale_install_in_the_wrong_folder_is_found_and_cleaned() {
+        // 真机现场：旧版把文件装进了 `Redistributables\`（因为 Social-Club-Setup.exe 在那儿）。
+        // 落点改成游戏根目录之后，那份账本新版再也找不到 —— 装之前必须扫出来清掉，
+        // 否则那 18 个文件（含 70 MB 的 libxess.dll）永远烂在游戏目录里，备份也还原不回去。
+        let root = named_root(
+            "stale",
+            "Red Dead Redemption 2",
+            &[
+                ("RDR2.exe", 4096),
+                ("Redistributables/Social-Club-Setup.exe", 1024),
+            ],
+        );
+        let stale = root.join("Redistributables");
+        std::fs::write(stale.join("dxgi.dll"), b"opti").expect("hook dll");
+        std::fs::write(stale.join("OptiScaler.ini"), b"ini").expect("ini");
+        write_manifest(
+            &stale,
+            &manifest_for("dxgi.dll", &["dxgi.dll", "OptiScaler.ini"], &[]),
+        )
+        .expect("manifest");
+
+        let plan = plan_for(&root);
+        assert_eq!(plan.dir, root, "新版落点是游戏根目录");
+        let stale_dirs = stale_install_dirs(&plan.root, &plan.dir);
+        assert_eq!(stale_dirs, vec![stale.clone()]);
+
+        for dir in stale_dirs {
+            let found = read_manifest(&dir).expect("stale manifest");
+            remove_installed_files(&dir, &found).expect("clean stale");
+        }
+        assert!(!stale.join("dxgi.dll").exists());
+        assert!(!stale.join("OptiScaler.ini").exists());
+        assert!(!manifest_path(&stale).exists());
+        assert!(
+            stale.join("Social-Club-Setup.exe").is_file(),
+            "游戏自己的文件一个都不能动"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn known_hook_games_override_the_default() {
+        // 大镖客 2：官方 wiki 的 per-game 页写着要用 winmm.dll（dxgi.dll 装了不加载）。
+        let root = named_root("rdr2-hook", "Red Dead Redemption 2", &[("RDR2.exe", 4096)]);
+        let plan = plan_for(&root);
+        let known = known_hook(&plan).expect("大镖客 2 该命中官方指定注入名");
+        assert_eq!(known.hook, "winmm.dll");
+        assert!(!known.note_zh.is_empty() && !known.note_en.is_empty());
+        // 别的游戏不受影响：照默认 dxgi.dll。
+        let other = named_root("hades-hook", "Hades", &[("Hades.exe", 4096)]);
+        assert!(known_hook(&plan_for(&other)).is_none());
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&other).ok();
+    }
+
+    #[test]
+    fn acronym_hint_matches_short_exe_names() {
+        // 目录名 → 缩写：主程序叫缩写时全靠它（`RDR2.exe` 对 `Red Dead Redemption 2`）。
+        assert_eq!(acronym_of("Red Dead Redemption 2"), "rdr2");
+        assert_eq!(acronym_of("GTA V"), "gtav");
+        // 纯数字词整段留下，别被压成一位。
+        assert_eq!(acronym_of("Cyberpunk 2077"), "c2077");
+        let root = named_root("acronym", "Red Dead Redemption 2", &[("RDR2.exe", 16)]);
+        assert!(name_hints(&root).contains(&"rdr2".to_string()));
         std::fs::remove_dir_all(&root).ok();
     }
 

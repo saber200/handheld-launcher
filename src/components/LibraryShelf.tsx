@@ -1166,6 +1166,11 @@ export function LibraryShelf<T extends Item>({
                         setModLoading(true);
                         void onModStatus(id, DEFAULT_MOD_HOOK).then((state) => {
                           setModState(state);
+                          // 官方文档对这个游戏指定了别的注入名就用它当默认值
+                          // （大镖客 2 是 winmm.dll：默认的 dxgi.dll 装了根本不加载）。
+                          if (state?.recommendedHook && !state.installed) {
+                            setModHook(state.recommendedHook);
+                          }
                           setModLoading(false);
                         });
                       }

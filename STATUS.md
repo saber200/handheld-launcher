@@ -5,6 +5,8 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
+**未发布（0.1.67）：OptiScaler 在大镖客 2 上「装了没反应」的两个根因** —— ① **主程序认错了**：面板认成了 `Social-club-setup.exe`（Rockstar 安装器，躺在 `Redistributables\`、体积比 `RDR2.exe` 还大），文件全铺错目录；已修判据（安装器类 exe 与 `Redistributables` 这类目录一律排除、目录名缩写 `Red Dead Redemption 2 → rdr2` 也算线索），并加了「把游戏目录里我们自己的旧账本扫出来清干净」。② **这游戏本来就不能用 `dxgi.dll`**：官方 per-game wiki 写明要用 `winmm.dll` + 游戏里选 DirectX 12 + Fakenvapi，现在面板会把注入名默认选成 `winmm.dll` 并把这两句写进提示行。细则见下面「未发布（0.1.67）」。
+
 **未发布（0.1.66）：OptiScaler 落点修正** —— 拖了五版的真机问题（`FEEDBACK.md` v0.1.58 问题 1「装不上」）这次照用户当时的要求先读了官方文档，根因是**装错了地方**：官方要求「全部文件解压到**主程序 exe 旁边**」，旧实现只认扫描出来的 `install_path`（Steam 的 `steamapps\common\<游戏>` = 游戏根目录），主程序在子目录的游戏（UE 的 `Binaries\Win64`、Cyberpunk 的 `bin\x64`、HITMAN 3 的 `Retail`）装完游戏根本不会加载。文件与拷贝规则核对后确认本来就是对的（官方包 SHA-256 对得上、23 项结构逐条核过），这次只改落点；卸载 / 还原（含 0.1.5x 装在根目录那批）一起核了。细则见下面「未发布（0.1.66）：OptiScaler 装在「主程序 exe 旁边」」。
 
 **最新（0.1.65）：Game Bar 小组件与 TDP 全部界面已从仓库删掉** —— 一句话：界面上不再有小组件、也不再能调瓦数，只留启动器本身的功能（游戏库 / 软件库 / 工具箱 / 文件 / 设置）。细则见下面「未发布（0.1.65）：删掉 Game Bar 小组件与 TDP 全部界面」。
@@ -90,6 +92,52 @@
   真机也一次没装过这一版。装机时要看的就一件事 —— **小组件那几处入口消失后其余页面照旧**
   （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
   （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
+
+## 未发布（0.1.67）：大镖客 2 上「装了没反应」的两个根因（2026-10-10，真机复测 v0.1.66）
+
+0.1.66 把落点修对之后，用户在荒野大镖客 2 上复测：**面板显示的主程序是 `Social-club-setup.exe`**，
+进游戏按 `Insert` 依旧没反应。查下来是两个**互不相干**的原因叠在一起。
+
+### ① 启动器把主程序认错了（我们的 bug）
+
+`Red Dead Redemption 2\Redistributables\Social-Club-Setup.exe` 是 Rockstar 的 Social Club 安装器，
+**体积比 `RDR2.exe` 还大**。旧判据只按「整名等于 `setup`」排除安装器（`socialclubsetup` 不匹配），
+`Engine` 那类目录名表里也没有 `redistributables`，于是它进了候选；打分环节里 `RDR2.exe` 又一个线索
+都对不上（目录名 `Red Dead Redemption 2` 折叠后是 `reddeadredemption2`，跟 `rdr2` 不沾边），
+两边都是 0 分 → **体积决胜，安装器赢了**。18 个文件全铺进 `Redistributables\`，游戏一个都不加载 ——
+这就是用户看到的「目录看着找对了（确实在大镖客目录里）但没生效」。
+
+修了三处，并各配一条单测：
+
+- **安装器类 exe 一律不当主程序**：名字里带 `setup` / `install` / `socialclub` / `redist` / `unins` /
+  `vcredist` / `crashhandler` 的一律排除（`crashreporter*` / `crashpadhandler*` / `dotnet*` 用前缀）。
+- **目录名的首字母缩写也算线索**：`Red Dead Redemption 2` → `rdr2`（`GTA V` → `gtav`，纯数字词整段留下），
+  且**完全相等**比包含关系加分更多 —— `RDR2.exe` 这样就能凭名字直接胜出，不必再靠体积赌。
+- **`Redistributables` / `Installers` / `Prerequisites` 这类目录不进**（和 `Engine` / `redist` 一起）。
+- 另外：装之前会把游戏目录里**我们自己的旧账本**（不管落在哪个子目录，深度 3 以内）扫出来清干净。
+  落点一改，老账本新版就再也找不到，那 18 个文件（含 70 MB 的 `libxess.dll`）会永远烂在游戏里、
+  备份也还原不回去 —— 用户那台机器上的旧账本恰好就在 `Redistributables\` 里。
+
+### ② 大镖客 2 本来就不能用 `dxgi.dll`（官方文档写明的）
+
+OptiScaler wiki 的 per-game 页「Red Dead Redemption II」（维护者 TheRazerMD / nitec）写着：
+**Filename: `winmm.dll`, `version.dll`**、「Use Optiscaler as `winmm.dll` to successfully load」、
+「**DirectX 12 is recommended, Vulkan is problematic**」、AMD/Intel 还要 Fakenvapi。
+同一现象在官方 issue #333（"Can't get UI to show in RDR2"）里也是这么收尾的：换 `winmm.dll` +
+游戏里选 DirectX 12 + Fakenvapi，重启游戏后 DLSS 选项才出现、`Insert` 才出菜单。
+
+于是 `toolbox.rs` 加了一张**极小的**「官方指定注入名」表（目前只有大镖客 2 这一条，键是目录名或
+主程序名的片段，注释里记着来源与核对日期）：命中就把面板默认注入名换成 `winmm.dll`，并把
+「游戏里图形 API 要改成 DirectX 12（Vulkan 下不工作）」写进提示行。`OptiScalerStatus` 新增
+`recommendedHook`，前端只在「还没装」时拿它当默认值。
+
+### 本机验证与边界
+
+- `cargo test --workspace` **67 项全过**（toolbox 24 项，本次新增 3 项：大镖客那个目录里三选一必须选中
+  `RDR2.exe`、`Redistributables\` 里的旧账本要被扫出来清掉且不动游戏自己的文件、官方指定注入名命中）、
+  `clippy` 0 error、`npm run build` / `audit-acl` / `audit-ui` 全过。
+- **没验证的**：真机。验收一条 —— 游戏里改成 DirectX 12、重装 Mod（注入名自动是 `winmm.dll`）、
+  进游戏按 `Insert` 出菜单；AMD 卡还会多出 DLSS 相关选项（Fakenvapi 在起作用）。
 
 ## 未发布（0.1.66）：OptiScaler 装在「主程序 exe 旁边」，不是游戏根目录（2026-10-09，`FEEDBACK.md` v0.1.58 问题 1）
 
