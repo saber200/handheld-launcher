@@ -53,6 +53,15 @@
 > 两条新文案，`ModStatus.exe` 是新字段）。面板其余部分没动。细则见 `STATUS.md` 的
 > 「未发布（0.1.66）：OptiScaler 装在「主程序 exe 旁边」」。
 >
+> **未发布（0.1.68）：0.1.67 那条「按游戏名指定注入名」的做法已经删掉了。** 用户的原话是
+> 「你不能每次换一个游戏就出问题就要重新修改一次」—— 所以面板不再认游戏名，改成认**游戏二进制**：
+> `ModStatus.hookCandidates` 是读游戏 PE 导入表算出来的「它真的会加载的名字」（第一个当默认值，
+> 按钮也按这个顺序排），`logSeen` 是**装完之后到底加载上没有**（看 OptiScaler 的日志有没有新出现，
+> 装的时候会自动把 `LogToFile` 打开），`triedHooks` + `suggestedHook` 让面板直接给出
+> 「换成 X 重装」的按钮 —— 装完没反应时用户自己按一下就换下一个名字，不用等我们发版。
+> 面板文案：`library.modsCandidates` / `modsLoaded` / `modsNotLoaded` / `modsSwitchTo` / `modsTried`。
+> 细则见 `STATUS.md` 的「未发布（0.1.68）」。
+>
 > **未发布（0.1.67）：面板的默认注入名可以不等于 `dxgi.dll`。** 真机复测（大镖客 2）暴露两件事：
 > 主程序被认成了 `Social-club-setup.exe`（Rockstar 安装器），以及**这游戏用 `dxgi.dll` 根本不加载** ——
 > 官方 per-game wiki 指定要用 `winmm.dll`。所以面板多了个 `ModStatus.recommendedHook`：**只在「还没装」

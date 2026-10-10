@@ -177,8 +177,9 @@
 - 顺带记一句：卸载路径（账本 + `.bak` 还原）是否也受影响要一起核，别只改装不改卸 —— **已核完**：老安装（0.1.5x 把文件铺在游戏根目录、账本也写在那儿）新版认得出、照**原目录**卸干净并把备份还原回去；「原地更新」的判据也收紧了 —— 只有「账本就在这个目录 + 注入名相同」才不重新备份，否则会把 `.bak` 里那份游戏原文件覆盖掉、从此再也还原不回来。
 - **2026-10-10 真机复测（v0.1.66，游戏是荒野大镖客 2）：目录看着对了，还是没生效。** 查下来是**两个独立原因叠在一起**：
   - **① 我们把主程序认错了（启动器的 bug）**：面板上写的主程序是 `Social-club-setup.exe` —— 那是 Rockstar 的 Social Club 安装器，躺在游戏目录的 `Redistributables\` 里，体积比 `RDR2.exe` 还大。判据当时只按「整名等于 setup」排除安装器，`socialclubsetup` 不匹配，于是它赢了体积决胜 —— 18 个文件全铺进 `Redistributables\`，游戏当然一个都不加载。已修：名字里带 `setup` / `install` / `socialclub` / `redist` 的一律不当主程序，`Redistributables` 这类目录也不进；同时把**目录名的首字母缩写**也算成线索（`Red Dead Redemption 2` → `rdr2`），这样 `RDR2.exe` 能凭名字直接胜出，不用再靠体积赌。单测就把这个现场钉住了（`RDR2.exe` / `PlayRDR2.exe` / `Redistributables\Social-Club-Setup.exe` 三个放在一起，必须选 RDR2.exe）。另外：装之前会把游戏目录里**我们自己的旧账本**（不管落在哪个子目录）扫出来清干净，免得老版本铺错位置的那几十上百 MB 永远烂在游戏里、备份也还原不回去。
-  - **② 这个游戏本来就不能用 `dxgi.dll`（官方文档写着的）**：OptiScaler wiki 的 per-game 页「Red Dead Redemption II」写明 **Filename: `winmm.dll`, `version.dll`**、「Use Optiscaler as `winmm.dll` to successfully load」、「**DirectX 12 is recommended, Vulkan is problematic**」，AMD/Intel 还需要 Fakenvapi（0.9 起随包带，我们也会一起铺）。现在面板认得出这个游戏：注入名**默认就选 winmm.dll**，并把「游戏里图形 API 要改成 DirectX 12」写在提示行里（来源与日期都记在 `toolbox.rs` 的注释里）。
-  - **真机怎么试（v0.1.67 起）**：先在游戏里把图形 API 改成 **DirectX 12** → 退出游戏 → 卡片菜单「安装 Mod / 工具」（注入名应该已经是 `winmm.dll`）→ 装完进游戏按 `Insert`。AMD 卡进游戏后 DLSS 相关选项应该冒出来（那是 Fakenvapi 在起作用）。
+  - **② 这个游戏本来就不能用 `dxgi.dll`（官方文档写着的）**：OptiScaler wiki 的 per-game 页「Red Dead Redemption II」写明 **Filename: `winmm.dll`, `version.dll`**、「Use Optiscaler as `winmm.dll` to successfully load」、「**DirectX 12 is recommended, Vulkan is problematic**」，AMD/Intel 还需要 Fakenvapi（0.9 起随包带，我们也会一起铺）。
+  - **③ 真正要改的是机制，不是这一个游戏（用户 2026-10-10 原话：「你不能每次换一个游戏就出问题就要重新修改一次」）**：按游戏名打表那条路走不通 —— 每个新游戏都要等我们发一版。所以 0.1.68 起改成**让程序自己看事实**：① **读游戏自己的 PE 导入表**（主程序，Unity 那种壳 exe 还会接着看同目录的 DLL）挑出「这个游戏真的会加载」的注入名当默认值，并按官方优先顺序排；② **装完自动打开 OptiScaler 的日志**，之后面板只看日志有没有新出现，就能断定**到底加载上没有**（这是唯一能自动判定成败的信号）；③ 账本记下**试过哪些名字**，没加载上时面板直接给出「换成 X 重装」的按钮，按一下就是下一个名字 —— 用户自己两三下就能试出来，不用报 bug、不用等发版。原来那张只有大镖客 2 一张牌的「按游戏名打表」已经删掉。
+  - **真机怎么试（v0.1.68 起）**：游戏里先把图形 API 改成 **DirectX 12**（这条是游戏侧设置，任何工具都代替不了）→ 卡片菜单「安装 Mod / 工具」，看面板上「这个游戏会加载：…」那行给出的默认注入名 → 装完进游戏跑一次 → 回面板看是「已经加载成功 ✓」还是给出下一个该试的名字。AMD 卡进游戏后 DLSS 相关选项应该冒出来（那是 Fakenvapi 在起作用）。
 
 ## 问题 2（下一轮：界面大改，材料待补）
 

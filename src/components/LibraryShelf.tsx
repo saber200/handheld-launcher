@@ -797,30 +797,96 @@ export function LibraryShelf<T extends Item>({
                       : text().library.modsInstalledLegacy
                     : text().library.modsHookHint}
                 </p>
-                {!modState?.installed && (
+                {/*
+                  这个游戏会加载哪些名字：读它自己的导入表算出来的（不是按游戏名打表），
+                  所以「换一个游戏就要改一次代码」这件事不再发生 —— 用户看到的默认值就是对的。
+                */}
+                {!modState?.installed && (modState?.hookCandidates?.length ?? 0) > 0 && (
+                  <p className="group-empty">
+                    {text().library.modsCandidates((modState?.hookCandidates ?? []).join(" / "))}
+                  </p>
+                )}
+                {/* 装完之后的实况：日志有没有出现，就是「到底加载上没有」的唯一硬证据。 */}
+                {modState?.installed && (
+                  <p className="group-empty">
+                    {modState.logSeen
+                      ? text().library.modsLoaded
+                      : text().library.modsNotLoaded}
+                  </p>
+                )}
+                {/*
+                  注入名按钮：没装时是「选哪个装」，装了但没加载上时是「换一个再试」——
+                  后者才是关键：用户不用等我们改代码，自己点一下就换下一个名字。
+                */}
+                {(!modState?.installed || !modState.logSeen) && (
                   <div className="library-tools">
-                    {(modState?.hooks?.length ? modState.hooks : [DEFAULT_MOD_HOOK]).map((hook) => (
+                    {(() => {
+                      // 会加载的名字排前面（它们才可能生效），其余按官方顺序跟在后面。
+                      const all = modState?.hooks?.length ? modState.hooks : [DEFAULT_MOD_HOOK];
+                      const listed = modState?.hookCandidates ?? [];
+                      const ordered = [
+                        ...listed,
+                        ...all.filter((hook) => !listed.includes(hook)),
+                      ];
+                      return ordered.map((hook) => (
+                        <button
+                          key={hook}
+                          type="button"
+                          className={`library-tool${hook === modHook ? " is-current" : ""}`}
+                          data-focusable
+                          onClick={() => {
+                            setModHook(hook);
+                            if (!onModStatus) return;
+                            const id = modFor.id;
+                            setModLoading(true);
+                            // 换注入名要重新问一次：同名文件是否被占用取决于选哪个名字。
+                            void onModStatus(id, hook).then((state) => {
+                              setModState(state);
+                              setModLoading(false);
+                            });
+                          }}
+                        >
+                          {hook}
+                          {(modState?.triedHooks ?? []).includes(hook) ? " ·✗" : ""}
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                )}
+                {/* 一键换名重装：把「下一个该试哪个」直接摆到按钮上，用户不用理解原理，
+                    也不用等我们发版 —— 按一下就是「换成这个名字再装一遍」。 */}
+                {modState?.installed &&
+                  !modState.logSeen &&
+                  modState.suggestedHook &&
+                  modState.suggestedHook !== modHook &&
+                  onInstallMods && (
+                    <div className="library-tools">
                       <button
-                        key={hook}
                         type="button"
-                        className={`library-tool${hook === modHook ? " is-current" : ""}`}
+                        className="library-tool is-current"
                         data-focusable
                         onClick={() => {
-                          setModHook(hook);
-                          if (!onModStatus) return;
                           const id = modFor.id;
-                          setModLoading(true);
-                          // 换注入名要重新问一次：同名文件是否被占用取决于选哪个名字。
-                          void onModStatus(id, hook).then((state) => {
-                            setModState(state);
-                            setModLoading(false);
-                          });
+                          const next = modState.suggestedHook as string;
+                          setModHook(next);
+                          setModBusy(true);
+                          void Promise.resolve(onInstallMods(id, next, modTag ?? undefined)).then(
+                            (message) => {
+                              setHint(message);
+                              setModBusy(false);
+                              if (onModStatus) void onModStatus(id, next).then(setModState);
+                            },
+                          );
                         }}
                       >
-                        {hook}
+                        {text().library.modsSwitchTo(modState.suggestedHook)}
                       </button>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+                {modState?.triedHooks && modState.triedHooks.length > 0 && (
+                  <p className="group-empty">
+                    {text().library.modsTried(modState.triedHooks.join(" → "))}
+                  </p>
                 )}
                 {modState?.arch && (
                   <p className="group-empty">{text().library.modsArch(modState.arch)}</p>
@@ -1166,10 +1232,10 @@ export function LibraryShelf<T extends Item>({
                         setModLoading(true);
                         void onModStatus(id, DEFAULT_MOD_HOOK).then((state) => {
                           setModState(state);
-                          // 官方文档对这个游戏指定了别的注入名就用它当默认值
-                          // （大镖客 2 是 winmm.dll：默认的 dxgi.dll 装了根本不加载）。
-                          if (state?.recommendedHook && !state.installed) {
-                            setModHook(state.recommendedHook);
+                          // 默认值取「这个游戏真的会加载」的第一个名字（读它自己的导入表得出的），
+                          // 认不出来才是官方的 dxgi.dll —— 不是按游戏名打表。
+                          if (state?.defaultHook && !state.installed) {
+                            setModHook(state.defaultHook);
                           }
                           setModLoading(false);
                         });

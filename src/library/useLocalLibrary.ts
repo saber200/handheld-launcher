@@ -138,10 +138,18 @@ export type ModStatus = {
   running: boolean;
   hooks: string[];
   /**
-   * 官方文档对这个游戏指定的注入名（没有就是 null，用默认 dxgi.dll）。
-   * 大镖客 2 就是「默认 dxgi.dll 装了不加载」的那种，面板要拿它当默认值。
+   * 这个游戏**会加载**的注入名 —— 读游戏自己的 PE 导入表算出来的，按官方优先顺序。
+   * 空 = 从导入表看不出来，那就照官方顺序试。默认值取这里的第一个。
    */
-  recommendedHook: string | null;
+  hookCandidates: string[];
+  /** 面板该默认选哪个：`hookCandidates[0]`，认不出就是 dxgi.dll。 */
+  defaultHook: string;
+  /** 已经试过、没成功的注入名（账本里记着）。 */
+  triedHooks: string[];
+  /** 下一个该试的；七个都试完了是 null。 */
+  suggestedHook: string | null;
+  /** 上次装完之后游戏跑起来，OptiScaler 到底加载上没有（看日志有没有新出现）。 */
+  logSeen: boolean;
   message: string;
 };
 

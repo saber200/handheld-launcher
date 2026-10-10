@@ -252,6 +252,11 @@ export type Catalog = {
     modsDir: (dir: string) => string;
     modsExe: (name: string) => string;
     modsNoExe: string;
+    modsCandidates: (names: string) => string;
+    modsLoaded: string;
+    modsNotLoaded: string;
+    modsSwitchTo: (hook: string) => string;
+    modsTried: (hooks: string) => string;
     modsNoDir: string;
     modsInstalled: (version: string, hook: string) => string;
     modsInstalledLegacy: string;
@@ -963,6 +968,11 @@ export const zh: Catalog = {
     modsDir: (dir) => `安装到：${dir}`,
     modsExe: (name) => `主程序：${name}（官方要求装在它旁边）`,
     modsNoExe: "没认出主程序 exe，这次会装到游戏根目录；如果游戏不生效，把这些文件移到主程序旁边。",
+    modsCandidates: (names) => `这个游戏会加载：${names} —— 只有这些名字才会生效（读游戏自己的导入表得出来的）。`,
+    modsLoaded: "上次游戏运行：OptiScaler 已经加载成功了 ✓",
+    modsNotLoaded: "还没看到加载记录。没进过游戏就先跑一次；跑过还是没菜单，就点下面换个注入名重装（不用等更新）。",
+    modsSwitchTo: (hook) => `换成 ${hook} 重装（下一个该试的）`,
+    modsTried: (hooks) => `已经试过：${hooks}`,
     modsNoDir: "找不到游戏目录。Steam 游戏请先在卡片菜单里用「修改路径」选中游戏的 exe。",
     modsInstalled: (version, hook) => `已安装 v${version}（${hook}）`,
     modsInstalledLegacy: "已安装（旧版装的，没有完整记录）",
@@ -1650,6 +1660,11 @@ export const en: Catalog = {
     modsDir: (dir) => `Installs into: ${dir}`,
     modsExe: (name) => `Main executable: ${name} (the mod goes next to it, as the docs require)`,
     modsNoExe: "Couldn't identify the main exe, so files go to the game root; if the mod doesn't load, move them next to the game exe.",
+    modsCandidates: (names) => `This game loads: ${names} — only these names can take effect (read from the game's own import table).`,
+    modsLoaded: "Last game run: OptiScaler loaded successfully ✓",
+    modsNotLoaded: "No load record yet. Run the game once; if the menu still doesn't show, switch to the suggested hook name below — no app update needed.",
+    modsSwitchTo: (hook) => `Switch to ${hook} and reinstall (next to try)`,
+    modsTried: (hooks) => `Already tried: ${hooks}`,
     modsNoDir: "Couldn't find the game folder. For Steam games, pick the game exe via \"Change path\" first.",
     modsInstalled: (version, hook) => `Installed v${version} (${hook})`,
     modsInstalledLegacy: "Installed (legacy install, no full record)",

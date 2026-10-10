@@ -94,6 +94,10 @@ pub struct ModManifest {
     /// 安装时新建的目录（相对路径），卸载时若已空则删掉。
     #[serde(default)]
     pub dirs: Vec<String>,
+    /// 这个游戏目录里**试过**哪些注入名（含当前这个）。换名字重装会接着记，
+    /// 所以能算出「下一个该试哪个」—— 用户不必自己记，也不必等我们改代码。
+    #[serde(default)]
+    pub tried: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,9 +131,18 @@ pub struct OptiScalerStatus {
     pub running: bool,
     /// 可选的注入名，前端照着渲染选项。
     pub hooks: Vec<String>,
-    /// 官方文档对这个游戏指定的注入名（没有就是 None，用默认 dxgi.dll）。
-    /// 前端拿它当默认值 —— 大镖客 2 就属于「默认 dxgi.dll 装了也不加载」的那种。
-    pub recommended_hook: Option<String>,
+    /// 这个游戏**会加载**的注入名（读它自己的 PE 导入表得出，按官方优先顺序）。
+    /// 空 = 从导入表看不出来（照官方顺序试）。这是「不用按游戏打表」的那条正路。
+    pub hook_candidates: Vec<String>,
+    /// 面板该默认选哪个：会加载的名字里的第一个，认不出就是官方默认 `dxgi.dll`。
+    pub default_hook: String,
+    /// 已经试过（没成功）的注入名，账本里记着。
+    pub tried_hooks: Vec<String>,
+    /// 下次该试哪个（没试过的、且不是当前这个）；全试完了就是 None。
+    pub suggested_hook: Option<String>,
+    /// 上次装完之后，游戏跑起来**加载到了** OptiScaler 吗（看 `OptiScaler.log` 有没有新出现）。
+    /// 这是唯一能自动判定「到底生效没有」的信号，装了必开日志（见 `enable_log`）。
+    pub log_seen: bool,
     pub message: String,
 }
 
@@ -300,7 +313,11 @@ pub async fn toolbox_optiscaler_status(
             arch: None,
             running: false,
             hooks: hook_list(),
-            recommended_hook: None,
+            hook_candidates: Vec::new(),
+            default_hook: OPTISCALER_DEFAULT_HOOK.to_string(),
+            tried_hooks: Vec::new(),
+            suggested_hook: None,
+            log_seen: false,
             message: err,
         })
 }
@@ -332,7 +349,11 @@ fn toolbox_optiscaler_status_now(
             arch: None,
             running: false,
             hooks: hook_list(),
-            recommended_hook: None,
+            hook_candidates: Vec::new(),
+            default_hook: OPTISCALER_DEFAULT_HOOK.to_string(),
+            tried_hooks: Vec::new(),
+            suggested_hook: None,
+            log_seen: false,
             message: pick(
                 "OptiScaler 只能在 Windows 上安装。",
                 "OptiScaler can only be installed on Windows.",
@@ -465,46 +486,6 @@ fn install_plan(launch_path: &str, install_path: &str) -> Option<InstallPlan> {
 /// UE 的主程序在第 3 层（`<游戏>\<代号>\Binaries\Win64`），再深就基本是工具 / 运行库了。
 #[cfg_attr(not(windows), allow(dead_code))]
 const MAIN_EXE_DEPTH: usize = 4;
-
-/// 官方 wiki 的 per-game 页里写明「必须换注入名」的游戏。
-///
-/// 为什么要有这张表：`dxgi.dll` 不是万能的 —— 有的游戏根本不加载它，装完就是「没反应」，
-/// 用户只会以为是启动器装错了。来源（2026-10-10 核）：
-/// OptiScaler wiki「Red Dead Redemption II」页写着 **Filename: `winmm.dll`, `version.dll`**、
-/// 「Use Optiscaler as `winmm.dll` to successfully load」、「DirectX 12 is recommended,
-/// Vulkan is problematic」、AMD/Intel 还要 Fakenvapi（0.9 起已随包带，我们也会一起铺）。
-#[cfg_attr(not(windows), allow(dead_code))]
-struct KnownHook {
-    /// 游戏目录名（折叠后）或主程序名里出现这些片段就算命中。
-    keys: &'static [&'static str],
-    /// 这个游戏该用的注入名（面板默认值换掉）。
-    hook: &'static str,
-    /// 面板上原样显示的一句话：为什么不能用默认的、游戏侧还要配什么。
-    note_zh: &'static str,
-    note_en: &'static str,
-}
-
-#[cfg_attr(not(windows), allow(dead_code))]
-const KNOWN_HOOK_GAMES: [KnownHook; 1] = [KnownHook {
-    keys: &["rdr2", "reddeadredemption"],
-    hook: "winmm.dll",
-    note_zh: "官方文档记着这个游戏要用 winmm.dll（dxgi.dll 装了不加载），而且游戏里要把图形 API 改成 DirectX 12（Vulkan 下不工作）。注入名已经默认选好 winmm.dll。",
-    note_en: "The official docs say this game needs winmm.dll (dxgi.dll won't load), and the game's graphics API must be DirectX 12 (OptiScaler doesn't work under Vulkan). winmm.dll is preselected.",
-}];
-
-/// 这个游戏有官方指定的注入名吗（没有就 None，照默认 `dxgi.dll`）。
-#[cfg_attr(not(windows), allow(dead_code))]
-fn known_hook(plan: &InstallPlan) -> Option<&'static KnownHook> {
-    let mut clues = name_hints(&plan.root);
-    if let Some(stem) = plan.exe.as_deref().and_then(Path::file_stem) {
-        clues.push(fold_text(&stem.to_string_lossy()));
-    }
-    KNOWN_HOOK_GAMES.iter().find(|known| {
-        clues
-            .iter()
-            .any(|clue| known.keys.iter().any(|key| clue.contains(key)))
-    })
-}
 
 /// 主程序 = 官方认的那个 exe。
 ///
@@ -714,6 +695,203 @@ fn is_noise_exe(path: &Path) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// 注入名怎么选（读游戏自己的 PE 导入表）
+//
+// 这是「换一个游戏就出一次问题」的正解：OptiScaler 是**代理 DLL**，只有当游戏真的加载了
+// 那个名字的 DLL 时才生效。与其让用户把 7 个官方名字轮流试一遍（大镖客 2 就是 dxgi.dll
+// 不加载、winmm.dll 才加载），不如直接读游戏自己的导入表 —— 它 import 了哪个，哪个就一定
+// 会在进程启动时被加载，我们顶上去就能生效。这样不需要任何「按游戏名打表」的知识，
+// 也不需要在用户报 bug 之后一版一版地补。
+// ---------------------------------------------------------------------------
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn u16_at(bytes: &[u8], offset: usize) -> Option<u16> {
+    bytes
+        .get(offset..offset + 2)
+        .map(|slice| u16::from_le_bytes([slice[0], slice[1]]))
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    bytes
+        .get(offset..offset + 4)
+        .map(|slice| u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+/// 读 PE 的**导入表**：这个 exe / dll 一启动，Windows 会连带加载哪些 DLL（小写、去重）。
+///
+/// 自己解析是因为要的是「按文件事实决定」，而不是猜：结果与 `objdump -p` 的输出逐个核对过
+/// （PE32 的 7zr.exe 与 PE32+ 的 handle64.exe 各一个）。任何解析不出来的情况都返回空 ——
+/// 认不出就不说话，绝不让一个坏文件把安装流程带进坑里。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn pe_imports(bytes: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+        return out;
+    }
+    let lfanew = u32_at(bytes, 0x3c).unwrap_or(0) as usize;
+    if bytes.get(lfanew..lfanew + 4) != Some(b"PE\0\0") {
+        return out;
+    }
+    let coff = lfanew + 4;
+    let sections = u16_at(bytes, coff + 2).unwrap_or(0) as usize;
+    let opt_size = u16_at(bytes, coff + 16).unwrap_or(0) as usize;
+    let opt = coff + 20;
+    // 数据目录的起点随 PE32 / PE32+ 变；导入表是第 2 项（索引 1）。
+    let dir = match u16_at(bytes, opt).unwrap_or(0) {
+        0x10b => opt + 96,
+        0x20b => opt + 112,
+        _ => return out,
+    };
+    let import_rva = u32_at(bytes, dir + 8).unwrap_or(0) as usize;
+    if import_rva == 0 {
+        return out;
+    }
+    let section_table = opt + opt_size;
+    let rva_to_offset = |rva: usize| -> Option<usize> {
+        for index in 0..sections {
+            let head = section_table + index * 40;
+            let virtual_size = u32_at(bytes, head + 8)? as usize;
+            let virtual_address = u32_at(bytes, head + 12)? as usize;
+            let raw_size = u32_at(bytes, head + 16)? as usize;
+            let raw = u32_at(bytes, head + 20)? as usize;
+            let span = virtual_size.max(raw_size);
+            if rva >= virtual_address && rva < virtual_address + span {
+                return Some(rva - virtual_address + raw);
+            }
+        }
+        None
+    };
+    let Some(mut descriptor) = rva_to_offset(import_rva) else {
+        return out;
+    };
+    // 描述符数组以全 0 结束；上限 64 个只是防坏文件跑飞。
+    for _ in 0..64 {
+        if (0..5).all(|index| u32_at(bytes, descriptor + index * 4).unwrap_or(0) == 0) {
+            break;
+        }
+        let name_rva = u32_at(bytes, descriptor + 12).unwrap_or(0) as usize;
+        if let Some(offset) = rva_to_offset(name_rva) {
+            let end = bytes[offset..]
+                .iter()
+                .position(|byte| *byte == 0)
+                .map(|len| offset + len)
+                .unwrap_or(offset);
+            let name = String::from_utf8_lossy(&bytes[offset..end])
+                .trim()
+                .to_ascii_lowercase();
+            if !name.is_empty() && !out.contains(&name) {
+                out.push(name);
+            }
+        }
+        descriptor += 20;
+    }
+    out
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_pe_imports(path: &Path, cap: u64) -> Vec<String> {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return Vec::new();
+    };
+    if meta.len() > cap {
+        return Vec::new();
+    }
+    match std::fs::read(path) {
+        Ok(bytes) => pe_imports(&bytes),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// 主程序可以有几百 MB（大镖客 2 的 RDR2.exe 就是），同目录的 DLL 只给到 32 MB。
+#[cfg_attr(not(windows), allow(dead_code))]
+const EXE_IMPORT_CAP: u64 = 512 * 1024 * 1024;
+#[cfg_attr(not(windows), allow(dead_code))]
+const DLL_IMPORT_CAP: u64 = 32 * 1024 * 1024;
+
+/// 从一堆导入名里挑出「我们支持的注入名」，按官方优先顺序（dxgi 优先）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn hook_candidates_in(imports: &[String]) -> Vec<&'static str> {
+    OPTISCALER_HOOKS
+        .iter()
+        .copied()
+        .filter(|hook| {
+            imports
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(hook))
+        })
+        .collect()
+}
+
+/// 这个游戏**会加载**的注入名（按官方优先顺序）；空 = 从导入表看不出来。
+///
+/// 先看主程序；主程序看不出来再看同目录的 DLL —— Unity 那种壳 exe 自己不碰图形 API，
+/// 真正 import `dxgi.dll` 的是 `UnityPlayer.dll`，只看 exe 会误判成「认不出」。
+/// 扫 DLL 时要跳过**我们自己装进去的文件**（尤其是改名后的那个注入名本身），
+/// 否则会拿我们自己的文件当证据，越装越「自信」。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn hook_candidates(dir: &Path, exe: Option<&Path>, installed: &[String]) -> Vec<&'static str> {
+    let mut imports: Vec<String> = Vec::new();
+    if let Some(exe) = exe {
+        imports.extend(read_pe_imports(exe, EXE_IMPORT_CAP));
+    }
+    let mut found = hook_candidates_in(&imports);
+    if !found.is_empty() {
+        return found;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.flatten().take(80) {
+        let path = entry.path();
+        if !path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("dll"))
+        {
+            continue;
+        }
+        let Some(name) = path.file_name().map(|name| name.to_string_lossy().to_string()) else {
+            continue;
+        };
+        if OPTISCALER_HOOKS
+            .iter()
+            .any(|hook| name.eq_ignore_ascii_case(hook))
+            || installed
+                .iter()
+                .any(|file| file.eq_ignore_ascii_case(&name))
+        {
+            continue;
+        }
+        imports.extend(read_pe_imports(&path, DLL_IMPORT_CAP));
+        found = hook_candidates_in(&imports);
+        if !found.is_empty() {
+            break;
+        }
+    }
+    found
+}
+
+/// 下一个该试的注入名：先在这个游戏会加载的名字里找没试过的，再退回官方顺序。
+/// 「试过哪些」记在账本里，所以换名字重装不会把历史丢掉 —— 用户不用自己记。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn next_hook_to_try(
+    candidates: &[&'static str],
+    tried: &[String],
+    current: Option<&str>,
+) -> Option<&'static str> {
+    let untried = |hook: &'static str| {
+        !tried.iter().any(|done| done.eq_ignore_ascii_case(hook))
+            && Some(hook) != current
+    };
+    candidates
+        .iter()
+        .copied()
+        .find(|hook| untried(hook))
+        .or_else(|| OPTISCALER_HOOKS.iter().copied().find(|hook| untried(hook)))
+}
+
+// ---------------------------------------------------------------------------
 // 安装账本（纯文件操作）
 //
 // 为什么这部分不在 `mod windows` 里：装 Mod 的实际落点是 Windows 专属的事，但
@@ -768,6 +946,86 @@ fn read_installed(plan: &InstallPlan) -> Option<(ModManifest, PathBuf)> {
 #[cfg_attr(not(windows), allow(dead_code))]
 fn legacy_installed(plan: &InstallPlan) -> bool {
     marker_present(&plan.dir) || marker_present(&plan.root)
+}
+
+/// OptiScaler 的日志文件名（INI 里 `LogFileName=auto` 的默认值：主程序旁的那个文件）。
+#[cfg_attr(not(windows), allow(dead_code))]
+const OPTISCALER_LOG: &str = "OptiScaler.log";
+
+/// 「上次装完之后，游戏跑起来到底加载到 OptiScaler 没有」—— 就看日志有没有**新**出现。
+///
+/// 这是整个流程里唯一能自动判定成败的信号：OptiScaler 是被游戏加载才会写日志的，
+/// 加载不上就什么都没有。安装时会先把老日志删掉，所以「有新日志」= 这次真的加载上了。
+/// （日志默认是关的，`enable_log` 负责打开。）
+#[cfg_attr(not(windows), allow(dead_code))]
+fn log_since(dir: &Path, manifest: Option<&ModManifest>) -> bool {
+    let Some(installed_at) = manifest.map(|found| found.installed_at) else {
+        return false;
+    };
+    let Ok(meta) = std::fs::metadata(dir.join(OPTISCALER_LOG)) else {
+        return false;
+    };
+    let Ok(modified) = meta.modified() else {
+        return false;
+    };
+    let millis = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    millis >= installed_at
+}
+
+/// 把 `OptiScaler.ini` 的 `LogToFile=` 打开（只动这一行，其余字节连 CRLF 一起原样保留）。
+///
+/// 为什么非开不可：日志是唯一能自动判断「DLL 有没有被游戏加载」的东西。没有它，用户只能靠
+/// 「按 Insert 没反应」猜，我们也只能等用户报 bug 才知道装没装上 —— 那样每换一个游戏都要走
+/// 一轮「用户报 bug → 开发者改代码」，这正是要避免的。
+/// 用户自己写死的 `true` / `false` 一律尊重，只改默认的 `auto`（缺这一行时补一行）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn enable_log(dir: &Path) -> bool {
+    let path = dir.join("OptiScaler.ini");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut done = false;
+    let mut rest = text.as_str();
+    while let Some(pos) = rest.find('\n') {
+        let (line, tail) = rest.split_at(pos + 1);
+        out.push_str(&rewrite_log_line(line, &mut done));
+        rest = tail;
+    }
+    out.push_str(&rewrite_log_line(rest, &mut done));
+    if !done {
+        out.push_str("LogToFile=true\r\n");
+    }
+    std::fs::write(&path, out).is_ok()
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn rewrite_log_line(line: &str, done: &mut bool) -> String {
+    let trimmed = line.trim_start();
+    if *done || !trimmed.to_ascii_lowercase().starts_with("logtofile=") {
+        return line.to_string();
+    }
+    *done = true;
+    let value = trimmed
+        .split_once('=')
+        .map(|(_, value)| value)
+        .unwrap_or("")
+        .trim();
+    if !value.is_empty() && !value.eq_ignore_ascii_case("auto") {
+        return line.to_string();
+    }
+    let indent = &line[..line.len() - trimmed.len()];
+    let ending = if line.ends_with("\r\n") {
+        "\r\n"
+    } else if line.ends_with('\n') {
+        "\n"
+    } else {
+        ""
+    };
+    format!("{indent}LogToFile=true{ending}")
 }
 
 /// 找出游戏目录里「账本不在当前落点」的那些目录 —— 老版本装错位置留下的（0.1.58–0.1.66
@@ -1051,7 +1309,32 @@ mod windows {
             .and_then(|plan| hook_conflict(&plan.dir, hook, manifest.as_ref()));
         let exe = plan.as_ref().and_then(|plan| plan.exe.clone());
         let arch = exe.as_deref().and_then(exe_arch_problem);
-        let known = plan.as_ref().and_then(known_hook);
+        // 这个游戏会加载哪些注入名：读它自己的 PE 导入表（不用按游戏名打表）。
+        let installed_files = manifest
+            .as_ref()
+            .map(|found| found.files.clone())
+            .unwrap_or_default();
+        let candidates = match plan.as_ref() {
+            Some(plan) => hook_candidates(&plan.dir, plan.exe.as_deref(), &installed_files),
+            None => Vec::new(),
+        };
+        let default_hook = candidates.first().copied().unwrap_or(OPTISCALER_DEFAULT_HOOK);
+        let tried: Vec<String> = manifest
+            .as_ref()
+            .map(|found| found.tried.clone())
+            .unwrap_or_default();
+        let installed = manifest.is_some() || legacy;
+        // 装了之后有没有真的被加载：只看日志有没有在上次安装之后出现过。
+        // 主程序旁和游戏根目录都查 —— OptiScaler 的默认日志名是「当前目录下的 OptiScaler.log」，
+        // 而「当前目录」取决于谁启动的游戏（我们自己启动会设成 exe 目录，Steam 常常是游戏根目录）。
+        let log_seen = plan.as_ref().is_some_and(|plan| {
+            installed
+                && (log_since(&plan.dir, manifest.as_ref())
+                    || (plan.root != plan.dir && log_since(&plan.root, manifest.as_ref())))
+        });
+        let suggested = installed
+            .then(|| next_hook_to_try(&candidates, &tried, manifest.as_ref().map(|m| m.hook.as_str())))
+            .flatten();
         let running = !fh_core::process::pids_for_game(launch_path, install_path).is_empty();
         let message = match plan.as_ref() {
             None => pick(
@@ -1079,11 +1362,25 @@ mod windows {
                     plan.dir.display()
                 ),
             ),
-            // 官方文档对这个游戏有指定注入名时，把那句话摆在最显眼的位置。
-            Some(_) if known.is_some() => {
-                let known = known.unwrap_or(&KNOWN_HOOK_GAMES[0]);
-                pick(known.note_zh, known.note_en)
-            }
+            // 装了、也跑过了，但日志说明没加载上 —— 直接告诉用户下一步点哪个。
+            Some(_) if installed && !log_seen && manifest.is_some() => match suggested {
+                Some(next) => pick(
+                    &format!(
+                        "上次装完还没看到 OptiScaler 被加载（进游戏跑一次再看）。要是不出菜单，就点一下换成 {next} 重装 —— 这个游戏加载哪个名字是读它自己的导入表算出来的。"
+                    ),
+                    &format!(
+                        "No sign of OptiScaler being loaded yet (run the game once). If the menu still doesn't show, switch to {next} — that name comes from reading the game's own import table."
+                    ),
+                ),
+                None => pick(
+                    "官方支持的 7 个注入名都试过了，还是没加载上：这个游戏可能得走 ASI 方式，或者它根本不加载这些 DLL。",
+                    "All seven supported hook names were tried and none loaded. This game may need the ASI route, or it doesn't load any of these DLLs.",
+                ),
+            },
+            Some(_) if installed && log_seen => pick(
+                "上次游戏运行时 OptiScaler 已经加载成功了。菜单默认按键是 Insert（不行试 Alt+Insert）。",
+                "OptiScaler was loaded the last time the game ran. The overlay key is Insert (try Alt+Insert if not).",
+            ),
             Some(_) => pick("可以安装。", "Ready to install."),
         };
         OptiScalerStatus {
@@ -1092,7 +1389,7 @@ mod windows {
                 .as_deref()
                 .and_then(Path::file_name)
                 .map(|name| name.to_string_lossy().to_string()),
-            installed: manifest.is_some() || legacy,
+            installed,
             version: manifest.as_ref().map(|found| found.version.clone()),
             hook: manifest
                 .as_ref()
@@ -1103,7 +1400,11 @@ mod windows {
             arch,
             running,
             hooks: super::hook_list(),
-            recommended_hook: known.map(|known| known.hook.to_string()),
+            hook_candidates: candidates.iter().map(|hook| hook.to_string()).collect(),
+            default_hook: default_hook.to_string(),
+            tried_hooks: tried,
+            suggested_hook: suggested.map(|hook| hook.to_string()),
+            log_seen,
             message,
         }
     }
@@ -1151,6 +1452,14 @@ mod windows {
         // 落点不同，目标目录里那个同名文件不是我们的，必须照备份走。
         let previous = read_installed(&plan);
         let hook_is_ours = keeps_previous_backup(previous.as_ref(), hook, &dir);
+        // 这次算「试过」：老账本的记录 + 现在这个（换名字重装时历史要接着记）。
+        let mut tried: Vec<String> = previous
+            .as_ref()
+            .map(|(found, _)| found.tried.clone())
+            .unwrap_or_default();
+        if !tried.iter().any(|done| done.eq_ignore_ascii_case(hook)) {
+            tried.push(hook.to_string());
+        }
         if let Some((found, where_)) = previous {
             if !hook_is_ours {
                 // 换注入名、或者上一套装在别处：先清干净（含还原备份）再装，否则两套文件会打架。
@@ -1212,19 +1521,25 @@ mod windows {
             files: Vec::new(),
             backups: Vec::new(),
             dirs: Vec::new(),
+            // 「试过哪些注入名」接着老账本记：换名字重装不能把历史丢掉，
+            // 否则「下一个该试哪个」每次都从 dxgi 重新开始，用户得自己记。
+            tried: tried,
         };
         emit_mod(app, "copy", 0, 0);
         copy_optiscaler_files(&package_root, &dir, hook, hook_is_ours, &mut ledger)?;
+        // 先把老日志删掉，再打开日志：这样「有没有新日志」就等于「这次加载上没加载上」。
+        let _ = fs::remove_file(dir.join(OPTISCALER_LOG));
+        let _ = enable_log(&dir);
         write_manifest(&dir, &ledger)?;
         let _ = fs::remove_file(dir.join(OPTISCALER_MARKER));
         emit_mod(app, "done", 0, 0);
         Ok(pick(
             &format!(
-                "已安装 OptiScaler v{}（{hook}）。原文件已备份，可在卡片菜单里卸载还原；进游戏按 Insert 打开菜单。",
+                "已安装 OptiScaler v{}（{hook}）。原文件已备份，可在卡片菜单里卸载还原；进游戏按 Insert 打开菜单。要是没反应，回卡片菜单再点「安装 Mod / 工具」——面板会告诉我们下一个该试哪个名字。",
                 release.version
             ),
             &format!(
-                "OptiScaler v{} installed as {hook}. Originals were backed up; press Insert in-game.",
+                "OptiScaler v{} installed as {hook}. Originals were backed up; press Insert in-game. If nothing happens, open this menu again — the panel will tell you which name to try next.",
                 release.version
             ),
         ))
@@ -2084,19 +2399,133 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// 拼一个最小的 PE：含可选头、一个 .rdata 段，导入表里列出给定的 DLL 名。
+    /// 用来在本机（macOS）验证「读游戏自己的导入表」这条路 —— 真机上是游戏的真实 exe。
+    fn pe_with_imports(names: &[&str]) -> Vec<u8> {
+        // 布局：0x00 DOS 头 / 0x80 PE 头 + 可选头 / 0x200 段表 / 0x400 .rdata
+        let pe_at = 0x80usize;
+        let opt_size = 240usize;
+        let opt = pe_at + 24;
+        let sections_at = opt + opt_size;
+        let raw_at = 0x400usize;
+        let mut bytes = vec![0u8; raw_at + 0x400];
+        bytes[0..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&(pe_at as u32).to_le_bytes());
+        bytes[pe_at..pe_at + 4].copy_from_slice(b"PE\0\0");
+        bytes[pe_at + 4 + 2..pe_at + 4 + 4].copy_from_slice(&1u16.to_le_bytes()); // 1 个段
+        bytes[pe_at + 4 + 16..pe_at + 4 + 18]
+            .copy_from_slice(&(opt_size as u16).to_le_bytes());
+        bytes[opt..opt + 2].copy_from_slice(&0x20bu16.to_le_bytes()); // PE32+
+        // 数据目录：导入表（索引 1）在 opt+112+8
+        let rdata_rva = 0x1000u32;
+        bytes[opt + 112 + 8..opt + 112 + 12].copy_from_slice(&rdata_rva.to_le_bytes());
+        // 段表：.rdata 虚拟地址 0x1000 → 文件偏移 0x400
+        bytes[sections_at + 8..sections_at + 12].copy_from_slice(&0x400u32.to_le_bytes()); // VirtualSize
+        bytes[sections_at + 12..sections_at + 16].copy_from_slice(&rdata_rva.to_le_bytes());
+        bytes[sections_at + 16..sections_at + 20].copy_from_slice(&0x400u32.to_le_bytes()); // RawSize
+        bytes[sections_at + 20..sections_at + 24].copy_from_slice(&(raw_at as u32).to_le_bytes());
+        // 导入描述符：每个 20 字节，最后用全 0 收尾
+        // 名字必须落在 .rdata 映射到的范围里（RVA 0x1000–0x1400），否则按 RVA 换算会算飞。
+        let names_at = rdata_rva + 0x100u32;
+        for (index, name) in names.iter().enumerate() {
+            let desc = raw_at + index * 20;
+            bytes[desc..desc + 4].copy_from_slice(&1u32.to_le_bytes()); // OriginalFirstThunk 非 0
+            let name_rva = names_at + (index as u32) * 0x40;
+            bytes[desc + 12..desc + 16].copy_from_slice(&name_rva.to_le_bytes());
+            let offset = raw_at + (name_rva - rdata_rva) as usize;
+            assert!(offset + name.len() < bytes.len(), "测试用的名字要塞得进段里");
+            let raw = name.as_bytes();
+            bytes[offset..offset + raw.len()].copy_from_slice(raw);
+        }
+        bytes
+    }
+
     #[test]
-    fn known_hook_games_override_the_default() {
-        // 大镖客 2：官方 wiki 的 per-game 页写着要用 winmm.dll（dxgi.dll 装了不加载）。
-        let root = named_root("rdr2-hook", "Red Dead Redemption 2", &[("RDR2.exe", 4096)]);
-        let plan = plan_for(&root);
-        let known = known_hook(&plan).expect("大镖客 2 该命中官方指定注入名");
-        assert_eq!(known.hook, "winmm.dll");
-        assert!(!known.note_zh.is_empty() && !known.note_en.is_empty());
-        // 别的游戏不受影响：照默认 dxgi.dll。
-        let other = named_root("hades-hook", "Hades", &[("Hades.exe", 4096)]);
-        assert!(known_hook(&plan_for(&other)).is_none());
+    fn reads_imports_from_a_pe() {
+        // 真机核对过：这两份期望值与 `objdump -p` 对同一批 exe 的输出一致
+        // （PE32 的 7zr.exe 只有 kernel32/user32/…，PE32+ 的 handle64.exe 还带 version.dll）。
+        let pe = pe_with_imports(&["KERNEL32.dll", "VERSION.dll", "d3d12.dll"]);
+        let imports = pe_imports(&pe);
+        assert!(imports.contains(&"kernel32.dll".to_string()));
+        assert!(imports.contains(&"version.dll".to_string()));
+        assert!(imports.contains(&"d3d12.dll".to_string()));
+        // 认不出来的一律返回空，绝不猜。
+        assert!(pe_imports(b"not a pe").is_empty());
+        assert!(pe_imports(b"MZ").is_empty());
+    }
+
+    #[test]
+    fn hook_candidates_come_from_the_games_own_imports() {
+        // 关键的一条：不再按游戏名打表，而是看游戏**真的会加载**哪个名字。
+        // 大镖客 2 就是这样 —— 它加载 winmm/version，不加载 dxgi，所以默认值不能写死 dxgi。
+        let imports = vec![
+            "kernel32.dll".to_string(),
+            "version.dll".to_string(),
+            "winmm.dll".to_string(),
+        ];
+        assert_eq!(
+            hook_candidates_in(&imports),
+            vec!["winmm.dll", "version.dll"],
+            "按官方优先顺序排：winmm 在 version 前面"
+        );
+        // 一个都不沾：认不出就返回空，调用方退回官方默认值。
+        assert!(hook_candidates_in(&["kernel32.dll".to_string()]).is_empty());
+    }
+
+    #[test]
+    fn next_hook_skips_what_was_already_tried() {
+        let candidates = vec!["winmm.dll", "version.dll"];
+        // 试过 winmm、当前也是 winmm → 下一个是 version。
+        let tried = vec!["winmm.dll".to_string()];
+        assert_eq!(
+            next_hook_to_try(&candidates, &tried, Some("winmm.dll")),
+            Some("version.dll")
+        );
+        // 会加载的都试完了 → 退回官方顺序里还没试过的（dxgi 排在官方顺序第一位）。
+        let tried = vec!["winmm.dll".to_string(), "version.dll".to_string()];
+        assert_eq!(
+            next_hook_to_try(&candidates, &tried, Some("winmm.dll")),
+            Some("dxgi.dll")
+        );
+        // 七个都试过：没有下一个了，界面该说实话而不是接着转圈。
+        let all: Vec<String> = OPTISCALER_HOOKS.iter().map(|h| h.to_string()).collect();
+        assert_eq!(next_hook_to_try(&candidates, &all, Some("winmm.dll")), None);
+    }
+
+    #[test]
+    fn install_enables_the_log_and_remembers_what_was_tried() {
+        // 日志是唯一能自动判定「到底加载上没有」的信号，装的时候必须打开它。
+        let root = game_tree("log", &[("OptiScaler.ini", 32)]);
+        let ini = root.join("OptiScaler.ini");
+        std::fs::write(&ini, "Enabled=auto\r\nLogToFile=auto\r\nLogLevel=auto\r\n").expect("ini");
+
+        assert!(enable_log(&root));
+        let text = std::fs::read_to_string(&ini).expect("ini");
+        assert!(text.contains("LogToFile=true"), "{text}");
+        assert!(text.contains("LogLevel=auto"), "别的行一个字节都不能动：{text}");
+        assert!(text.contains("\r\n"), "行尾要保留（Windows 的 INI）：{text:?}");
+
+        // 用户自己写死的 false 要尊重，不能被我们改回去。
+        std::fs::write(&ini, "LogToFile=false\r\n").expect("ini");
+        assert!(enable_log(&root));
+        assert!(std::fs::read_to_string(&ini).expect("ini").contains("LogToFile=false"));
+
+        // 缺这一行时补一行。
+        std::fs::write(&ini, "Enabled=auto\r\n").expect("ini");
+        assert!(enable_log(&root));
+        assert!(std::fs::read_to_string(&ini).expect("ini").contains("LogToFile=true"));
+
+        // 日志判定：装完（installed_at）之后出现的日志才算「加载上了」。
+        let manifest = manifest_for("dxgi.dll", &["dxgi.dll"], &[]);
+        assert!(!log_since(&root, Some(&manifest)), "还没日志 = 没加载上");
+        std::fs::write(root.join(OPTISCALER_LOG), b"log").expect("log");
+        let mut fresh = manifest.clone();
+        fresh.installed_at = 0;
+        assert!(log_since(&root, Some(&fresh)), "有比安装时间新的日志 = 加载上了");
+        let mut older = manifest;
+        older.installed_at = u64::MAX;
+        assert!(!log_since(&root, Some(&older)), "装之前的老日志不算数");
         std::fs::remove_dir_all(&root).ok();
-        std::fs::remove_dir_all(&other).ok();
     }
 
     #[test]
@@ -2125,6 +2554,7 @@ mod tests {
                 })
                 .collect(),
             dirs: Vec::new(),
+            tried: Vec::new(),
         }
     }
 
@@ -2385,6 +2815,7 @@ mod tests {
                 backup: "winmm.dll.fantasyhub.bak".into(),
             }],
             dirs: vec!["D3D12_Optiscaler".into()],
+            tried: vec!["dxgi.dll".into(), "winmm.dll".into()],
         };
         let json = serde_json::to_string(&manifest).expect("serialize");
         assert!(json.contains("installedAt"), "camelCase for the frontend: {json}");
@@ -2393,5 +2824,6 @@ mod tests {
         let old = r#"{"version":"0.9.0","hook":"dxgi.dll"}"#;
         let parsed = serde_json::from_str::<ModManifest>(old).expect("legacy manifest");
         assert!(parsed.files.is_empty() && parsed.backups.is_empty() && parsed.dirs.is_empty());
+        assert!(parsed.tried.is_empty(), "老账本没有 tried，要能默认成空");
     }
 }
