@@ -127,6 +127,22 @@
 **净效果**：用户遇到「装完没反应」时，不需要等我们发版 —— 面板会告诉他换成哪个名字、按一下重装、
 进游戏再跑一次，两三下自己就能收敛；我们也不再需要为每个新游戏改一次代码。
 
+### 发布：v0.1.68 的 CI 判失败，但**不是代码问题**（2026-10-10）
+
+用户看到 Actions 里 `Build Windows #85` 是红的，Annotations 只有一条：
+`Failed to CreateArtifact: Artifact storage quota has been hit` —— **GitHub 的 Actions 产物存储配额满了**。
+那一步是工作流最后那个 `actions/upload-artifact`（只是顺手给人一个未安装的 exe），
+在它之前 `cargo check --workspace --locked`、NSIS 打包、`tauri-action` 建 Release **都成功了**
+（整轮 13m47s，Release 步骤在归档之前）。所以：**失败的是「归档」，不是「发布」**。
+
+改法（`.github/workflows/build-windows.yml`）：
+① `retention-days: 7`（原来吃仓库默认的 90 天，配额就是被一条条旧产物吃光的）；
+② `continue-on-error: true` —— 配额满了只让这一步黄一下，**不许再把整轮发布判死**；
+③ 发布说明里那句「也可在 Artifacts 中下载」改成写明只留 7 天、配额满时可能没有。
+配额本身要人去清：<https://github.com/saber200/handheld-launcher/actions/artifacts>（旧/过期产物可全删，
+**Release 里的安装包不受影响**）。另外那条 Node 20 弃用警告只是警告（v4 版 action 被强制跑在 Node 24 上），
+不影响发布，等以后单独升级 action 大版本再说。
+
 ### 本机验证与边界
 
 - `cargo test --workspace` **71 项全过**（toolbox 27 项，本次新增 4 项：PE 导入表解析（合成 PE）、
