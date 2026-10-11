@@ -77,6 +77,69 @@ pub const OPTISCALER_MANIFEST: &str = ".fantasyhub-optiscaler.json";
 /// 旧版（0.1.57 及以前）写的纯文本标记。保留识别：老安装得能卸载干净。
 pub const OPTISCALER_MARKER: &str = ".fantasyhub-optiscaler";
 
+/// 自带版 OptiScaler（用户自己构建的那一份，随启动器一起发出去）。
+///
+/// 为什么要有它：**官方包里的 `amd_fidelityfx_upscaler_dx12.dll` 是旧的 FSR 放大器**，而
+/// FSR 4.1.1 只取决于这一个文件；用户自己构建了一份完整包（官方 v0.9.4 的文件清单 + 这个
+/// DLL），要求「装的时候优先装它」。随包发出去的好处是**掌机上不用联网**、也永远是他那一版。
+/// 面板上它排第一、默认选中；包不在（`build.rs` 落的是空占位）时整条自动消失，退回只列官方版本。
+pub const OPTISCALER_BUNDLED_TAG: &str = "bundled";
+/// 自带版压缩包在 resources 里的相对路径。`tauri.conf.json` 的 `bundle.resources` 与
+/// `build.rs` 的占位用的都是它 —— 三处改名必须一起改。
+pub const OPTISCALER_BUNDLED_FILE: &str = "optiscaler/OptiScaler-custom.7z";
+/// 包里 `OptiScaler.dll` 自己的版本是 v0.9.4，放大器是 FSR 4.1.1 —— 账本与界面上就写这个。
+pub const OPTISCALER_BUNDLED_VERSION: &str = "0.9.4-fsr4.1.1";
+/// 「支不支持 FSR 4.1.1」到底取决于哪个文件。缺了它 OptiScaler 只能跑到旧的 FSR 4，
+/// 所以这一条**装前查包、装后查游戏目录**，两处都留下证据 —— 不靠文案里写一句「支持」。
+pub const FSR4_UPSCALER_DLL: &str = "amd_fidelityfx_upscaler_dx12.dll";
+
+/// 自带版包在哪儿。`resource_dir()` 是安装包里的落点；`cargo run`（`target/debug/resources`）
+/// 与手工解包（exe 旁边）各留一条候选 —— 与 `startup.rs::fse_payload` 同一套顺序。
+///
+/// **空文件 = 没带**（`build.rs` 在没有真包时落的是 0 字节占位）：宁可这一条在界面上消失，
+/// 也不能拿一个空包去装。
+pub fn bundled_archive(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    let mut candidates = Vec::new();
+    if let Ok(dir) = app.path().resource_dir() {
+        candidates.push(dir.join(OPTISCALER_BUNDLED_FILE));
+        candidates.push(dir.join("OptiScaler-custom.7z"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("resources").join(OPTISCALER_BUNDLED_FILE));
+            candidates.push(parent.join("OptiScaler-custom.7z"));
+        }
+    }
+    candidates.into_iter().find(|path| is_real_package(path))
+}
+
+/// 真的是一份包才认：存在，且**大于 1 MB**（占位是 0 字节；一个被截断的残包也不该被当成自带版）。
+fn is_real_package(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|meta| meta.len() > 1024 * 1024)
+        .unwrap_or(false)
+}
+
+/// 面板上的版本列表：自带版排第一（有才排），官方那些照旧。
+///
+/// 抽成纯函数是为了在本机（macOS）钉住「自带版优先」这条顺序 —— Windows 那半边编不到。
+fn bundled_first(mut official: Vec<ModVersion>, bundled_bytes: Option<u64>) -> Vec<ModVersion> {
+    if let Some(bytes) = bundled_bytes {
+        official.insert(
+            0,
+            ModVersion {
+                version: OPTISCALER_BUNDLED_VERSION.to_string(),
+                tag: OPTISCALER_BUNDLED_TAG.to_string(),
+                bytes,
+                latest: false,
+                bundled: true,
+            },
+        );
+    }
+    official
+}
+
 /// 一份安装记录。字段都带 `default`：以后加字段时旧账本仍能读进来。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +161,10 @@ pub struct ModManifest {
     /// 所以能算出「下一个该试哪个」—— 用户不必自己记，也不必等我们改代码。
     #[serde(default)]
     pub tried: Vec<String>,
+    /// 装进去的文件里有没有 FSR 4.1.1 的放大器（`amd_fidelityfx_upscaler_dx12.dll`）。
+    /// 记下来是为了让面板能如实说「这一套装的支持 4.1.1」—— 而不是靠版本名猜。
+    #[serde(default)]
+    pub fsr4: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -143,10 +210,14 @@ pub struct OptiScalerStatus {
     /// 上次装完之后，游戏跑起来**加载到了** OptiScaler 吗（看 `OptiScaler.log` 有没有新出现）。
     /// 这是唯一能自动判定「到底生效没有」的信号，装了必开日志（见 `enable_log`）。
     pub log_seen: bool,
+    /// 装着的那一套里有没有 FSR 4.1.1 的放大器（`amd_fidelityfx_upscaler_dx12.dll`）——
+    /// 面板据此如实说「支持 4.1.1 / 只是旧 FSR 4」，不看版本名猜。
+    pub fsr4: bool,
     pub message: String,
 }
 
-/// 面板上能选的一个版本。`tag` 是 GitHub 上的标签（`v0.9.4`），安装时按它去查。
+/// 面板上能选的一个版本。`tag` 是 GitHub 上的标签（`v0.9.4`），安装时按它去查；
+/// 自带版是个例外：`tag` 是 `bundled`，安装时直接用随包的那个压缩包，不联网。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModVersion {
@@ -154,6 +225,8 @@ pub struct ModVersion {
     pub tag: String,
     pub bytes: u64,
     pub latest: bool,
+    /// 是不是随启动器一起发出去的自带版（带 FSR 4.1.1 放大器那一份）。
+    pub bundled: bool,
 }
 
 /// 一次安装/卸载的取消开关。同一时刻只会有一个这类任务（前端也拦着重复点），
@@ -246,22 +319,28 @@ fn toolbox_install_optiscaler_now(
     }
 }
 
-/// 能装的版本列表（最近的几个，第一个是「最新」）。前端拿它做版本选择。
+/// 能装的版本列表（自带版排第一，然后官方最近的几个）。
+///
+/// 要 `AppHandle` 是为了找**随包的自带版**（`bundled_archive`）：它在 resources 里，
+/// 跟官方那些要走网络的版本不是一回事。
 #[tauri::command]
-pub async fn toolbox_optiscaler_versions() -> Vec<ModVersion> {
-    crate::off_main(toolbox_optiscaler_versions_now)
+pub async fn toolbox_optiscaler_versions(app: tauri::AppHandle) -> Vec<ModVersion> {
+    crate::off_main(move || toolbox_optiscaler_versions_now(&app))
         .await
         .unwrap_or_default()
 }
 
-fn toolbox_optiscaler_versions_now() -> Vec<ModVersion> {
+fn toolbox_optiscaler_versions_now(app: &tauri::AppHandle) -> Vec<ModVersion> {
+    let bundled_bytes = bundled_archive(app)
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|meta| meta.len());
     #[cfg(windows)]
     {
-        return windows::optiscaler_versions();
+        return bundled_first(windows::optiscaler_versions(), bundled_bytes);
     }
     #[cfg(not(windows))]
     {
-        Vec::new()
+        bundled_first(Vec::new(), bundled_bytes)
     }
 }
 
@@ -318,6 +397,8 @@ pub async fn toolbox_optiscaler_status(
             tried_hooks: Vec::new(),
             suggested_hook: None,
             log_seen: false,
+            // 非 Windows 分支永远走不到安装，永远没有 FSR 4.1.1 放大器。
+            fsr4: false,
             message: err,
         })
 }
@@ -354,6 +435,7 @@ fn toolbox_optiscaler_status_now(
             tried_hooks: Vec::new(),
             suggested_hook: None,
             log_seen: false,
+            fsr4: false,
             message: pick(
                 "OptiScaler 只能在 Windows 上安装。",
                 "OptiScaler can only be installed on Windows.",
@@ -1407,6 +1489,8 @@ mod windows {
             tried_hooks: tried,
             suggested_hook: suggested.map(|hook| hook.to_string()),
             log_seen,
+            // 账本里记着「这一套装进去时有没有那个放大器」；老账本没有这个字段就是 false。
+            fsr4: manifest.as_ref().map(|found| found.fsr4).unwrap_or(false),
             message,
         }
     }
@@ -1448,12 +1532,62 @@ mod windows {
                 &format!("{name} isn't 64-bit; OptiScaler is x64-only."),
             ));
         }
+        // 这次装哪一份：**自带版**（随启动器的压缩包，不联网）还是官方版（联网下载）。
+        //
+        // 必须先定下来再清旧安装：下面「换没换版本」要靠版本名比。中间任何一步失败都还没动
+        // 游戏目录里的东西 —— 宁可这次装不上，也不要留下半套文件。
+        let cache = crate::net::cache_dir(app, "toolbox")?;
+        let requested = version.map(str::trim).filter(|tag| !tag.is_empty());
+        let bundled = super::bundled_archive(app);
+        let want_bundled = match requested {
+            Some(tag) if tag.eq_ignore_ascii_case(super::OPTISCALER_BUNDLED_TAG) => true,
+            // 没点名版本 = 「装首选那一版」：有自带版就用自带版（这就是「优先安装这个版本」），
+            // 没有（本地空构建 / 这份安装包里没带）才退回官方最新。
+            None => bundled.is_some(),
+            Some(_) => false,
+        };
+        if want_bundled && bundled.is_none() {
+            return Err(pick(
+                "这份安装包里没有自带版 OptiScaler，请从官方版本里选一个。",
+                "This build doesn't carry the bundled OptiScaler. Pick an official version.",
+            ));
+        }
+        let (archive_path, version_label) = if want_bundled {
+            let path = bundled.expect("want_bundled 为真时一定找到了包");
+            (path, super::OPTISCALER_BUNDLED_VERSION.to_string())
+        } else {
+            let release = optiscaler_release(requested)?;
+            let archive_path = cache.join(&release.file_name);
+            // 缓存里那份大小对得上就直接用：官方包 50 MB 上下，重装不该再下一次。
+            let cached = release.bytes > 0
+                && fs::metadata(&archive_path).map(|meta| meta.len()).ok() == Some(release.bytes);
+            if !cached {
+                let _ = fs::remove_file(&archive_path);
+                crate::net::download(
+                    &release.url,
+                    &archive_path,
+                    release.bytes,
+                    &|| MOD_CANCEL.load(Ordering::Relaxed),
+                    &|done, total| emit_mod(app, "download", done, total),
+                )?;
+            }
+            (archive_path, release.version.clone())
+        };
+
         // 同一个注入名重装 = 更新：账本里那个 DLL 是「我们自己」的，不能再备份一次
         // （`<hook>.fantasyhub.bak` 里存的是游戏原文件，覆盖掉就再也还原不回来）。
         // 判定条件见 `keeps_previous_backup`：账本在游戏根目录那批（0.1.5x 装在错位置的）
         // 落点不同，目标目录里那个同名文件不是我们的，必须照备份走。
         let previous = read_installed(&plan);
         let hook_is_ours = keeps_previous_backup(previous.as_ref(), hook, &dir);
+        // **换版本**（自带版 ↔ 官方版、官方 A → 官方 B）是换了一整套文件：自带版比官方版多一个
+        // FSR 4.1.1 放大器，不清干净就会留下没人认领的文件 —— 装回官方版之后游戏目录里还躺着
+        // 那个放大器，「官方版看起来也支持 4.1.1」，而它不在新账本里，卸载永远清不掉。
+        let switching = previous
+            .as_ref()
+            .is_some_and(|(found, _)| found.version != version_label);
+        // 清掉之后目标目录里那个 DLL 已经还原成游戏原文件了，这一趟必须重新备份。
+        let keep_backup = hook_is_ours && !switching;
         // 这次算「试过」：老账本的记录 + 现在这个（换名字重装时历史要接着记）。
         let mut tried: Vec<String> = previous
             .as_ref()
@@ -1463,8 +1597,9 @@ mod windows {
             tried.push(hook.to_string());
         }
         if let Some((found, where_)) = previous {
-            if !hook_is_ours {
-                // 换注入名、或者上一套装在别处：先清干净（含还原备份）再装，否则两套文件会打架。
+            if switching || !hook_is_ours {
+                // 换注入名、换了版本、或者上一套装在别处：先清干净（含还原备份）再装，
+                // 否则两套文件会打架。
                 remove_installed_files(&where_, &found)?;
             }
         } else if legacy_installed(&plan) {
@@ -1486,23 +1621,6 @@ mod windows {
             }
         }
 
-        let release = optiscaler_release(version)?;
-        let cache = crate::net::cache_dir(app, "toolbox")?;
-        let archive_path = cache.join(&release.file_name);
-        // 缓存里那份大小对得上就直接用：官方包 50 MB 上下，重装不该再下一次。
-        let cached = release.bytes > 0
-            && fs::metadata(&archive_path).map(|meta| meta.len()).ok() == Some(release.bytes);
-        if !cached {
-            let _ = fs::remove_file(&archive_path);
-            crate::net::download(
-                &release.url,
-                &archive_path,
-                release.bytes,
-                &|| MOD_CANCEL.load(Ordering::Relaxed),
-                &|done, total| emit_mod(app, "download", done, total),
-            )?;
-        }
-
         let extract_dir = cache.join("optiscaler-extract");
         let _ = fs::remove_dir_all(&extract_dir);
         fs::create_dir_all(&extract_dir).map_err(|err| {
@@ -1522,9 +1640,25 @@ mod windows {
             )
         })?;
 
+        // 「支不支持 FSR 4.1.1」只取决于这一个文件，装之前先在包里找它：
+        // 自带版存在的意义就是它，缺了就当场停下 —— 宁可这次不装，也不装一套冒充支持 4.1.1 的。
+        let package_fsr4 = package_root.join(super::FSR4_UPSCALER_DLL).is_file();
+        if want_bundled && !package_fsr4 {
+            return Err(pick(
+                &format!(
+                    "这个包里没有 {}（缺了它就不支持 FSR 4.1.1），这次没有安装。",
+                    super::FSR4_UPSCALER_DLL
+                ),
+                &format!(
+                    "This package has no {} — FSR 4.1.1 wouldn't work, so nothing was installed.",
+                    super::FSR4_UPSCALER_DLL
+                ),
+            ));
+        }
+
         // 边写边记账：卸载/还原全靠这份记录，原来只写一个纯文本标记就完事。
         let mut ledger = ModManifest {
-            version: release.version.clone(),
+            version: version_label.clone(),
             hook: hook.to_string(),
             installed_at: crate::net::now_ms(),
             files: Vec::new(),
@@ -1533,23 +1667,54 @@ mod windows {
             // 「试过哪些注入名」接着老账本记：换名字重装不能把历史丢掉，
             // 否则「下一个该试哪个」每次都从 dxgi 重新开始，用户得自己记。
             tried: tried,
+            // 下面按「真的写进游戏目录了没有」填。
+            fsr4: false,
         };
         emit_mod(app, "copy", 0, 0);
-        copy_optiscaler_files(&package_root, &dir, hook, hook_is_ours, &mut ledger)?;
+        copy_optiscaler_files(&package_root, &dir, hook, keep_backup, &mut ledger)?;
+        // 装完再看一眼游戏目录：文件真落地了才算数 —— 这一条就是面板敢说「支持 4.1.1」的依据。
+        let fsr4_installed = dir.join(super::FSR4_UPSCALER_DLL).is_file();
+        ledger.fsr4 = fsr4_installed;
         // 先把老日志删掉，再打开日志：这样「有没有新日志」就等于「这次加载上没加载上」。
         let _ = fs::remove_file(dir.join(OPTISCALER_LOG));
         let _ = enable_log(&dir);
         write_manifest(&dir, &ledger)?;
         let _ = fs::remove_file(dir.join(OPTISCALER_MARKER));
         emit_mod(app, "done", 0, 0);
+        // 自带版的意义就是那个放大器：文件没能落地（被占用、被杀软拦下、盘满）就如实报错 ——
+        // 账本已经写了，卸载照样干净，但这次绝不说「装好了」。
+        if want_bundled && !fsr4_installed {
+            return Err(pick(
+                &format!(
+                    "自带版装上了，但 {} 没能写进游戏目录，这一次不算成功（文件可能被占用或被拦截）。",
+                    super::FSR4_UPSCALER_DLL
+                ),
+                &format!(
+                    "The bundled build installed, but {} couldn't be written into the game folder, so this didn't succeed (file in use or blocked).",
+                    super::FSR4_UPSCALER_DLL
+                ),
+            ));
+        }
+        // 装完如实说清这一套带不带 FSR 4.1.1（判据是刚查过的那个文件，不是版本名）。
+        let fsr4_note = if fsr4_installed {
+            pick(
+                &format!("这一套带 FSR 4.1.1 放大器（{}）。", super::FSR4_UPSCALER_DLL),
+                &format!("This set includes the FSR 4.1.1 upscaler ({}).", super::FSR4_UPSCALER_DLL),
+            )
+        } else {
+            pick(
+                "这一套是官方包，放大器还是旧的 FSR 4（要 4.1.1 请装自带版）。",
+                "This is an official package with the older FSR 4 upscaler (pick the bundled build for 4.1.1).",
+            )
+        };
         Ok(pick(
             &format!(
-                "已安装 OptiScaler v{}（{hook}）。原文件已备份，可在卡片菜单里卸载还原；进游戏按 Insert 打开菜单。要是没反应，回卡片菜单再点「安装 Mod / 工具」——面板会告诉我们下一个该试哪个名字。",
-                release.version
+                "已安装 OptiScaler v{}（{hook}）。{fsr4_note}原文件已备份，可在卡片菜单里卸载还原；进游戏按 Insert 打开菜单。要是没反应，回卡片菜单再点「安装 Mod / 工具」——面板会告诉我们下一个该试哪个名字。",
+                ledger.version
             ),
             &format!(
-                "OptiScaler v{} installed as {hook}. Originals were backed up; press Insert in-game. If nothing happens, open this menu again — the panel will tell you which name to try next.",
-                release.version
+                "OptiScaler v{} installed as {hook}. {fsr4_note}Originals were backed up; press Insert in-game. If nothing happens, open this menu again — the panel will tell you which name to try next.",
+                ledger.version
             ),
         ))
     }
@@ -1681,6 +1846,8 @@ mod windows {
                 tag: tag.to_string(),
                 bytes,
                 latest: index == 0,
+                // 官方那几个不是自带版（自带版由 `bundled_first` 单独插到最前面）。
+                bundled: false,
             });
             if out.len() >= 5 {
                 break;
@@ -1954,6 +2121,71 @@ fn copy_optiscaler_dir(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 自带版排第一 —— 面板默认选中的就是列表第一项，「装的时候优先装这一版」这条就靠这个顺序。
+    /// 官方那几项原样不动（顺序、`latest` 标记都不许被这条改掉）。
+    #[test]
+    fn bundled_version_comes_first() {
+        let official = vec![
+            ModVersion {
+                version: "0.9.4".to_string(),
+                tag: "v0.9.4".to_string(),
+                bytes: 55_000_000,
+                latest: true,
+                bundled: false,
+            },
+            ModVersion {
+                version: "0.9.3".to_string(),
+                tag: "v0.9.3".to_string(),
+                bytes: 53_000_000,
+                latest: false,
+                bundled: false,
+            },
+        ];
+        let with_bundled = bundled_first(official.clone(), Some(66_200_716));
+        assert_eq!(with_bundled.len(), 3);
+        assert!(with_bundled[0].bundled, "自带版必须排第一");
+        assert_eq!(with_bundled[0].tag, OPTISCALER_BUNDLED_TAG);
+        assert_eq!(with_bundled[0].version, OPTISCALER_BUNDLED_VERSION);
+        assert!(!with_bundled[0].latest, "自带版不是 GitHub 上的 latest");
+        assert!(with_bundled[1].latest && with_bundled[1].tag == "v0.9.4");
+        assert_eq!(with_bundled[2].tag, "v0.9.3");
+
+        // 没带这个包（本地空构建）时列表跟以前一模一样。
+        assert_eq!(bundled_first(official, None).len(), 2);
+    }
+
+    /// 随包的这份 7z 必须真的带着 FSR 4.1.1 的放大器 —— 这是「面板敢写支持 4.1.1」的唯一依据。
+    ///
+    /// 为什么用 Rust 这边数条目而不是看文件名：Windows 上解它的就是 `sevenz-rust2`，而那段代码
+    /// 本机（macOS）编不到；这里用**同一个库**把 63 MB 打开来数一遍，等价于「这个包在真机上
+    /// 解得开、而且里面有那个文件」。包被换成空占位（没带）时这条跳过 —— 那是正常状态，
+    /// 界面上自带版整条会消失，没有可验的东西。
+    #[test]
+    fn bundled_package_carries_the_fsr4_upscaler() {
+        let path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/optiscaler/OptiScaler-custom.7z"
+        ));
+        if !is_real_package(path) {
+            eprintln!("自带版包不在（{}），跳过内容检查", path.display());
+            return;
+        }
+        let archive = sevenz_rust2::Archive::open(path).expect("随包的自带版 7z 打不开");
+        let names: Vec<String> = archive
+            .files
+            .iter()
+            .map(|entry| entry.name.to_ascii_lowercase())
+            .collect();
+        assert!(
+            names.iter().any(|name| name.ends_with("optiscaler.dll")),
+            "包里没有 OptiScaler.dll"
+        );
+        assert!(
+            names.iter().any(|name| name.ends_with(FSR4_UPSCALER_DLL)),
+            "包里没有 {FSR4_UPSCALER_DLL} —— 缺了它就不该自称支持 FSR 4.1.1"
+        );
+    }
 
     fn candidates(launch: &str, install: &str) -> Vec<String> {
         game_dir_candidates(launch, install)
@@ -2380,6 +2612,7 @@ mod tests {
                 .collect(),
             dirs: Vec::new(),
             tried: Vec::new(),
+            fsr4: false,
         }
     }
 
@@ -2641,6 +2874,7 @@ mod tests {
             }],
             dirs: vec!["D3D12_Optiscaler".into()],
             tried: vec!["dxgi.dll".into(), "winmm.dll".into()],
+            fsr4: true,
         };
         let json = serde_json::to_string(&manifest).expect("serialize");
         assert!(json.contains("installedAt"), "camelCase for the frontend: {json}");

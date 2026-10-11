@@ -282,6 +282,12 @@ export type Catalog = {
     modsHook: string;
     modsHookHint: string;
     modsLatest: string;
+    /** 版本选择器里「自带版」那一片（随启动器发出去、带 FSR 4.1.1 放大器的那一份）。 */
+    modsBundled: string;
+    /** 已装的那一套**确实**带 FSR 4.1.1 放大器（判据是文件在不在，不是版本名）。 */
+    modsFsr4: string;
+    /** 已装的是官方包：放大器还是旧的 FSR 4，想要 4.1.1 就换自带版。 */
+    modsFsr4Official: string;
     modsConflict: (name: string) => string;
     modsArch: (name: string) => string;
     modsRunning: string;
@@ -1067,6 +1073,10 @@ export const zh: Catalog = {
     modsHook: "注入文件名",
     modsHookHint: "默认 dxgi；游戏自带 dxgi.dll 或已被别的 Mod 占用时改选 winmm.dll。",
     modsLatest: "最新",
+    modsBundled: "自带版 · FSR 4.1.1",
+    modsFsr4: "这一套带 FSR 4.1.1 放大器（amd_fidelityfx_upscaler_dx12.dll）。",
+    modsFsr4Official:
+      "官方版：放大器还是旧的 FSR 4 —— 想要 FSR 4.1.1 就换成上面的「自带版」重装。",
     modsConflict: (name) => `目录里已经有一个 ${name}（不是我们装的）：会被备份后覆盖，卸载时还原。`,
     modsArch: (name) => `${name} 是 32 位程序，OptiScaler 只有 64 位版，装进去游戏会起不来。`,
     modsRunning: "游戏正在运行，先退出再装。",
@@ -1815,6 +1825,10 @@ export const en: Catalog = {
     modsHook: "Hook file name",
     modsHookHint: "dxgi by default; pick winmm.dll if the game ships its own dxgi.dll or another mod uses it.",
     modsLatest: "Latest",
+    modsBundled: "Bundled · FSR 4.1.1",
+    modsFsr4: "This set includes the FSR 4.1.1 upscaler (amd_fidelityfx_upscaler_dx12.dll).",
+    modsFsr4Official:
+      "Official build: the upscaler is the older FSR 4 — reinstall with the bundled build for FSR 4.1.1.",
     modsConflict: (name) => `This folder already has ${name} (not ours): it will be backed up, and restored on uninstall.`,
     modsArch: (name) => `${name} is 32-bit. OptiScaler is x64-only and would stop the game from starting.`,
     modsRunning: "The game is running. Quit it first.",

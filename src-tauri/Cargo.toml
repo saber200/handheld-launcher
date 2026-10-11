@@ -58,3 +58,10 @@ windows-sys = { version = "0.61", features = [
 # [profile.release] 已搬到工作区根 Cargo.toml：cargo 会忽略成员 crate 里的 profile 表
 # （只打印告警），写在成员里等于没写。
 
+[dev-dependencies]
+# 「自带版 OptiScaler 包里到底有没有 FSR 4.1.1 那个放大器」这条要在**本机（macOS）**就能钉住：
+# 运行时那份 sevenz-rust2 是 Windows 专属依赖（见上），而 7z 的解析与平台无关 ——
+# 测试里挂同一份 dev 依赖，用**同一个库**把随包的那个 63 MB 打开来数条目。
+# 只影响 `cargo test`，不进发布产物。
+sevenz-rust2 = "0.21"
+

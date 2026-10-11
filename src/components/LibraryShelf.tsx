@@ -814,6 +814,14 @@ export function LibraryShelf<T extends Item>({
                       : text().library.modsNotLoaded}
                   </p>
                 )}
+                {/* 「支不支持 FSR 4.1.1」只看那个放大器文件在不在（账本里记着），不靠版本名猜。 */}
+                {modState?.installed && (
+                  <p className="group-empty">
+                    {modState.fsr4
+                      ? text().library.modsFsr4
+                      : text().library.modsFsr4Official}
+                  </p>
+                )}
                 {/*
                   注入名按钮：没装时是「选哪个装」，装了但没加载上时是「换一个再试」——
                   后者才是关键：用户不用等我们改代码，自己点一下就换下一个名字。
@@ -897,23 +905,32 @@ export function LibraryShelf<T extends Item>({
                 )}
                 {!modState?.installed && modVersions.length > 1 && (
                   <div className="library-tools">
-                    {modVersions.map((entry) => {
-                      // 默认装最新（tag = null），选老版本才带 tag。
-                      const tag = entry.latest ? null : entry.tag;
-                      return (
-                        <button
-                          key={entry.tag}
-                          type="button"
-                          className={`library-tool${modTag === tag ? " is-current" : ""}`}
-                          data-focusable
-                          onClick={() => setModTag(tag)}
-                        >
-                          {entry.latest
-                            ? `v${entry.version} · ${text().library.modsLatest}`
-                            : `v${entry.version}`}
-                        </button>
-                      );
-                    })}
+                    {(() => {
+                      // 默认选中的是**首选那一版**：没点过（modTag = null）时有自带版就是它，
+                      // 没有才是官方最新；点过哪一版之后就按点的那一版走。
+                      const hasBundled = modVersions.some((entry) => entry.bundled);
+                      return modVersions.map((entry) => {
+                        const current =
+                          modTag === null
+                            ? entry.bundled || (!hasBundled && entry.latest)
+                            : modTag === entry.tag;
+                        return (
+                          <button
+                            key={entry.tag}
+                            type="button"
+                            className={`library-tool${current ? " is-current" : ""}`}
+                            data-focusable
+                            onClick={() => setModTag(entry.tag)}
+                          >
+                            {entry.bundled
+                              ? text().library.modsBundled
+                              : entry.latest
+                                ? `v${entry.version} · ${text().library.modsLatest}`
+                                : `v${entry.version}`}
+                          </button>
+                        );
+                      });
+                    })()}
                   </div>
                 )}
                 <p className="group-empty">{text().library.modsWarn}</p>

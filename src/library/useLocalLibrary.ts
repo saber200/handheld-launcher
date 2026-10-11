@@ -150,6 +150,11 @@ export type ModStatus = {
   suggestedHook: string | null;
   /** 上次装完之后游戏跑起来，OptiScaler 到底加载上没有（看日志有没有新出现）。 */
   logSeen: boolean;
+  /**
+   * 装着的那一套里有没有 FSR 4.1.1 的放大器（`amd_fidelityfx_upscaler_dx12.dll`）。
+   * 「支不支持 4.1.1」只看这个文件，不看版本名 —— 面板照它如实说话。
+   */
+  fsr4: boolean;
   message: string;
 };
 
@@ -165,11 +170,16 @@ export type ModVersion = {
   tag: string;
   bytes: number;
   latest: boolean;
+  /**
+   * 随启动器一起发出去的自带版（用户自己构建、带 FSR 4.1.1 放大器的那一份）。
+   * 它排第一、默认选中，装它不联网；官方那几个照旧可选。
+   */
+  bundled: boolean;
 };
 
 export const DEFAULT_MOD_HOOK = "dxgi.dll";
 
-/** 能装的版本列表（最近的几个）。拿不到就空数组，界面按「装最新」走。 */
+/** 能装的版本列表（自带版排第一，然后是官方最近的几个）。拿不到就空数组。 */
 export async function modVersions(): Promise<ModVersion[]> {
   if (!inTauri()) return [];
   try {

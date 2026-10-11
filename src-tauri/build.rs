@@ -6,6 +6,11 @@ fn main() {
         "fse/identity.msix",
         "fse/identity.cer",
         "fse/CustomCapability.SCCD",
+        // 自带版 OptiScaler 包（63 MB，见 toolbox.rs 的 OPTISCALER_BUNDLED_FILE）：
+        // 正常情况下它在仓库里、随安装包发出去；万一没有（比如被人清掉了），也落一个空占位
+        // 让打包别失败 —— 运行时认得「空文件 = 没带」，界面上那一项会自动消失，
+        // 用户照样能装官方版本。三处路径（这里 / tauri.conf.json / 常量）改名要一起改。
+        "optiscaler/OptiScaler-custom.7z",
     ] {
         let path = manifest_dir.join(name);
         if !path.exists() {

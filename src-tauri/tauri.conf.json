@@ -44,7 +44,8 @@
     "resources": [
       "fse/identity.msix",
       "fse/identity.cer",
-      "fse/CustomCapability.SCCD"
+      "fse/CustomCapability.SCCD",
+      "optiscaler/OptiScaler-custom.7z"
     ],
     "windows": {
       "nsis": {
