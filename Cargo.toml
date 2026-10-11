@@ -11,7 +11,7 @@ members = ["src-tauri", "crates/fh-core"]
 
 # 两个 crate 共用一个版本号：发版时只改这一处（另需同步 package.json 与 src-tauri/tauri.conf.json）。
 [workspace.package]
-version = "0.1.68"
+version = "0.1.69"
 
 [workspace.dependencies]
 tauri = { version = "2" }
