@@ -80,7 +80,13 @@ button {
 
 .tab-panel-view {
   height: 100%;
-  animation: rise-in var(--dur-page) var(--ease-out) both;
+  /* 收尾必须是 `backwards` 而不是 `both`：`both` 会把最后一帧的 transform 一直挂着，
+     而**只要计算值不是 none**（哪怕是个 identity 矩阵），这一层就成了 `position: fixed`
+     后代的包含块 —— 内容区里的卡片菜单、各种弹窗全被整体推移「内容区相对视口」的那一段
+     （左侧栏 236 + 顶栏 44），看上去就是「弹出的按钮组离卡片特别远」（用户 2026-10-11 实测）。
+     `backwards` 只在开始前（本例没有 delay，等于不等）顶住首帧，动画一结束就把 transform 交还，
+     页面自己的样式里没有 transform，于是又变成 none。 */
+  animation: rise-in var(--dur-page) var(--ease-out) backwards;
 }
 
 .page {
@@ -675,7 +681,9 @@ img.app-icon {
 
 .power-options {
   position: absolute;
-  right: 0;
+  /* 从按钮**左缘往右**展开：设置抽屉里的按钮本身就贴着抽屉左边（24dp），
+     原来用 `right: 0` 让 140dp 宽的菜单往左长，左半边直接跑出屏幕（用户 2026-10-11 实测）。 */
+  left: 0;
   bottom: calc(100% + 8px);
   display: flex;
   flex-direction: column;
@@ -1207,6 +1215,10 @@ img.app-icon {
     filter: blur(0);
   }}
 
+/* 收尾必须是 `transform: none` 而不是 `translateY(0)`：`both` 会把最后一帧的值一直挂着，
+   而只要计算值不是 none，这一层就**成了 position: fixed 后代的包含块** —— 内容区的卡片菜单、
+   各种弹窗都是 fixed，于是全部被整体推移了「内容区相对视口」的那一段（左侧栏宽 + 顶栏高），
+   看上去就是「弹出来的按钮组离卡片特别远」（用户 2026-10-11 实测）。 */
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -1214,7 +1226,7 @@ img.app-icon {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }}
 
 @keyframes fade-in {

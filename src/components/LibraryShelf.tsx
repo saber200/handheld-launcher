@@ -414,24 +414,53 @@ export function LibraryShelf<T extends Item>({
     document.querySelector<HTMLElement>(".picker-grid [data-focusable], .group-dialog [data-focusable]")?.focus();
   }, [restoring]);
 
+  /*
+   * 卡片菜单贴着卡片放，并且**开着的时候一直跟着卡片走**。
+   *
+   * 两个坑都是真机反馈过的：
+   *   ① 位置要「贴着」：以前是 `min(卡片顶, 屏高−菜单高)` —— 卡片在屏幕下半部分时（K1 的
+   *      卡片条就在下半屏），菜单被顶到离卡片一大截的地方，用户的原话是「离主体特别远」。
+   *      现在优先放卡片下方、放不下就贴到卡片上方，只有卡片高到上下都塞不进才夹一下。
+   *   ② 量到的位置会变：卡片条在聚焦时会「平滑居中」，卡片自己还有 180ms 的放大过渡。
+   *      只在开菜单那一帧量一次，菜单就会停在离卡片几十像素的地方。所以每帧跟着走，
+   *      动画停下来它自然就不动了（`setMenuBox` 只在值真变了的时候才 setState）。
+   */
   useLayoutEffect(() => {
     if (!menuCardId) {
       setMenuBox(null);
       return;
     }
-    const card = document.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(menuCardId)}"]`);
-    if (!card) return;
-    const rect = card.getBoundingClientRect();
-    const menu = document.querySelector<HTMLElement>(".card-menu");
-    const width = Math.max(rect.width, menu?.offsetWidth ?? rect.width);
-    const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
-    const top = Math.min(rect.top, window.innerHeight - 12 - (menu?.offsetHeight ?? 280));
-    setMenuBox((current) => {
-      const next = { top: Math.max(12, top), left, width: rect.width };
-      if (current && current.top === next.top && current.left === next.left && current.width === next.width) return current;
-      return next;
-    });
-  }, [menuCardId, menuView, menuBox == null]);
+    let frame = 0;
+    const place = () => {
+      const card = document.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(menuCardId)}"]`);
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      const menu = document.querySelector<HTMLElement>(".card-menu");
+      const width = Math.max(rect.width, menu?.offsetWidth ?? 0);
+      const height = menu?.offsetHeight ?? 0;
+      const gap = 8;
+      const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
+      const below = rect.bottom + gap;
+      const above = rect.top - gap - height;
+      const top =
+        height > 0 && below + height <= window.innerHeight - 12
+          ? below
+          : height > 0 && above >= 12
+            ? above
+            : Math.max(12, Math.min(below, window.innerHeight - 12 - height));
+      setMenuBox((current) => {
+        const next = { top, left, width: rect.width };
+        if (current && current.top === next.top && current.left === next.left && current.width === next.width) return current;
+        return next;
+      });
+    };
+    const follow = () => {
+      place();
+      frame = window.requestAnimationFrame(follow);
+    };
+    follow();
+    return () => window.cancelAnimationFrame(frame);
+  }, [menuCardId, menuView]);
 
   useEffect(() => {
     if (!menuCardId || menuView === "rename") return;

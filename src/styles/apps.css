@@ -119,6 +119,23 @@
   outline: none;
 }
 
+/* 焦点环画在**整个搜索框**上，不是里面的按钮/输入框上。
+   框里有 12dp 内边距，环如果跟着里面的控件走，左右两边会各缩进 12dp ——
+   看上去就是「边框没盖住搜索框、两头露出来」（用户 2026-10-11 实测）。 */
+.k2-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(61, 214, 198, 0.45);
+  background: rgba(61, 214, 198, 0.1);
+}
+
+.k2-search .k2-search-open:focus,
+.k2-search .k2-search-input:focus,
+.k2-search .k2-search-clear:focus {
+  border-color: transparent;
+  box-shadow: none;
+  background: transparent;
+}
+
 .k2-search-clear {
   flex: none;
   padding: 0 calc(4 * var(--dp));

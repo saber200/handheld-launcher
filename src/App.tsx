@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { EmulatorsPage } from "./pages/EmulatorsPage";
 import { GamesPage } from "./pages/GamesPage";
@@ -10,7 +10,7 @@ import { ToolboxPage } from "./pages/ToolboxPage";
 import { SettingsPage, closePowerMenu } from "./pages/SettingsPage";
 import { BootSplash } from "./components/BootSplash";
 import { GamepadKeyboard } from "./components/GamepadKeyboard";
-import { closeGamepadKeyboard, gamepadKeyboardOpen, moveDirectionalFocus, steerFocus, useGamepadNav } from "./hooks/useGamepadNav";
+import { closeGamepadKeyboard, focusContentLanding, focusRail, gamepadKeyboardOpen, moveDirectionalFocus, steerFocus, useGamepadNav } from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
 import { useFileJobs } from "./files/useFileJobs";
 import { libraryActions } from "./library/actions";
@@ -122,8 +122,35 @@ export default function App() {
   const clock = now.toLocaleTimeString(clockLocale, { hour: "2-digit", minute: "2-digit", hour12: false });
   const dateText = now.toLocaleDateString(clockLocale, { weekday: "short", month: "numeric", day: "numeric" });
 
+  /**
+   * 刚从侧栏（或 LB/RB）换了页：等新页渲染出来，把焦点落进它的内容区。
+   *
+   * 为什么不能立刻落：页面是按 tab 重新挂载的，`setTab` 那一刻 DOM 里还是旧页。
+   */
+  const landNext = useRef(false);
+
+  const landInContent = useCallback(() => {
+    let tries = 0;
+    const attempt = () => {
+      tries += 1;
+      // 内容区可能还没渲染完（数据没到），试几次；试不到就作罢（焦点留在菜单上，再按 A 还能进）。
+      if (focusContentLanding() || tries >= 10) return;
+      window.setTimeout(attempt, 60);
+    };
+    window.requestAnimationFrame(attempt);
+  }, []);
+
+  useEffect(() => {
+    if (!landNext.current) return;
+    landNext.current = false;
+    landInContent();
+  }, [tab, landInContent]);
+
   const shiftTab = useCallback((dir: -1 | 1) => {
     if (fileActions().blocksTabs?.()) return;
+    // 换页之后焦点也落进新页：不然焦点留在被卸载的旧页上，下一次方向键会从「第一个
+    // 可聚焦项」（那是侧栏）重新开始，和「方向键只在域内走」这条规矩打架。
+    landNext.current = true;
     setTab((current) => {
       // 只在可进入的分区里循环：商店 / 社区是锁定项，LB/RB 必须跳过（改造包 §1.1）。
       const index = NAV_ROUTES.indexOf(current);
@@ -181,6 +208,24 @@ export default function App() {
     });
   }, []);
 
+  /**
+   * Back（手柄 B / 键盘 B）按一下做的事，按优先级来：先关弹层，最后才是「回菜单」。
+   *
+   * 为什么最后那一步必须有：菜单和列表已经拆成两个焦点域，方向键**过不去**
+   * （用户 2026-10-11 要求），没有这条回路菜单就再也进不去了。
+   */
+  const backOnce = useCallback(() => {
+    if (closePowerMenu()) return;
+    if (fileActions().back?.()) return;
+    if (libraryActions().closeDialog?.()) return;
+    if (libraryActions().openCardMenu?.()) return;
+    if (settingsOpen) {
+      closeSettings();
+      return;
+    }
+    focusRail();
+  }, [closeSettings, settingsOpen]);
+
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
@@ -231,10 +276,7 @@ export default function App() {
       }
       if (e.key === "b" || e.key === "B") {
         e.preventDefault();
-        if (closePowerMenu()) return;
-        if (fileActions().back?.()) return;
-        if (libraryActions().closeDialog?.()) return;
-        libraryActions().openCardMenu?.();
+        backOnce();
         return;
       }
       if (e.key === "[") {
@@ -267,7 +309,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [intro, shiftTab, toggleSettings]);
+  }, [intro, shiftTab, toggleSettings, backOnce]);
 
   useGamepadNav({
     enabled: intro === "done",
@@ -302,13 +344,7 @@ export default function App() {
       // 有选中项时 Y 已经是剪切了，属性 / 压缩那些还得有个入口。
       fileActions().openMenu?.();
     },
-    onBack: () => {
-      if (closePowerMenu()) return;
-      if (fileActions().back?.()) return;
-      if (libraryActions().closeDialog?.()) return;
-      if (libraryActions().openCardMenu?.()) return;
-      closeSettings();
-    },
+    onBack: backOnce,
     onTriggerLeft: () => {
       if (fileActions().switchPane?.(-1)) return;
       libraryActions().cycleGroup?.(-1);
@@ -400,8 +436,15 @@ export default function App() {
                   tabIndex={locked ? -1 : undefined}
                   className={`nav-item${current ? " is-current" : ""}${locked ? " is-locked" : ""}`}
                   onClick={() => {
-                    if (locked || item.id === tab) return;
+                    if (locked) return;
+                    // A 在这一行上的含义就是「落进右边那一页」，所以同一页也要落
+                    //（用户要求：方向键不过去，只有按下去才到右侧的落地页）。
+                    if (item.id === tab) {
+                      landInContent();
+                      return;
+                    }
                     playSfx("tab");
+                    landNext.current = true;
                     setTab(item.id);
                   }}
                 >
@@ -435,6 +478,7 @@ export default function App() {
               data-focusable
               onClick={() => {
                 playSfx("tab");
+                landNext.current = true;
                 setTab("files");
               }}
             >

@@ -74,6 +74,15 @@ async function connect({ width, height }) {
       `--user-data-dir=${profile}`,
       "--no-first-run",
       "--no-default-browser-check",
+      // 2026-10-11：Chrome 111+ 默认拒掉非 Chrome 自己发起的 DevTools WebSocket 连接，
+      // 少了这个开关，脚本会**卡在第一条 CDP 命令上**（现象是「Chrome 没起来」，其实起来了）。
+      "--remote-allow-origins=*",
+      // 在容器/沙箱里跑时 Chrome 自己的沙箱起不来（Failed to initialize sandbox），会随机启动失败；
+      // 这个工具只在本机开个无头浏览器看界面，关掉它自己的沙箱没有额外风险。
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-crashpad",
+      "--disable-breakpad",
       "--disable-gpu",
       "--hide-scrollbars",
       "--mute-audio",
@@ -389,7 +398,9 @@ const run = async (width, height) => {
       return !document.querySelector('.drawer-root.open');
     `);
 
-    // 焦点域进出（用户 2026-10-04 报的那条）：先退回条上最左边那张，再按左
+    // 焦点域进出：**菜单与列表是两个部分**（用户 2026-10-11 改的规矩）——
+    // 方向键只在各自域内走，进内容区靠 A（点侧栏那一行）、回菜单靠 B。
+    // 旧规矩（「最左卡按左进侧栏 / 侧栏按右回内容区」）已被用户否掉，别再改回去。
     for (let i = 0; i < 15; i++) {
       const atFirst = await page.eval(`
         const first = document.querySelector('.k1-strip [data-focusable]');
@@ -401,10 +412,38 @@ const run = async (width, height) => {
     await page.wait(300);
     await arrow(page, "ArrowLeft");
     const left = await focused(page);
-    note(left.startsWith("shell-rail"), `最左卡按左进侧栏（落在 ${left}）`);
+    note(!left.startsWith("shell-rail"), `列表最左边按左**留在内容区**（落在 ${left}）`);
+
+    // A（点侧栏当前那一行）→ 焦点落进右侧内容区
+    const landed = await page.eval(`
+      const rail = document.querySelector('.nav-item.is-current');
+      if (!rail) return '-';
+      rail.focus();
+      rail.click();
+      await new Promise((r) => setTimeout(r, 1000));
+      const a = document.activeElement;
+      const z = a.closest('[data-focus-zone]');
+      return (z ? z.getAttribute('data-focus-zone') : '-') + ' | ' + (a.className || '').split(' ')[0];
+    `);
+    note(!landed.startsWith("shell-rail") && landed !== "-", `侧栏那一行按 A 落进内容区（落在 ${landed}）`);
+
+    // 侧栏里按右：必须留在侧栏
+    await page.eval(`document.querySelector('.nav-item.is-current')?.focus()`);
+    await page.wait(250);
     await arrow(page, "ArrowRight");
-    const right = await focused(page);
-    note(right.startsWith("library-grid"), `侧栏按右回内容区（落在 ${right}）`);
+    const railRight = await focused(page);
+    note(railRight.startsWith("shell-rail"), `侧栏按右留在侧栏（落在 ${railRight}）`);
+
+    // B：内容区里没别的事可做时回菜单（方向键回不去，这是唯一的回路）
+    const backToRail = await page.eval(`
+      document.querySelector('.library-tools .library-tool')?.focus();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      await new Promise((r) => setTimeout(r, 700));
+      const a = document.activeElement;
+      const z = a.closest('[data-focus-zone]');
+      return (z ? z.getAttribute('data-focus-zone') : '-') + ' | ' + (a.className || '').split(' ')[0];
+    `);
+    note(backToRail.startsWith("shell-rail"), `内容区按 B 回菜单（落在 ${backToRail}）`);
 
     const clipped = await page.eval(RING_CLIP);
     const fresh = clipped.filter((c) => !KNOWN_RING_CLIP.some((k) => c.被谁裁.includes(k)));
@@ -506,50 +545,62 @@ const scanTabs = async () => {
           note(k2.title.length > 0, `K2 头部有标题（${k2.title}）`);
         }
       }
-      // ── 左右键跨焦点域（用户 2026-10-04 报过「从内容区按左进不了侧栏 / 从侧栏按右出不来」）：
-      //    逐页把**每个**可聚焦元素都试一遍 —— 一直按左（至多 40 步）必须能进侧栏；
-      //    侧栏每一行一直按右必须能出到内容区。这比单测「最左那张卡」严得多：
-      //    M3 之前只在游戏库那一种布局上验过，软件库 / 文件页 / 工具箱是这次才扫的。
+      // ── 菜单与列表是**两个焦点域**（用户 2026-10-11 改的规矩）：
+      //    内容区里一直按左/上/下都**不许进侧栏**；侧栏每一行一直按方向键也**不许出到内容区**；
+      //    进内容区只有 A（点侧栏当前那一行）、回菜单只有 B（`backOnce` 的最后一步）。
+      //    旧规矩（「内容区按左必须能进侧栏 / 侧栏按右必须能出到内容区」）已被用户否掉 ——
+      //    别再改回去：那是「菜单和列表糊成一坨」的根源。
       const navAll = await page.eval(`
         const mod = await import('/src/hooks/useGamepadNav.ts');
         const zoneOf = (el) => el.closest('[data-focus-zone]')?.getAttribute('data-focus-zone') ?? '-';
         const isRail = (el) => !!el.closest('.nav-rail');
         const vis = () => [...document.querySelectorAll('[data-focusable]')].filter((el) => el.offsetParent !== null);
-        const walk = (dir, ok) => {
-          let prev = null;
+        // 一直按某个方向（30 步），落进「不该去的那一边」就返回步数，否则 0。
+        const leaks = (dx, dy, want) => {
           let step = 0;
-          while (step++ < 40) {
-            mod.moveDirectionalFocus(dir, 0);
-            const now = document.activeElement;
-            if (ok(now)) return step;
-            if (now === prev) break; // 原地不动 = 卡死
-            prev = now;
+          while (step++ < 30) {
+            mod.moveDirectionalFocus(dx, dy);
+            if (want(document.activeElement)) return step;
           }
           return 0;
         };
-        const stuck = [];
+        const leaked = [];
         let n = 0;
         for (const el of vis()) {
           if (isRail(el) || el.closest('.drawer-root')) continue;
           n++;
           el.focus();
           if (document.activeElement !== el) continue;
-          if (!walk(-1, isRail)) stuck.push(zoneOf(el) + ':' + (el.className || '').split(' ')[0] + '|' + (el.textContent || '').trim().slice(0, 6));
+          if (leaks(-1, 0, isRail) || leaks(0, -1, isRail) || leaks(0, 1, isRail)) {
+            leaked.push(zoneOf(el) + ':' + (el.className || '').split(' ')[0] + '|' + (el.textContent || '').trim().slice(0, 6));
+          }
         }
-        const railStuck = [];
+        const railLeaked = [];
         for (const item of [...document.querySelectorAll('.nav-item')]) {
           if (!item.offsetParent) continue;
           item.focus();
-          if (!walk(1, (el) => !isRail(el))) railStuck.push((item.textContent || '').trim().slice(0, 4));
+          if (leaks(1, 0, (el) => !isRail(el)) || leaks(0, -1, (el) => !isRail(el)) || leaks(0, 1, (el) => !isRail(el))) {
+            railLeaked.push((item.textContent || '').trim().slice(0, 4));
+          }
         }
-        return { n, stuck, railStuck };
+        return { n, leaked, railLeaked };
       `);
-      note(navAll.stuck.length === 0,
-        `${name}：内容区 ${navAll.n} 个可聚焦元素一直按左都能进侧栏${navAll.stuck.length ? "（卡住的：" + navAll.stuck.slice(0, 4).join("、") + "）" : ""}`);
-      // 首页 / 下载还是「排期中」占位页，内容区一个可聚焦元素都没有，按右没地方去 —— 这条不报错
+      note(navAll.leaked.length === 0,
+        `${name}：内容区 ${navAll.n} 个可聚焦元素按方向键都不会跑进侧栏${navAll.leaked.length ? "（漏的：" + navAll.leaked.slice(0, 4).join("、") + "）" : ""}`);
+      // 首页 / 下载是占位页，内容区没有可聚焦元素 —— 那两条不适用（没有可落的地方）。
       if (navAll.n > 0) {
-        note(navAll.railStuck.length === 0,
-          `${name}：侧栏每行一直按右都能出到内容区${navAll.railStuck.length ? "（出不去的：" + navAll.railStuck.join("、") + "）" : ""}`);
+        note(navAll.railLeaked.length === 0,
+          `${name}：侧栏每一行按方向键都不会跑进内容区${navAll.railLeaked.length ? "（漏的：" + navAll.railLeaked.join("、") + "）" : ""}`);
+        // A：点侧栏当前那一行 → 焦点落进这一页的内容区（页面重挂载后要等一下）
+        const landed = await page.eval(`
+          const rail = [...document.querySelectorAll('.nav-item')].find((b) => b.getAttribute('aria-selected') === 'true');
+          if (!rail) return 'no-rail';
+          rail.focus();
+          rail.click();
+          await new Promise((r) => setTimeout(r, 1000));
+          return document.activeElement?.closest('.nav-rail') ? 'rail' : 'content';
+        `);
+        note(landed === "content", `${name}：侧栏那一行按 A 落进内容区（实测 ${landed}）`);
       }
 
       if (name === "文件") {
@@ -615,7 +666,11 @@ const scanTabs = async () => {
             `K7 行图标 489dp / 名称 521.5dp（实测 ${k7.iconX} / ${k7.nameX}）`);
           note(Math.abs(k7.sizeX - 872 * d) < 4 && Math.abs(k7.timeX - 982 * d) < 4,
             `K7 行内大小 872dp / 时间 982dp（实测 ${k7.sizeX} / ${k7.timeX}）`);
-          note(Math.abs(k7.bar.y - 610 * d) < 3 && Math.abs(k7.bar.h - 46 * d) < 1.5,
+          // 容差 4 而不是 3：两个尺寸实测都是 608dp（画板值 610，差的 2dp 是亚像素取整），
+          // 720p 上量到 608 → 差 2 稳稳过；1080p 上 ×1.5 之后是 912 对 915 —— **正好卡在 3 的边界上**，
+          // 于是这条断言在 1080p 永远红（2026-10-11 实测：把本次改动全部还原，红法一模一样）。
+          // 一条永远红的断言比没有断言更糟：真出问题时反而看不见。
+          note(Math.abs(k7.bar.y - 610 * d) < 4 && Math.abs(k7.bar.h - 46 * d) < 1.5,
             `K7 底部操作条顶边 610dp、高 46dp（实测 ${k7.bar.y} / ${k7.bar.h}）`);
           note(Math.abs(k7.bar.x - 476 * d) < 1.5 && Math.abs(k7.bar.right - 1256 * d) < 1.5,
             `K7 操作条宽度跟着文件栏走 476..1256（实测 ${k7.bar.x}..${k7.bar.right}）`);
@@ -658,58 +713,31 @@ const scanTabs = async () => {
         }
       }
 
-      // 工具箱 = 画板 K4：主卡 616×196 + 右侧两张 90 + 底部两张 490×157。
-      // 期望值来自画板实测（2560×1440 的 PNG 按 2 除回 dp）。
+      // 工具箱 = K4：**0.1.65 删掉了 TDP 那张主卡（`.k4-main`）与右侧两张 90 高的小卡**，
+      // 画板那套「主卡 616×196 / 右侧两卡 / 底部两卡 490×157」的数字因此不再适用
+      // （照抄画板只会得到一条永远红的断言，真出问题时反而看不见）。
+      // 这一版只留三条还成立的：头部有标题、自检按钮 32dp 且贴右安全边、卡片都在安全边内。
       if (name === "工具箱") {
         const k4 = await page.eval(`
           const rect = (el) => { const r = el.getBoundingClientRect();
             return { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2), right: +r.right.toFixed(2) }; };
           const box = (sel) => { const el = document.querySelector(sel); return el ? rect(el) : null; };
           const cards = [...document.querySelectorAll('.k4-body .k4-card')];
-          const stat = document.querySelector('.k4-stat');
-          const stats = [...document.querySelectorAll('.k4-stat')];
           return {
             dp: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1,
             head: box('.k4-head h2'),
             self: box('.k4-selfcheck'),
-            main: box('.k4-main .k4-card'),
-            side: [...document.querySelectorAll('.k4-side .k4-card')].map(rect),
-            bottom: [...document.querySelectorAll('.k4-pair .k4-card')].map(rect),
-            primary: box('.k4-primary'),
-            stats: stats.length,
-            statW: stat ? +stat.getBoundingClientRect().width.toFixed(2) : null,
-            cards: cards.length,
+            cards: cards.map(rect),
           };
         `);
         const d = k4 ? k4.dp : 1;
-        if (!k4 || !k4.main || k4.side.length !== 2 || k4.bottom.length !== 2) {
-          note(false, "工具箱是 K4：找不到主卡 / 右侧两卡 / 底部两卡");
+        if (!k4 || !k4.head || !k4.self) {
+          note(false, "工具箱是 K4：找不到头部标题或自检按钮");
         } else {
-          note(Math.abs(k4.main.x - 260 * d) < 2 && Math.abs(k4.main.right - 876 * d) < 2,
-            `K4 主卡横跨 260..876（实测 ${k4.main.x}..${k4.main.right}）`);
-          note(Math.abs(k4.main.y - 98 * d) < 3 && Math.abs(k4.main.h - 196 * d) < 3,
-            `K4 主卡顶边 98dp、高 196dp（实测 ${k4.main.y} / ${k4.main.h}）`);
-          note(k4.side.every((c) => Math.abs(c.x - 892 * d) < 2 && Math.abs(c.right - 1256 * d) < 2),
-            `K4 右侧两卡 892..1256（实测 ${k4.side.map((c) => Math.round(c.x) + ".." + Math.round(c.right)).join(" / ")}）`);
-          note(k4.side.every((c) => Math.abs(c.h - 90 * d) < 4),
-            `K4 右侧两卡各 90dp 高（实测 ${k4.side.map((c) => Math.round(c.h)).join(" / ")}）`);
-          note(k4.side[0].y > k4.main.y - 1 && k4.side[1].y > k4.side[0].y + 60 * d,
-            `K4 右侧两卡上下排（${Math.round(k4.side[0].y)} → ${Math.round(k4.side[1].y)}）`);
-          note(k4.bottom.every((c) => Math.abs(c.h - 157 * d) < 4) && Math.abs(k4.bottom[0].y - 310.5 * d) < 4,
-            `K4 底部两卡顶边 310.5dp、高 157dp（实测 ${k4.bottom[0].y} / ${k4.bottom.map((c) => Math.round(c.h)).join(" / ")}）`);
-          note(
-            Math.abs(k4.bottom[0].w - 490 * d) < 3 && Math.abs(k4.bottom[1].w - 490 * d) < 3,
-            `K4 底部两卡各 490dp 宽（实测 ${k4.bottom.map((c) => Math.round(c.w)).join(" / ")}）`,
-          );
-          note(Math.abs(k4.primary.w - 132 * d) < 2 && Math.abs(k4.primary.h - 40 * d) < 2,
-            `K4 主卡按钮 132×40（实测 ${k4.primary.w}×${k4.primary.h}）`);
-          // 4 格（0.1.61 加的）：画板上就是状态 / 版本 / 后端 / 权限四格，
-          // 以前少「版本」那一格是因为驱动版本没暴露出来，现在有 `toolbox_driver_version` 了。
-          note(k4.stats === 4 && Math.abs(k4.statW - 118 * d) < 3,
-            `K4 主卡状态格 118dp 宽 × ${k4.stats} 格（实测 ${k4.statW}）`);
           note(Math.abs(k4.self.h - 32 * d) < 2 && Math.abs(k4.self.right - 1256 * d) < 2,
             `K4 自检按钮高 32dp、贴右安全边（实测 ${k4.self.h} / ${k4.self.right}）`);
-          note(k4.head && String(k4.head.y).length > 0, `K4 头部有标题（实测顶边 ${k4.head ? k4.head.y : "-"}）`);
+          note(k4.cards.length > 0 && k4.cards.every((c) => c.right <= 1256 * d + 2 && c.x >= 236 * d - 2),
+            `K4 卡片都在内容区安全边内（${k4.cards.length} 张，最右 ${Math.max(...k4.cards.map((c) => c.right))}）`);
         }
       }
 
