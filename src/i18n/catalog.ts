@@ -1,7 +1,14 @@
 export type Locale = "zh" | "en";
 
 /** 底部提示条有内容的页面（首页 / 下载本版只有占位，但仍要给条上留开关抽屉那两条）。 */
-export type HintPage = "home" | "games" | "apps" | "downloads" | "files" | "toolbox";
+export type HintPage =
+  | "home"
+  | "games"
+  | "apps"
+  | "downloads"
+  | "files"
+  | "toolbox"
+  | "emulators";
 
 /** 提示条的一格：手柄按键 + 短标签。改造包 ui-strings.json 里就是这个结构。 */
 export type HintPair = [string, string];
@@ -24,6 +31,8 @@ export type Catalog = {
     downloads: string;
     files: string;
     toolbox: string;
+    /** 模拟器页（六个平台：PS2 / PS3 / Switch / PS4 / 街机 / 全能）。 */
+    emulators: string;
     store: string;
     community: string;
   };
@@ -115,6 +124,16 @@ export type Catalog = {
     languageHint: string;
     autostart: string;
     autostartHint: string;
+    /** 「登录自启时顺手把 Steam 静默拉到后台」那一行（默认关）。 */
+    steamSilent: string;
+    steamSilentHint: string;
+    /** 开机自启关着时跟在提示后面的那句「这一项靠它才生效」。 */
+    steamSilentNeedsAutostart: string;
+    steamSilentOn: string;
+    steamSilentOff: string;
+    steamSilentReadFailed: string;
+    steamSilentPreview: string;
+    steamSilentFailed: (detail: string) => string;
     /* ── 功能 14 第 5 条补的两行 ── */
     scaleTitle: string;
     scaleHint: string;
@@ -723,6 +742,63 @@ export type Catalog = {
     confirmDeleteBody: string;
     confirmDeleteMany: (count: number, size: string) => string;
   };
+  /** 模拟器页（新页签）：一张卡一个平台，能自动装的直接下、装到非系统盘。 */
+  emulators: {
+    sub: string;
+    refresh: string;
+    /** 安装位置的标题行：「安装位置」+ 当前路径 + 改 / 恢复默认。 */
+    rootTitle: string;
+    rootChange: string;
+    rootReset: string;
+    rootCustom: string;
+    rootDefault: string;
+    rootHint: string;
+    /** 只有装好的那几张卡才量体积，单独一颗按钮。 */
+    measure: string;
+    measuring: string;
+    install: string;
+    reinstall: string;
+    cancel: string;
+    launch: string;
+    openFolder: string;
+    uninstall: string;
+    /** 二次确认（卸载会连存档一起删，所以必须问一次）。 */
+    uninstallConfirm: string;
+    uninstallYes: string;
+    uninstallNo: string;
+    /** 手动项（RPCS3 / Switch）：打不开官网时至少给个地址。 */
+    openSite: string;
+    manualTag: string;
+    /** 一个平台的安装状态那行：「已安装 · 2.8.2 · 620 MB」。 */
+    stateInstalled: (version: string, size: string) => string;
+    stateInstalledNoVersion: (size: string) => string;
+    sizeUnknown: string;
+    stateMissing: string;
+    /** 进度：「下载中 42%」+ 明细那行。 */
+    phaseResolve: string;
+    phaseDownload: string;
+    phaseExtract: string;
+    phaseCopy: string;
+    phaseDone: string;
+    progressBytes: (done: string, total: string) => string;
+    progressUnknown: (done: string) => string;
+    /** 解压那一步按**文件个数**报进度（sevenz 的逐条回调给不了字节数）。 */
+    progressFiles: (done: number, total: number) => string;
+    /** 还没拿到总量时那一行的字（按阶段分：解压 / 就位 都不是「已下载」）。 */
+    progressWorking: string;
+    /** 换过安装位置之后，已经装好的那几张卡要标出自己在哪儿。 */
+    elsewhere: (dir: string) => string;
+    /** 一次只能装一个：别的卡在装的时候，其他卡的按钮要说明为什么点不了。 */
+    busyOther: string;
+    /** 收尾提示。 */
+    installedNote: (name: string) => string;
+    launchedNote: (name: string) => string;
+    removedNote: (name: string) => string;
+    failed: (detail: string) => string;
+    /** 非 Windows / 浏览器预览里那一页要说的话。 */
+    unsupported: string;
+    empty: string;
+  };
 };
 
 export const zh: Catalog = {
@@ -743,6 +819,7 @@ export const zh: Catalog = {
     downloads: "下载",
     files: "文件",
     toolbox: "工具箱",
+    emulators: "模拟器",
     store: "商店",
     community: "社区",
   },
@@ -787,6 +864,7 @@ export const zh: Catalog = {
     downloads: [["LB/RB", "切换分区"], ["≡", "设置抽屉"]],
     files: [["A", "打开"], ["B", "返回"], ["X", "多选"], ["Y", "菜单"], ["LT/RT", "换栏"], ["LB/RB", "切分区"]],
     toolbox: [["A", "安装 / 重装"], ["B", "返回"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
+    emulators: [["A", "安装 / 启动"], ["B", "返回"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
   },
   home: {
     resumeChip: "继续游玩",
@@ -837,6 +915,16 @@ export const zh: Catalog = {
     languageHint: "中文显示幻想枢纽，英文显示 FantasyHub",
     autostart: "开机自启",
     autostartHint: "登录后打开启动器",
+    steamSilent: "开机时拉起 Steam",
+    steamSilentHint:
+      "自启时静默拉起 Steam；Steam 里要勾「记住密码」，否则拉起来的只是登录框",
+    steamSilentNeedsAutostart: "先打开上面的「开机自启」才生效",
+    steamSilentOn:
+      "已开启。下次登录时启动器会把 Steam 拉到后台，之后点游戏直接进，不再弹 Steam 窗口。",
+    steamSilentOff: "已关闭。点游戏时才启动 Steam（可能先弹出 Steam 窗口）。",
+    steamSilentReadFailed: "无法读取这一项的状态（需在打包后的桌面端测试）",
+    steamSilentPreview: "浏览器预览模式不支持这一项，请用 tauri:dev 或安装包验证",
+    steamSilentFailed: (detail) => `Steam 设置失败：${detail}`,
     scaleTitle: "界面缩放",
     scaleHint: "按屏幕自动换算",
     scaleAuto: (value) => `自动 · ${value}×`,
@@ -1414,6 +1502,50 @@ export const zh: Catalog = {
     confirmDeleteBody: "删除不进回收站，删了就没了",
     confirmDeleteMany: (count, size) => `要删除 ${count} 项 · ${size}`,
   },
+  emulators: {
+    sub: "装到非系统盘 · 配置留在自己目录里（便携模式）",
+    refresh: "自检",
+    rootTitle: "安装位置",
+    rootChange: "改",
+    rootReset: "恢复默认",
+    rootCustom: "自定义",
+    rootDefault: "默认（非系统盘）",
+    rootHint: "只影响以后装的；已经装好的留在原地，不会自己搬家。",
+    measure: "量体积",
+    measuring: "正在量…",
+    install: "安装",
+    reinstall: "重装",
+    cancel: "取消",
+    launch: "启动",
+    openFolder: "打开目录",
+    uninstall: "卸载",
+    uninstallConfirm: "卸载会连同这个模拟器目录里的存档一起删掉，确定？",
+    uninstallYes: "确认卸载",
+    uninstallNo: "再想想",
+    openSite: "打开官网",
+    manualTag: "手动安装",
+    stateInstalled: (version, size) => `已安装${version ? ` · ${version}` : ""}${size ? ` · ${size}` : ""}`,
+    stateInstalledNoVersion: (size) => `已安装${size ? ` · ${size}` : ""}`,
+    sizeUnknown: "体积待量",
+    stateMissing: "未安装",
+    phaseResolve: "正在查最新版本…",
+    phaseDownload: "下载中",
+    phaseExtract: "解压中",
+    phaseCopy: "正在就位",
+    phaseDone: "完成",
+    progressBytes: (done, total) => `${done} / ${total}`,
+    progressUnknown: (done) => `已下载 ${done}`,
+    progressFiles: (done, total) => `${done} / ${total} 个文件`,
+    progressWorking: "进行中…",
+    elsewhere: (dir) => `装在别处：${dir}`,
+    busyOther: "正在装另一个模拟器",
+    installedNote: (name) => `${name} 装好了，在下面按 A 启动。`,
+    launchedNote: (name) => `正在启动 ${name}…（第一次打开要初始化配置，会比平时慢一点）`,
+    removedNote: (name) => `${name} 已卸载。`,
+    failed: (detail) => `操作失败：${detail}`,
+    unsupported: "安装模拟器只能在 Windows 掌机上做；这里只显示这张表。",
+    empty: "这张表是空的 —— 要么是版本太旧，要么是构建时漏了目录。",
+  },
 };
 
 export const en: Catalog = {
@@ -1434,6 +1566,7 @@ export const en: Catalog = {
     downloads: "Downloads",
     files: "Files",
     toolbox: "Toolbox",
+    emulators: "Emulators",
     store: "Store",
     community: "Community",
   },
@@ -1478,6 +1611,7 @@ export const en: Catalog = {
     downloads: [["LB/RB", "Sections"], ["≡", "Settings"]],
     files: [["A", "Open"], ["B", "Back"], ["X", "Select"], ["Y", "Menu"], ["LT/RT", "Pane"], ["LB/RB", "Sections"]],
     toolbox: [["A", "Install / reinstall"], ["B", "Back"], ["LB/RB", "Sections"], ["≡", "Settings"]],
+    emulators: [["A", "Install / launch"], ["B", "Back"], ["LB/RB", "Sections"], ["≡", "Settings"]],
   },
   home: {
     resumeChip: "Continue",
@@ -1528,6 +1662,16 @@ export const en: Catalog = {
     languageHint: "Chinese shows 幻想枢纽. English shows FantasyHub",
     autostart: "Start with Windows",
     autostartHint: "Open the launcher after sign-in",
+    steamSilent: "Start Steam at sign-in",
+    steamSilentHint:
+      "Steam comes up in the background at sign-in. Tick \"Remember my password\" in Steam, or it only opens the sign-in box",
+    steamSilentNeedsAutostart: "needs \"Start with Windows\" above",
+    steamSilentOn:
+      "On. At the next sign-in the launcher brings Steam up in the background; opening a game then skips the Steam window.",
+    steamSilentOff: "Off. Steam starts when you open a game (its window may appear first).",
+    steamSilentReadFailed: "Couldn't read this setting. Try the installed app.",
+    steamSilentPreview: "Browser preview can't change this. Use the desktop app.",
+    steamSilentFailed: (detail) => `Couldn't change the Steam setting: ${detail}`,
     scaleTitle: "UI scale",
     scaleHint: "Fitted to the screen",
     scaleAuto: (value) => `Auto · ${value}×`,
@@ -2103,5 +2247,49 @@ export const en: Catalog = {
     confirmTitle: "Please confirm",
     confirmDeleteBody: "Deleting skips the Recycle Bin — it's gone for good",
     confirmDeleteMany: (count, size) => `${count} items · ${size} to delete`,
+  },
+  emulators: {
+    sub: "Installs to a non-system drive · settings stay in its own folder (portable mode)",
+    refresh: "Check",
+    rootTitle: "Install location",
+    rootChange: "Change",
+    rootReset: "Use default",
+    rootCustom: "custom",
+    rootDefault: "default (non-system drive)",
+    rootHint: "Only affects future installs; what's already installed stays put.",
+    measure: "Measure",
+    measuring: "Measuring…",
+    install: "Install",
+    reinstall: "Reinstall",
+    cancel: "Cancel",
+    launch: "Launch",
+    openFolder: "Open folder",
+    uninstall: "Uninstall",
+    uninstallConfirm: "Uninstalling deletes the saves inside that emulator folder too. Sure?",
+    uninstallYes: "Uninstall",
+    uninstallNo: "Keep it",
+    openSite: "Open website",
+    manualTag: "Manual install",
+    stateInstalled: (version, size) => `Installed${version ? ` · ${version}` : ""}${size ? ` · ${size}` : ""}`,
+    stateInstalledNoVersion: (size) => `Installed${size ? ` · ${size}` : ""}`,
+    sizeUnknown: "Size not measured",
+    stateMissing: "Not installed",
+    phaseResolve: "Checking for the latest version…",
+    phaseDownload: "Downloading",
+    phaseExtract: "Extracting",
+    phaseCopy: "Putting it in place",
+    phaseDone: "Done",
+    progressBytes: (done, total) => `${done} / ${total}`,
+    progressUnknown: (done) => `${done} downloaded`,
+    progressFiles: (done, total) => `${done} / ${total} files`,
+    progressWorking: "Working…",
+    elsewhere: (dir) => `Installed elsewhere: ${dir}`,
+    busyOther: "Another emulator is installing",
+    installedNote: (name) => `${name} is ready — press A below to launch it.`,
+    launchedNote: (name) => `Starting ${name}… (the first run sets up its config, so it takes a moment)`,
+    removedNote: (name) => `${name} was removed.`,
+    failed: (detail) => `Action failed: ${detail}`,
+    unsupported: "Installing emulators only works on a Windows handheld; this is a preview of the list.",
+    empty: "This list is empty — either the build is stale or the catalog didn't ship.",
   },
 };

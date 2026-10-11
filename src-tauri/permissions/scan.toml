@@ -43,6 +43,18 @@ identifier = "allow-set-autostart"
 description = "Turn launch at login on or off."
 commands.allow = ["set_autostart"]
 
+# 登录自启时顺手把 Steam 静默拉到后台这一项（设置页那一行的开关）。
+# 它跟开机自启是一对：自启不开这一项就不起作用；不新增 Steam 那条开机项，也不动它的值。
+[[permission]]
+identifier = "allow-steam-silent-enabled"
+description = "Read whether the launcher should start Steam in the background at login."
+commands.allow = ["steam_silent_enabled"]
+
+[[permission]]
+identifier = "allow-set-steam-silent"
+description = "Turn the background Steam start at login on or off."
+commands.allow = ["set_steam_silent"]
+
 [[permission]]
 identifier = "allow-fse-status"
 description = "Read whether the launcher is registered for fullscreen experience."

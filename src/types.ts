@@ -12,6 +12,8 @@ export type TabId =
   | "downloads"
   | "files"
   | "toolbox"
+  // 模拟器页：六个平台一张卡一个，装到非系统盘（见 pages/EmulatorsPage.tsx）。
+  | "emulators"
   | "store"
   | "community";
 
@@ -24,6 +26,7 @@ export const NAV: NavItem[] = [
   { id: "downloads" },
   { id: "files" },
   { id: "toolbox" },
+  { id: "emulators" },
   { id: "store", locked: true },
   { id: "community", locked: true },
 ];

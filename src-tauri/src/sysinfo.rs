@@ -56,7 +56,7 @@ pub async fn system_power_status() -> PowerStatus {
     })
 }
 
-fn drives_now() -> Vec<DriveSpace> {
+pub(crate) fn drives_now() -> Vec<DriveSpace> {
     #[cfg(windows)]
     {
         return windows::drives();

@@ -1,0 +1,46 @@
+# 模拟器页（对应 src-tauri/src/emulator.rs）。
+#
+# 这一页的「装」是真的往磁盘上写几百 MB（下载 → 解压 → 搬进安装目录），所以每一条都要
+# 单独 allow。0.1.62 的教训在这里同样成立：命令注册了、前端也在调，唯独没人给它 allow
+# 的话，真机上只会看到「按了没反应」—— 本机（macOS）编不出 Windows 那段，编译器一句话都不说。
+# 详见 scripts/audit-acl.mjs。
+
+[[permission]]
+identifier = "allow-emulator-list"
+description = "List the emulator catalog with install state for the Emulators tab."
+commands.allow = ["emulator_list"]
+
+[[permission]]
+identifier = "allow-emulator-root"
+description = "Read where emulators get installed (defaults to the first non-system drive) and whether installs are supported."
+commands.allow = ["emulator_root"]
+
+[[permission]]
+identifier = "allow-emulator-set-root"
+description = "Change the emulator install folder."
+commands.allow = ["emulator_set_root"]
+
+[[permission]]
+identifier = "allow-emulator-sizes"
+description = "Measure how much disk space each installed emulator uses."
+commands.allow = ["emulator_sizes"]
+
+[[permission]]
+identifier = "allow-emulator-install"
+description = "Download, extract and install an emulator into the install folder."
+commands.allow = ["emulator_install"]
+
+[[permission]]
+identifier = "allow-emulator-uninstall"
+description = "Delete an installed emulator folder and forget it in the ledger."
+commands.allow = ["emulator_uninstall"]
+
+[[permission]]
+identifier = "allow-emulator-cancel"
+description = "Cancel the emulator download or install in progress."
+commands.allow = ["emulator_cancel"]
+
+[[permission]]
+identifier = "allow-emulator-open-site"
+description = "Open the official download page for emulators that cannot be installed automatically."
+commands.allow = ["emulator_open_site"]

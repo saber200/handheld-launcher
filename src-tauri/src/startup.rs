@@ -201,6 +201,47 @@ fn set_autostart_now(enabled: bool) -> Result<(), String> {
     }
 }
 
+/// 「登录自启时顺手把 Steam 静默拉到后台」这个开关（默认关）。
+///
+/// 它和上面「开机自启」是一对：**开机自启不开，这一项就不起作用**（没人按点去拉 Steam）。
+/// 开关本身只是决定「启动器自己登录自启时，要不要多做这一件事」，不动 Steam 的任何设置。
+#[tauri::command]
+pub async fn steam_silent_enabled() -> bool {
+    crate::off_main(steam_silent_enabled_now).await.unwrap_or(false)
+}
+
+fn steam_silent_enabled_now() -> bool {
+    #[cfg(windows)]
+    {
+        return windows::steam_silent_enabled();
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+#[tauri::command]
+pub async fn set_steam_silent(enabled: bool) -> Result<(), String> {
+    match crate::off_main(move || set_steam_silent_now(enabled)).await {
+        Ok(done) => done,
+        Err(err) => Err(err),
+    }
+}
+
+fn set_steam_silent_now(enabled: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        return windows::set_steam_silent(enabled);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = enabled;
+        Err(pick(
+            "只能在 Windows 上设置这一项",
+            "This setting only works on Windows.",
+        ))
+    }
+}
+
 /// Keep a previous opt-in, and drop the "do not restart" mark from an earlier quit.
 pub fn prepare() {
     #[cfg(windows)]
@@ -246,8 +287,19 @@ mod windows {
         } else {
             old_launch_exists()
         };
+        // 这次启动是不是走「用户开着开机自启」那条路径 —— 顺手拉 Steam 只在这条路径上做
+        // （见 `start_steam_silently`）：用户要的是「开机后 Steam 已经在后台」，不是
+        // 「没开自启也替他把 Steam 拉起来」。手动再打开一次启动器会走同一条路，但进程检查
+        // 兜住了：客户端已经在跑就什么都不做。
+        let login_start = matches!(opted_in, Ok(true));
         // Always recover the Windows shell, even if migration cannot proceed.
         recover_shell();
+        // 先拉 Steam，再去折腾注册表与计划任务：`enable_login` 里那几次 PowerShell 查询要几秒，
+        // 让客户端在这几秒里先起（Steam 自己的启动时间比这几秒长得多）—— 而且它是 `spawn`，
+        // 不阻塞。失败了也只是日志里一行，绝不拦着启动器自己起来。
+        if login_start {
+            start_steam_silently();
+        }
         let result = opted_in.and_then(|opted_in| {
             if opted_in {
                 enable_login()
@@ -257,6 +309,22 @@ mod windows {
         });
         if let Err(err) = result {
             eprintln!("[startup::prepare] Login startup migration failed; cleanup stopped: {err}");
+        }
+    }
+
+    /// 登录自启时顺手把 Steam 静默拉起来一次（开关关着就什么都不做）。
+    ///
+    /// 为什么由启动器来做、而不是给 Steam 加一条开机项：Steam 自己那条 `HKCU\...\Run` 是它的
+    /// 地盘，我们不动也不加第二条；启动器反正要在登录时起来，顺手做一次就够了。
+    /// 已经在跑就什么都不做（判断在 `crate::scan::start_steam_quietly` 里）。
+    fn start_steam_silently() {
+        if !steam_silent_enabled() {
+            return;
+        }
+        match crate::scan::start_steam_quietly() {
+            Ok(true) => crate::logutil::write_line("steam silent start: started"),
+            Ok(false) => crate::logutil::write_line("steam silent start: already running"),
+            Err(err) => crate::logutil::write_line(&format!("steam silent start failed: {err}")),
         }
     }
 
@@ -675,6 +743,44 @@ mod windows {
 
     fn keep_alive_exists() -> bool {
         state_dir().is_some_and(|dir| dir.join("keep-alive").is_file())
+    }
+
+    /// 「登录自启时顺手静默拉起 Steam」这个开关的落点：`%APPDATA%\handheld-launcher` 下的一个
+    /// 标记文件，**存在 = 开着**（默认关，也就是没有这个文件）。
+    ///
+    /// 为什么是文件，不是注册表、也不是前端 localStorage：`prepare()` 在 webview 起来之前就要
+    /// 读它，那时候前端还没跑；而这个目录本来就是启动器放 `suppress` / `keep-alive` / 日志的地方
+    /// （见 `state_dir`），多一个标记文件不欠谁的人情。**也不写注册表** —— 这一项与 Steam 自己
+    /// 那条开机项（`HKCU\...\Run` 里的 `Steam`）毫无关系，我们既不读它也不改它。
+    const STEAM_SILENT_MARK: &str = "steam-silent-start";
+
+    pub fn steam_silent_enabled() -> bool {
+        state_dir().is_some_and(|dir| dir.join(STEAM_SILENT_MARK).is_file())
+    }
+
+    pub fn set_steam_silent(enabled: bool) -> Result<(), String> {
+        let dir = state_dir()
+            .ok_or_else(|| "Couldn't save the Steam setting: APPDATA is missing".to_string())?;
+        let path = dir.join(STEAM_SILENT_MARK);
+        let saved = if enabled {
+            std::fs::write(&path, "on\n").map_err(|err| format!("Couldn't save the Steam setting: {err}"))
+        } else {
+            match std::fs::remove_file(&path) {
+                Ok(()) => Ok(()),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(err) => Err(format!("Couldn't save the Steam setting: {err}")),
+            }
+        };
+        saved?;
+        // 读回来验一遍：界面上的开关必须是磁盘上的真实状态（`write_run_value` 也是这么验的），
+        // 否则用户看到「已开启」，而下次开机什么都没发生。
+        if steam_silent_enabled() == enabled {
+            Ok(())
+        } else {
+            Err(format!(
+                "Steam silent startup setting verification failed (wanted {enabled})"
+            ))
+        }
     }
 
     fn old_launch_exists() -> Result<bool, String> {

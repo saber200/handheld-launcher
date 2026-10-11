@@ -22,6 +22,8 @@ import "./styles/files.css";
 import "./styles/filestasks.css";
 // 画板 K4（工具箱）的样式：主卡 + 四张卡。
 import "./styles/toolbox.css";
+// 模拟器页（新页签）的样式：六张等大的卡 + 一行安装位置。跟 K4 不是一套几何，单开一份。
+import "./styles/emulators.css";
 // 画板 K3（设置抽屉）的样式：标题行 + 设置行 + 底部提示。旧的 `.setting-*` 与 `.drawer`
 // 都还在 global.css 里（新页面按里程碑逐页迁），所以这份只写 K3 自己的 `k3-*`。
 import "./styles/settings.css";

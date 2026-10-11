@@ -72,6 +72,49 @@ pub fn kill_game(_launch_path: &str, _install_path: &str) -> u32 {
     0
 }
 
+/// 「这个 exe 现在在不在跑」—— 按**进程名**匹配，不看路径。
+///
+/// 为什么不复用上面的 `pids_for_game`：那个按**路径**匹配，而且 `steam.exe` 被它明确排除在外
+/// （拿安装目录一比，Steam 客户端会被算成「游戏进程」，见 `belongs_to_game` 的 HELPERS）。
+/// 这里要的恰恰相反 —— 判断 Steam 客户端在不在跑，好决定要不要把它拉起来，所以只能另写一个。
+///
+/// 按名字（而不是按 `steam.exe` 的安装路径）比，是因为同一个客户端可能装在 C: 也可能在 D:，
+/// 还可能是绿色版；调用方只关心「有没有这个东西在跑」。
+#[cfg(windows)]
+pub fn process_running(exe_name: &str) -> bool {
+    process_paths()
+        .iter()
+        .any(|(_, entry)| matches_process_name(entry, exe_name))
+}
+
+/// 非 Windows：没有进程快照可查，一律当成「没在跑」（本机只跑得到测试）。
+#[cfg(not(windows))]
+pub fn process_running(_exe_name: &str) -> bool {
+    false
+}
+
+/// 进程快照里的一条记录（完整镜像路径；提不到路径时退化成 exe 名）是不是这个 exe。
+///
+/// 纯函数，专门抽出来给本机（macOS）测：`process_running` 那半边是 `#[cfg(windows)]`，
+/// 本机编不到也跑不到，而这里判错的后果很具体 —— 「把已经在跑的 Steam 又拉一遍」
+/// （多一个客户端窗口）或者「该拉的时候不拉」。
+pub fn matches_process_name(entry: &str, exe_name: &str) -> bool {
+    let want = exe_name.trim();
+    // 要的是「进程名」：带路径分隔符的输入不按名字比 —— 否则整条路径会被当成一个名字，
+    // 结果恒为 false，静默启动悄悄失效。
+    if want.is_empty() || want.contains('\\') || want.contains('/') {
+        return false;
+    }
+    let file = entry
+        .replace('/', "\\")
+        .rsplit('\\')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    file == want.to_ascii_lowercase()
+}
+
 #[cfg(windows)]
 fn terminate_pid(pid: u32) -> bool {
     use windows_sys::Win32::Foundation::CloseHandle;
@@ -235,4 +278,43 @@ pub fn belongs_to_game(launch_path: &str, install_path: &str, process_path: &str
         return !launch_file.is_empty() && file == launch_file;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 「Steam 在不在跑」这条判断的背面是「要不要把它拉起来」：判成「没在跑」就会多开一个
+    /// 客户端窗口，判成「在跑」就是该拉的时候不拉。这里盯住三种真实记录的写法。
+    #[test]
+    fn matches_a_process_by_its_exe_name() {
+        // 完整镜像路径（正常情况，来自 QueryFullProcessImageName）。
+        assert!(matches_process_name(
+            r"C:\Program Files (x86)\Steam\steam.exe",
+            "steam.exe"
+        ));
+        // 换过盘的安装位置：按名字比就该认，按路径比会漏。
+        assert!(matches_process_name(r"D:\Steam\steam.exe", "steam.exe"));
+        // 大小写不敏感（Windows 进程名本来就大小写随意）。
+        assert!(matches_process_name(
+            r"D:\Steam\STEAM.EXE",
+            "steam.exe"
+        ));
+        // 正斜杠只是拼路径时的手滑，不该改变结论。
+        assert!(matches_process_name("D:/Steam/steam.exe", "steam.exe"));
+        // 提不到镜像路径时，快照里只剩 exe 名（`process_paths` 的兜底）。
+        assert!(matches_process_name("steam.exe", "steam.exe"));
+
+        // 同目录下的另一个 exe、只是名字里带 steam 的，都不算。
+        assert!(!matches_process_name(
+            r"D:\Steam\steamwebhelper.exe",
+            "steam.exe"
+        ));
+        assert!(!matches_process_name(r"D:\Steam\steamservice.exe", "steam.exe"));
+        assert!(!matches_process_name(r"C:\Games\Hades.exe", "steam.exe"));
+        // 传进来的必须是进程名：整条路径当名字比会恒为 false，静默启动就白写了。
+        assert!(!matches_process_name(r"D:\Steam\steam.exe", r"D:\Steam\steam.exe"));
+        assert!(!matches_process_name("steam.exe", ""));
+        assert!(!matches_process_name("", "steam.exe"));
+    }
 }

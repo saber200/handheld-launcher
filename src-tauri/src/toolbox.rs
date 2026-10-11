@@ -1285,9 +1285,11 @@ mod windows {
             }
         };
 
-        let cache = cache_dir(app)?;
+        let cache = crate::net::cache_dir(app, "toolbox")?;
         let installer = cache.join(file_name);
-        download(url, &installer)?;
+        // 运行库是几 MB 的小文件，没有进度也不给取消（跟原来一样）—— `net::download`
+        // 照样要一个 report 回调，这里给个空的。
+        crate::net::download(url, &installer, 0, &|| false, &|_, _| {})?;
         run_installer(&installer, &args)?;
         Ok(pick("安装完成。", "Install finished."))
     }
@@ -1485,14 +1487,20 @@ mod windows {
         }
 
         let release = optiscaler_release(version)?;
-        let cache = cache_dir(app)?;
+        let cache = crate::net::cache_dir(app, "toolbox")?;
         let archive_path = cache.join(&release.file_name);
         // 缓存里那份大小对得上就直接用：官方包 50 MB 上下，重装不该再下一次。
         let cached = release.bytes > 0
             && fs::metadata(&archive_path).map(|meta| meta.len()).ok() == Some(release.bytes);
         if !cached {
             let _ = fs::remove_file(&archive_path);
-            download_with_progress(app, &release.url, &archive_path, release.bytes)?;
+            crate::net::download(
+                &release.url,
+                &archive_path,
+                release.bytes,
+                &|| MOD_CANCEL.load(Ordering::Relaxed),
+                &|done, total| emit_mod(app, "download", done, total),
+            )?;
         }
 
         let extract_dir = cache.join("optiscaler-extract");
@@ -1504,7 +1512,8 @@ mod windows {
             )
         })?;
         emit_mod(app, "extract", 0, 0);
-        expand_archive(&archive_path, &extract_dir)?;
+        // 工具箱这张卡没有解压进度条，给个空回调。
+        crate::net::extract_archive(&archive_path, &extract_dir, &|_, _| {})?;
 
         let package_root = find_optiscaler_root(&extract_dir).ok_or_else(|| {
             pick(
@@ -1517,7 +1526,7 @@ mod windows {
         let mut ledger = ModManifest {
             version: release.version.clone(),
             hook: hook.to_string(),
-            installed_at: now_ms(),
+            installed_at: crate::net::now_ms(),
             files: Vec::new(),
             backups: Vec::new(),
             dirs: Vec::new(),
@@ -1601,55 +1610,6 @@ mod windows {
         })
     }
 
-    fn cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-        let dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|err| {
-                pick(
-                    &format!("无法定位缓存目录：{err}"),
-                    &format!("Couldn't locate cache folder: {err}"),
-                )
-            })?
-            .join("toolbox");
-        fs::create_dir_all(&dir).map_err(|err| {
-            pick(
-                &format!("无法创建缓存目录：{err}"),
-                &format!("Couldn't create cache folder: {err}"),
-            )
-        })?;
-        Ok(dir)
-    }
-
-    fn download(url: &str, dest: &Path) -> Result<(), String> {
-        if let Some(parent) = dest.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let response = ureq::get(url)
-            .set("User-Agent", "FantasyHub-Toolbox")
-            .call()
-            .map_err(|err| {
-                pick(
-                    &format!("下载失败：{err}"),
-                    &format!("Download failed: {err}"),
-                )
-            })?;
-        let mut reader = response.into_reader();
-        let mut file = fs::File::create(dest).map_err(|err| {
-            pick(
-                &format!("无法写入下载文件：{err}"),
-                &format!("Couldn't write download: {err}"),
-            )
-        })?;
-        std::io::copy(&mut reader, &mut file).map_err(|err| {
-            pick(
-                &format!("保存下载失败：{err}"),
-                &format!("Couldn't save download: {err}"),
-            )
-        })?;
-        Ok(())
-    }
-
     fn run_installer(path: &Path, args: &[&str]) -> Result<(), String> {
         let status = Command::new(path)
             .args(args)
@@ -1668,13 +1628,6 @@ mod windows {
             &format!("安装程序退出码：{:?}", status.code()),
             &format!("Installer exit code: {:?}", status.code()),
         ))
-    }
-
-    fn now_ms() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis() as u64)
-            .unwrap_or(0)
     }
 
     fn emit_mod(app: &tauri::AppHandle, phase: &str, bytes: u64, total_bytes: u64) {
@@ -1814,60 +1767,6 @@ mod windows {
         fallback
     }
 
-    /// 官方包是 `.7z`（个别老包是 `.zip`），按扩展名选解压方式。
-    fn expand_archive(archive: &Path, dest: &Path) -> Result<(), String> {
-        let is_7z = archive
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("7z"));
-        if is_7z {
-            expand_7z(archive, dest)
-        } else {
-            expand_zip(archive, dest)
-        }
-    }
-
-    /// `Expand-Archive` 只认 zip；7z 用纯 Rust 解（官方包带 BCJ2 过滤器）。
-    fn expand_7z(archive: &Path, dest: &Path) -> Result<(), String> {
-        // sevenz-rust2 要求目标是绝对路径，且不接受含 `..` 的路径。
-        let dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
-        sevenz_rust2::decompress_file(archive, &dest).map_err(|err| {
-            pick(
-                &format!("解压 OptiScaler 失败：{err}"),
-                &format!("Failed to extract OptiScaler: {err}"),
-            )
-        })
-    }
-
-    fn expand_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
-        let status = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!(
-                    "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
-                    escape_ps(zip_path),
-                    escape_ps(dest)
-                ),
-            ])
-            .status()
-            .map_err(|err| {
-                pick(
-                    &format!("无法解压：{err}"),
-                    &format!("Couldn't extract archive: {err}"),
-                )
-            })?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(pick("解压 OptiScaler 失败。", "Failed to extract OptiScaler."))
-        }
-    }
-
-    fn escape_ps(path: &Path) -> String {
-        path.to_string_lossy().replace('\'', "''")
-    }
-
     /// 主程序不是 x64 就返回文件名：装进去游戏会起不来。
     /// 认不出主程序（没有 exe / 读不到头）返回 None —— 认不出就不拦，别把能装的挡住了。
     fn exe_arch_problem(exe: &Path) -> Option<String> {
@@ -1883,80 +1782,6 @@ mod windows {
         }
     }
 
-    /// 带进度的下载：要显示百分比、要能取消，所以自己分块读，
-    /// 不用 `download()`（那个是给运行库这种小文件用的，没进度也不能取消）。
-    fn download_with_progress(
-        app: &tauri::AppHandle,
-        url: &str,
-        dest: &Path,
-        total: u64,
-    ) -> Result<(), String> {
-        use std::io::{Read, Write};
-        if let Some(parent) = dest.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let response = ureq::get(url)
-            .set("User-Agent", "FantasyHub-Toolbox")
-            .call()
-            .map_err(|err| {
-                pick(
-                    &format!("下载失败：{err}"),
-                    &format!("Download failed: {err}"),
-                )
-            })?;
-        // release API 里给了 asset 大小，重定向后的 Content-Length 更准，优先用它。
-        let total = response
-            .header("Content-Length")
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(total);
-        let mut reader = response.into_reader();
-        let mut file = fs::File::create(dest).map_err(|err| {
-            pick(
-                &format!("无法写入下载文件：{err}"),
-                &format!("Couldn't write download: {err}"),
-            )
-        })?;
-        let mut buffer = vec![0u8; 64 * 1024];
-        let mut done: u64 = 0;
-        let mut last_emit = std::time::Instant::now();
-        emit_mod(app, "download", 0, total);
-        loop {
-            if MOD_CANCEL.load(Ordering::Relaxed) {
-                drop(file);
-                let _ = fs::remove_file(dest);
-                return Err(pick("已取消安装。", "Install cancelled."));
-            }
-            let read = reader.read(&mut buffer).map_err(|err| {
-                pick(
-                    &format!("下载中断：{err}"),
-                    &format!("Download interrupted: {err}"),
-                )
-            })?;
-            if read == 0 {
-                break;
-            }
-            file.write_all(&buffer[..read]).map_err(|err| {
-                pick(
-                    &format!("保存下载失败：{err}"),
-                    &format!("Couldn't save download: {err}"),
-                )
-            })?;
-            done += read as u64;
-            if last_emit.elapsed() >= std::time::Duration::from_millis(150) {
-                last_emit = std::time::Instant::now();
-                emit_mod(app, "download", done, total);
-            }
-        }
-        if total > 0 && done != total {
-            let _ = fs::remove_file(dest);
-            return Err(pick(
-                &format!("下载不完整（{done}/{total} 字节），请重试。"),
-                &format!("Download incomplete ({done}/{total} bytes). Try again."),
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// 安装包里的 `OptiScaler.dll` 所在目录即「包根」，展开后可能嵌在子目录里。

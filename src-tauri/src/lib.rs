@@ -1,8 +1,12 @@
 mod files;
+// 模拟器页：六个平台一张卡一个，下载 / 解压 / 便携模式 / 卸载（见文件头说明）。
+mod emulator;
 mod i18n;
 // 工具箱「系统维护」卡：着色器缓存 / 启动项 / 日志（FUTURE.md 功能 14 第 2 条）。
 mod maintain;
 mod media;
+// 下载与解压的共用件（工具箱装运行库 / 装 OptiScaler、模拟器页装模拟器都用它）。
+mod net;
 // 日志实现搬进了共享内核（crates/fh-core）。这里 re-export，
 // 让仓库里所有 `crate::logutil::...` 调用点保持原样。
 pub use fh_core::logutil;
@@ -128,6 +132,15 @@ pub fn run() {
             scan::quit_game,
             scan::cache_covers,
             scan::steam_library_cover,
+            // 模拟器页（新页签）：列表 / 装 / 卸 / 取消 / 换安装盘 / 打开官网。
+            emulator::emulator_list,
+            emulator::emulator_root,
+            emulator::emulator_set_root,
+            emulator::emulator_sizes,
+            emulator::emulator_install,
+            emulator::emulator_uninstall,
+            emulator::emulator_cancel,
+            emulator::emulator_open_site,
             toolbox::toolbox_runtimes,
             toolbox::toolbox_install_runtime,
             toolbox::toolbox_optiscaler_status,
@@ -143,6 +156,9 @@ pub fn run() {
             sysinfo::system_power_status,
             startup::autostart_enabled,
             startup::set_autostart,
+            // 登录自启时顺手把 Steam 静默拉到后台（设置页那一行的开关，默认关）。
+            startup::steam_silent_enabled,
+            startup::set_steam_silent,
             startup::fse_status,
             startup::register_fse,
             startup::open_fse_settings,

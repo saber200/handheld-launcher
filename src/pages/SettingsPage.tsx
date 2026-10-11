@@ -28,6 +28,8 @@ export function SettingsPage({ active, onClose }: Props) {
   const m = text().settings;
   const firstRef = useRef<HTMLButtonElement>(null);
   const [autostart, setAutostart] = useState(false);
+  /** 「登录自启时顺手静默拉起 Steam」（默认关）—— 与开机自启是一对，见下面那一行的提示文案。 */
+  const [steamSilent, setSteamSilent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [isTauri, setIsTauri] = useState(false);
@@ -43,6 +45,9 @@ export function SettingsPage({ active, onClose }: Props) {
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage(text().settings.autostartReadFailed));
+    void invoke<boolean>("steam_silent_enabled")
+      .then(setSteamSilent)
+      .catch(() => setMessage(text().settings.steamSilentReadFailed));
   }, []);
 
   useEffect(() => {
@@ -86,6 +91,31 @@ export function SettingsPage({ active, onClose }: Props) {
       );
     } catch (e) {
       setMessage(text().settings.autostartFailed(String(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * 「开机时拉起 Steam」那一行。开机自启关着时这一项本来就不起作用，但**不灰掉它**：
+   * 用户可以先把这一项留着，回头再开自启（灰掉反而像「这一项坏了」）。提示文案里写明关系。
+   */
+  const toggleSteamSilent = async () => {
+    if (!isTauri) {
+      setMessage(text().settings.steamSilentPreview);
+      return;
+    }
+    setBusy(true);
+    try {
+      await invoke("set_steam_silent", { enabled: !steamSilent });
+      const on = await invoke<boolean>("steam_silent_enabled");
+      setSteamSilent(on);
+      playSwitch(on);
+      setMessage(
+        on ? text().settings.steamSilentOn : text().settings.steamSilentOff,
+      );
+    } catch (e) {
+      setMessage(text().settings.steamSilentFailed(String(e)));
     } finally {
       setBusy(false);
     }
@@ -244,6 +274,30 @@ export function SettingsPage({ active, onClose }: Props) {
           </span>
           <span className="k3-control">
             <span className={autostart ? "k3-switch on" : "k3-switch"} aria-hidden>
+              <span className="k3-switch-knob" />
+            </span>
+          </span>
+        </button>
+
+        {/* 开机自启的搭档：自启时顺手把 Steam 静默拉到后台（默认关）。
+            放在「开机自启」正下方，因为这一项**只**在那条路径上生效 —— 提示里也这么写。 */}
+        <button
+          type="button"
+          className="k3-row"
+          data-focusable
+          disabled={busy}
+          aria-pressed={steamSilent}
+          onClick={() => void toggleSteamSilent()}
+        >
+          <span className="k3-text">
+            <strong>{m.steamSilent}</strong>
+            <small>
+              {m.steamSilentHint}
+              {autostart ? "" : ` · ${m.steamSilentNeedsAutostart}`}
+            </small>
+          </span>
+          <span className="k3-control">
+            <span className={steamSilent ? "k3-switch on" : "k3-switch"} aria-hidden>
               <span className="k3-switch-knob" />
             </span>
           </span>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { EmulatorsPage } from "./pages/EmulatorsPage";
 import { GamesPage } from "./pages/GamesPage";
 import { AppsPage } from "./pages/AppsPage";
 import { FilesPage } from "./pages/FilesPage";
@@ -452,6 +453,7 @@ export default function App() {
             {tab === "downloads" && <DownloadsPage onOpenFiles={() => setTab("files")} />}
             {tab === "files" && <FilesPage />}
             {tab === "toolbox" && <ToolboxPage onOpenGames={() => setTab("games")} />}
+            {tab === "emulators" && <EmulatorsPage />}
           </div>
         </div>
         <GamepadKeyboard />

@@ -7,6 +7,13 @@ use std::path::{Path, PathBuf};
 
 use crate::i18n::pick;
 
+/// 起子进程时不要闪一下控制台窗口（`CREATE_NO_WINDOW`，Steam / cmd / 游戏都这么起）。
+///
+/// 放在模块这一层而不是 `mod windows` 里：本文件的 `start_steam_quietly` 与子模块里的几处
+/// 启动用的是同一个值，子模块 `use super::*` 自己会接过去。
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 /// Games this shell started a moment ago — a second click is not a second start.
 static RECENT_LAUNCHES: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
 
@@ -269,6 +276,15 @@ fn steam_silent_args(appid: &str) -> [String; 3] {
     ["-silent".to_string(), "-applaunch".to_string(), appid.to_string()]
 }
 
+/// 只带 `-silent`（**不带** `-applaunch`）：把客户端本身拉起来就完事，它自己缩在托盘里。
+///
+/// 与 `steam_silent_args` 同一个道理抽成纯函数：Windows 那半边本机（macOS）编不了，
+/// 少写一个 `-silent` 就等于「开机先白弹一次 Steam 窗口」，没人看得出来。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn steam_quiet_args() -> [String; 1] {
+    ["-silent".to_string()]
+}
+
 /// 从候选里挑第一个真实存在的 `steam.exe`。注册表可能写目录（`SteamPath` / `InstallPath`），
 /// 也可能直接写 exe（`SteamExe`），所以目录要自己补上 `steam.exe`，文件名也再验一遍 ——
 /// 挑到别的 exe 的后果是静默启动悄悄退化成弹窗。纯函数，本机能测。
@@ -289,6 +305,40 @@ fn pick_steam_exe(candidates: &[std::path::PathBuf]) -> Option<std::path::PathBu
         }
     }
     None
+}
+
+/// 客户端是不是已经在跑。判断在共享内核里（`fh_core::process::process_running`，按**进程名**
+/// 匹配）—— `fh_core::process` 别的函数都按路径比、而且把 `steam.exe` 排除在外，这里要的正好相反。
+#[cfg(windows)]
+const STEAM_EXE: &str = "steam.exe";
+
+/// 静默拉起 Steam 客户端（只带 `-silent`），返回「这次真启动了没有」。
+///
+/// 为什么要这一步：`-silent` 只对「Steam 启动那一刻」有效（见 `applaunch_silently` 的口径）。
+/// 登录自启时先让客户端在后台跑起来，之后点游戏时 `steam.exe -silent -applaunch <appid>`
+/// 就是让一个**已经在跑**的客户端去起游戏 —— 不会再弹主窗口/登录框。
+///
+/// 已经开着就什么都不做：重复拉一次等于让客户端再解析一遍命令行，白折腾；这也是
+/// 「启动器被手动打开第二次」时不会多出一个 Steam 窗口的原因。
+///
+/// 这里**不碰** Steam 自己的开机项（`HKCU\...\Run` 里那条由 Steam 自己管），也不替它加开机项 ——
+/// 只是启动器自启时顺手做一次。找不到客户端就是一句「没装」，交给调用方记日志：
+/// 这属于「顺手做的事」，失败了不该拦着启动器自己起来。
+#[cfg(windows)]
+pub(crate) fn start_steam_quietly() -> Result<bool, String> {
+    use std::os::windows::process::CommandExt;
+
+    if fh_core::process::process_running(STEAM_EXE) {
+        return Ok(false);
+    }
+    let exe = pick_steam_exe(&windows::steam_exe_hints())
+        .ok_or_else(|| pick("没有找到 Steam", "Steam isn't installed."))?;
+    std::process::Command::new(exe)
+        .args(steam_quiet_args())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|err| err.to_string())?;
+    Ok(true)
 }
 
 fn protocol_url(id: &str) -> Option<String> {
@@ -704,8 +754,6 @@ mod windows {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
 
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-
     pub fn activate_game(launch_path: &str, install_path: &str) -> GamePresence {
         let pids = game_pids(launch_path, install_path);
         if pids.is_empty() {
@@ -887,7 +935,10 @@ mod windows {
     /// steam.exe 可能在哪儿：注册表里 `SteamExe` 直接是 exe，`SteamPath` / `InstallPath` 是目录；
     /// 最后两个默认安装位置是「注册表被清理过但 Steam 确实装在默认路径」时的兜底（都得先过
     /// `pick_steam_exe` 的存在性检查，写错路径不会误伤）。
-    fn steam_exe_hints() -> Vec<PathBuf> {
+    ///
+    /// `pub(super)`：本模块外面的 `start_steam_quietly`（开机自启时顺手拉客户端）也要借它 ——
+    /// 「Steam 装在哪」只该有这一份解析（和 `steam_roots` / `steam_libraries` 同一个理由）。
+    pub(super) fn steam_exe_hints() -> Vec<PathBuf> {
         let mut hints = Vec::new();
         push_reg_path(
             HKEY_CURRENT_USER,
@@ -1530,6 +1581,13 @@ mod tests {
         assert_eq!(steam_appid("steam:"), None);
         assert_eq!(steam_appid("steam:12a"), None);
         assert_eq!(steam_appid("epic:Fortnite"), None);
+    }
+
+    /// 开机自启时「先把客户端拉起来」那条命令只有 `-silent`：带上 `-applaunch` 就成了「顺手
+    /// 启动一个游戏」，多一个参数就是另一种行为，所以在这里钉死这个数组。
+    #[test]
+    fn steam_boots_quietly_without_a_game() {
+        assert_eq!(steam_quiet_args(), ["-silent".to_string()]);
     }
 
     /// 候选里挑 steam.exe：目录要补上 `steam.exe`、名字不对 / 不存在的一律跳过。

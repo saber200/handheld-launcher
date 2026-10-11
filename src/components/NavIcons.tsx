@@ -6,6 +6,7 @@ import {
   IconBattery2,
   IconBattery3,
   IconBattery4,
+  IconDeviceGamepad,
   IconDeviceGamepad2,
   IconDownload,
   IconEye,
@@ -69,6 +70,9 @@ const tabs: Record<TabId, typeof IconHome2> = {
   downloads: IconDownload,
   files: IconFolder,
   toolbox: IconTools,
+  // 手柄在侧栏里已经有一处（底部那个「掌机前端」的角标用的是 IconDeviceGamepad2），
+  // 这里换一个变体，免得同一个侧栏里两处手柄长得一样。
+  emulators: IconDeviceGamepad,
   store: IconShoppingCart,
   community: IconMessageCircle,
 };

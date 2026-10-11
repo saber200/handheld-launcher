@@ -1283,7 +1283,7 @@ fn copy_path(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-fn open_with_system(path: &str) -> Result<(), FileError> {
+pub(crate) fn open_with_system(path: &str) -> Result<(), FileError> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;

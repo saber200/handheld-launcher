@@ -1,0 +1,429 @@
+/*
+ * 模拟器页（新页签）的样式。
+ *
+ * 为什么单开一个文件：这一页是「六张等大的卡 + 一行安装位置」，跟工具箱 K4 的
+ * 「一张主卡 + 四张卡」不是一套几何，也不该去改 K4 那份（那个页面按画板实测钉死了）。
+ *
+ * 几何一律 `calc(N * var(--dp))`，并且**不进 `scripts/audit-ui.mjs` 的 LEGACY 名单** ——
+ * 新页面从第一行起就按令牌写，没有「先手写、以后再迁」的欠账。
+ *
+ * 卡片上唯一一处动效是进度条的滑块：进度条必须是矩形，所以滑块用横向平移动画，
+ * 不用「伸缩宽度」那类会把圆角变成胶囊的画法。
+ */
+.emu-page {
+  position: relative;
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  overflow-y: auto;
+}
+
+/* ── 标题行：标题 + 副标题 + 右边那颗「自检」 ── */
+.emu-head {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  padding: calc(8 * var(--dp)) var(--safe) 0;
+}
+
+.emu-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--stack-lg);
+}
+
+.emu-title h2 {
+  flex: none;
+  margin: 0;
+  font-size: var(--font-h1);
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.emu-sub {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+}
+
+.emu-selfcheck {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  height: calc(32 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--font-body);
+}
+
+.emu-selfcheck .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
+}
+
+.emu-selfcheck:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+/* ── 安装位置那一行 ── */
+.emu-root {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  margin-top: var(--gutter);
+  padding: 0 var(--safe);
+  min-width: 0;
+}
+
+.emu-root-label {
+  flex: none;
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+  letter-spacing: 0.06em;
+}
+
+.emu-root-path {
+  /* 唯一的可伸缩格：路径长了先省略它，别去挤按钮。 */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+  font-size: var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.emu-root-tag {
+  flex: none;
+  padding: 0 var(--stack-lg);
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+}
+
+/* 自定义路径要一眼看得出来跟默认的不一样（默认是「非系统盘」那个推断值）。 */
+.emu-root-tag.is-custom {
+  border-color: var(--platform-emu);
+  color: var(--platform-emu);
+}
+
+.emu-root-hint {
+  /* 不钉宽度：窄屏上路径会先让位（`flex: 1` 的那一格），提示本身保持完整。 */
+  flex: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+}
+
+/* ── 卡片网格：3 × 2（六张卡正好两行） ── */
+.emu-grid {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /*
+   * 每一行里各卡**按自己的内容收**，不拉成等高。
+   * 为什么：六张卡的正文长度差得多（PS2 一行、Switch 三行），拉成等高之后短的那些卡
+   * 中间会空出一大块 —— 卡片高度看起来像是「没画满」，而那个空白不表示任何信息。
+   * 代价是同一行的按钮不在一条水平线上；卡与卡之间本来就有边框分隔，不靠对齐也能读。
+   */
+  align-items: start;
+  gap: var(--gutter);
+  margin-top: var(--gutter);
+  padding: 0 var(--safe) var(--safe);
+}
+
+.emu-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  padding: var(--pad-panel);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+/* 装好的卡给一条橙边：一眼扫过去就知道哪几个能直接启动（橙色是模拟器的平台色）。 */
+.emu-card.is-installed {
+  border-color: var(--platform-emu);
+}
+
+/* 装不了（只能去官网）的卡压暗一点：它没有任何可执行的动作，除了那颗链接按钮。 */
+.emu-card.is-manual {
+  background: var(--bg-deep);
+}
+
+.emu-card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--stack-lg);
+  min-width: 0;
+}
+
+/* 平台缩写（PS2 / NS / ARC…）。矩形圆角，**不做胶囊**（见 audit-ui 的规矩）。 */
+.emu-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(52 * var(--dp));
+  height: calc(34 * var(--dp));
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--line-strong);
+  background: var(--sunken);
+  color: var(--platform-emu);
+  font-size: var(--font-body);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.emu-card-head {
+  flex: 1;
+  min-width: 0;
+}
+
+.emu-card-head h3 {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-h2);
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.emu-card-emu {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+}
+
+.emu-card-vendor {
+  color: var(--ink-4);
+}
+
+.emu-card-desc {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+}
+
+/* 说明 / 免责那两行：字号更小，长了就省略 —— 卡片高度不该被一段免责声明顶开。 */
+.emu-card-note {
+  margin: 0;
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 「装在别处」：换过安装位置之后，已经装好的那几张卡标出真实目录（不然用户以为它们没了）。 */
+.emu-card-elsewhere {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+}
+
+.emu-card-state {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.emu-card.is-installed .emu-card-state {
+  color: var(--platform-emu);
+}
+
+/* ── 进度 ── */
+.emu-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+}
+
+.emu-progress-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--stack);
+}
+
+.emu-progress-phase {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+}
+
+.emu-progress-num {
+  flex: none;
+  color: var(--ink);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.emu-progress-track {
+  position: relative;
+  overflow: hidden;
+  height: calc(6 * var(--dp));
+  border-radius: var(--radius-tag);
+  background: var(--sunken);
+}
+
+.emu-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-tag);
+  background: var(--platform-emu);
+}
+
+/* 总量未知（服务器没给 Content-Length）：一条来回滑的滑块，而不是一个假的百分比。 */
+.emu-progress-fill.is-indeterminate {
+  width: 100%;
+  animation: emu-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes emu-slide {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emu-progress-fill.is-indeterminate {
+    animation: none;
+  }
+}
+
+.emu-progress-bytes {
+  margin: 0;
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 按钮 ── */
+.emu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--stack);
+  margin-top: var(--stack);
+}
+
+.emu-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: calc(32 * var(--dp));
+  padding: 0 var(--pad-card);
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line);
+  background: var(--panel-3);
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+  font-weight: 600;
+}
+
+.emu-btn.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.emu-btn.is-danger {
+  border-color: var(--line);
+  background: var(--panel-3);
+  color: var(--danger);
+}
+
+.emu-btn:disabled {
+  opacity: 0.5;
+}
+
+.emu-btn:focus {
+  border-color: transparent;
+  outline: var(--focus-stroke) solid var(--accent);
+  outline-offset: var(--focus-offset);
+}
+
+.emu-tag {
+  flex: none;
+  padding: 0 var(--stack-lg);
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--line);
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+}
+
+/* ── 卸载的二次确认（做在卡里，不弹窗） ── */
+.emu-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack);
+  margin-top: var(--stack);
+  padding: var(--pad-card);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--danger);
+  background: var(--sunken);
+}
+
+.emu-confirm p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+}
+
+/* 页面级的提示行（操作结果 / 失败原因 / 空态） */
+.emu-note {
+  flex: none;
+  color: var(--ink-4);
+  font-size: var(--font-caption);
+}
+
+.emu-note-line {
+  margin: var(--gutter) var(--safe) 0;
+  color: var(--ink-2);
+  font-size: var(--font-caption);
+}
