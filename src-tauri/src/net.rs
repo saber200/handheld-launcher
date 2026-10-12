@@ -430,13 +430,17 @@ pub fn read_7z_archive<R: std::io::Read + std::io::Seek>(
 pub fn extract_7z_window<R: std::io::Read + std::io::Seek>(
     reader: R,
     dest: &std::path::Path,
+    total: u64,
     report: &dyn Fn(u64, u64),
 ) -> Result<(), String> {
     let window = SevenZipWindow::new(reader)?;
+    // 计数**在这里面**做：调用方就不用自己拿一个可变计数器了 ——
+    // 「闭包可变捕获 = FnMut」传不进 `&dyn Fn`，而这段只有 Windows 才编得到，
+    // 本机（macOS）编不出来就不会红，只能在 CI 上炸（0.1.75 就是这么埋进去的）。
     let mut done: u64 = 0;
     sevenz_rust2::decompress_with_extract_fn(window, dest, |entry, reader, path| {
         done += 1;
-        report(done, 0);
+        report(done, total);
         sevenz_rust2::default_entry_extract_fn(entry, reader, path)
     })
     .map_err(|err| {
@@ -473,11 +477,7 @@ fn extract_7z(archive: &Path, dest: &Path, report: &dyn Fn(u64, u64)) -> Result<
     let total = listing.files.len() as u64;
     // 再打开一次文件用来解压（元数据那一次已经把 reader 消耗掉了）。
     let file = std::fs::File::open(archive).map_err(read_error)?;
-    let mut seen: u64 = 0;
-    extract_7z_window(file, &dest, &|_, _| {
-        seen += 1;
-        report(seen, total);
-    })
+    extract_7z_window(file, &dest, total, report)
 }
 
 #[cfg(windows)]
@@ -629,7 +629,7 @@ mod tests {
         let out = dir.join("out");
         std::fs::create_dir_all(&out).unwrap();
         let entries = std::cell::Cell::new(0u64);
-        extract_7z_window(std::fs::File::open(&sfx).unwrap(), &out, &|_, _| {
+        extract_7z_window(std::fs::File::open(&sfx).unwrap(), &out, 1, &|_, _| {
             entries.set(entries.get() + 1)
         })
         .unwrap();
@@ -643,7 +643,7 @@ mod tests {
         // ④ 普通 7z（偏移 0）走同一条路也不能坏。
         let out2 = dir.join("out2");
         std::fs::create_dir_all(&out2).unwrap();
-        extract_7z_window(std::fs::File::open(&plain).unwrap(), &out2, &|_, _| {}).unwrap();
+        extract_7z_window(std::fs::File::open(&plain).unwrap(), &out2, 1, &|_, _| {}).unwrap();
         assert_eq!(
             std::fs::read_to_string(out2.join("hello.txt")).unwrap(),
             "hello from inside the stub"
