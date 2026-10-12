@@ -170,6 +170,36 @@ export type ModTarget = {
   installPath?: string;
 };
 
+/*
+ * 「这个游戏现在装没装 Mod」的**即时覆盖**。
+ *
+ * 为什么不能只靠扫描结果：`hasMod` 是扫描时算的，而装/卸 Mod 是**在库里按一下**就发生的事 ——
+ * 只在扫描时算的话，用户装完 Mod 得再点一次「重新扫描」才看得到角标，等于功能是坏的
+ * （用户 2026-10-12 反馈的就是"看不到哪个装了"）。这里存一份覆盖值，装/卸成功后立刻写进去，
+ * 订阅它的组件马上重画；下一次全库扫描会拿到权威值，这时覆盖值就清掉。
+ */
+const modFlagOverrides = new Map<string, boolean>();
+const modFlagListeners = new Set<() => void>();
+
+export function subscribeModFlags(listener: () => void): () => void {
+  modFlagListeners.add(listener);
+  return () => {
+    modFlagListeners.delete(listener);
+  };
+}
+
+/** 卡片用这个判断画不画角标：覆盖值优先，其次才是扫描结果。 */
+export function gameHasMod(item: { id: string; hasMod?: boolean }): boolean {
+  return modFlagOverrides.get(item.id) ?? item.hasMod === true;
+}
+
+/** 装/卸 Mod 成功后调用；全库扫描回来时传 `undefined` 清掉覆盖。 */
+export function setModFlag(id: string, value: boolean | undefined) {
+  if (value === undefined) modFlagOverrides.delete(id);
+  else modFlagOverrides.set(id, value);
+  modFlagListeners.forEach((listener) => listener());
+}
+
 export type ModVersion = {
   version: string;
   /** GitHub 上的标签（`v0.9.4`）：安装时按它去查具体那个 release。 */
@@ -217,7 +247,7 @@ export async function modStatus(item: ModTarget, hook?: string): Promise<ModStat
 
 /** Card menu → 安装 Mod / 工具: drop OptiScaler next to the game executable. */
 export async function installLibraryGameMods(
-  item: ModTarget,
+  item: ModTarget & { id?: string },
   hook: string = DEFAULT_MOD_HOOK,
   version?: string,
 ): Promise<string> {
@@ -237,6 +267,8 @@ export async function installLibraryGameMods(
       version: version ?? null,
     });
     playSfx("done");
+    // 装完立刻把角标点亮（不用等下一次全库扫描）。
+    if (item.id) setModFlag(item.id, true);
     return text().library.installModsResult(item.name, message);
   } catch (err) {
     return text().library.installModsFailed(item.name, formatError(err));
@@ -246,7 +278,7 @@ export async function installLibraryGameMods(
 }
 
 /** 卸载并把被覆盖的原文件还原（靠游戏目录里的安装账本）。 */
-export async function uninstallLibraryGameMods(item: ModTarget): Promise<string> {
+export async function uninstallLibraryGameMods(item: ModTarget & { id?: string }): Promise<string> {
   if (!inTauri()) return text().library.installModsPreview;
   if (!item.launchPath && !item.installPath) return text().library.installModsNoPath;
   try {
@@ -255,6 +287,8 @@ export async function uninstallLibraryGameMods(item: ModTarget): Promise<string>
       installPath: item.installPath ?? "",
     });
     playSfx("done");
+    // 卸完立刻把角标灭掉。
+    if (item.id) setModFlag(item.id, false);
     return text().library.uninstallModsResult(item.name, message);
   } catch (err) {
     return text().library.uninstallModsFailed(item.name, formatError(err));
@@ -374,18 +408,19 @@ function formatError(err: unknown): string {
 }
 
 /**
- * 扫描结果缓存的键。**`v2` 是 2026-10-04 加的**：那一版给扫描结果加了「体积 / 时长 / 版本」
- * 三个字段，而 localStorage 里存的还是老结构（没有这三个字段）—— 不改键的话，升级后
- * 界面会一直用老缓存、卡片和面板上的新数据永远是空的（用户会当成坏了），要他自己点
- * 「重新扫描」才恢复。加个版本号让老缓存直接作废，升级后第一次进库自然重扫一次。
- * 以后**改扫描结果的结构就把它 +1**。
+ * 扫描结果缓存的键。**`v3` 是 2026-10-12 加的**（v2 是 2026-10-04）：这一版给扫描结果加了
+ * `hasMod`（这个游戏装没装启动器自己的 OptiScaler，卡片上据此画那颗角标）。
+ * 不改键的话，升级后界面会一直用老缓存 —— 老缓存里没有这个字段，于是**卡片上永远不画角标**，
+ * 而用户在设置里怎么看都是"最新版"，只会当成功能是坏的（0.1.82 真机反馈就是这个：
+ * 「那个 optiscaler 的图标并没有绘制上去」）。加版本号让老缓存直接作废，升级后第一次进库重扫。
+ * 以后**改扫描结果的结构就把它 +1** —— 这条注释就是上一次的教训写下的，这次又验证了一遍。
  */
 function scanCacheKey(command: string) {
-  return `handheld-launcher.scan.v2.${command}`;
+  return `handheld-launcher.scan.v3.${command}`;
 }
 
 function scanStampKey(command: string) {
-  return `handheld-launcher.scan.v2.${command}.checked`;
+  return `handheld-launcher.scan.v3.${command}.checked`;
 }
 
 /// How long a finished scan counts as "already followed up". Covers and icons

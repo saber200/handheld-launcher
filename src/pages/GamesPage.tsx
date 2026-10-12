@@ -1,4 +1,4 @@
-import { useEffect, useState, type Ref } from "react";
+import { type Ref, useEffect, useState, useSyncExternalStore } from "react";
 import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf, type CardOptions } from "../components/LibraryShelf";
@@ -8,6 +8,7 @@ import { MenuIcon, ModIcon, PlayIcon } from "../components/NavIcons";
 import { libraryActions } from "../library/actions";
 import { formatPlaytime, formatPlaytimeAndSize, formatSize } from "../library/format";
 import { type GameEntry } from "../data/previewGames";
+import { gameHasMod, subscribeModFlags } from "../library/useLocalLibrary";
 import {
   cancelLibraryGameMods,
   installLibraryGameMods,
@@ -85,7 +86,7 @@ export function GamesPage() {
         if (!game) return text().library.failed;
         setStatus("");
         return installLibraryGameMods(
-          { name: game.name, launchPath: game.launchPath, installPath: game.installPath },
+          { id: game.id, name: game.name, launchPath: game.launchPath, installPath: game.installPath },
           hook,
           version,
         );
@@ -104,6 +105,7 @@ export function GamesPage() {
         if (!game) return text().library.failed;
         setStatus("");
         return uninstallLibraryGameMods({
+          id: game.id,
           name: game.name,
           launchPath: game.launchPath,
           installPath: game.installPath,
@@ -244,6 +246,13 @@ function GameCard({
   /** 聚焦卡才露「时长 · 体积」那一行（画板 §3.2）。 */
   focusedMeta?: boolean;
 }) {
+  /*
+   * 「这个游戏装没装 Mod」要**跟着装/卸立刻变**：`game.hasMod` 是扫描时算的，
+   * 而装/卸是在库里按一下就发生的事。这里订阅那份即时覆盖（见 useLocalLibrary 的
+   * `setModFlag`），装完角标马上亮、卸完马上灭 —— 不用等下一次全库扫描。
+   */
+  const hasMod = useSyncExternalStore(subscribeModFlags, () => gameHasMod(game));
+
   const shelf = variant === "shelf";
   // 依次尝试的候选（见 coverAttempts）；失败一次就往后走一步，走完才认输画占位。
   const attempts = coverAttempts(game);
@@ -315,7 +324,7 @@ function GameCard({
         {facts && <span className="k1-card-facts tnum">{facts}</span>}
         {/* 装了 OptiScaler 才画这颗角标（没装 = 什么都不画，不留空位）。
             位置放左上：右上角已经是「正在运行」那颗圆点。 */}
-        {game.hasMod && (
+        {hasMod && (
           <span className="library-mod-badge" title={text().library.modBadge} aria-label={text().library.modBadge}>
             <ModIcon />
           </span>
@@ -337,7 +346,7 @@ function GameCard({
     >
       {picked && <span className="pick-mark">✓</span>}
       {cover}
-      {game.hasMod && (
+      {hasMod && (
         <span className="library-mod-badge" title={text().library.modBadge} aria-label={text().library.modBadge}>
           <ModIcon />
         </span>

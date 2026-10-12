@@ -844,6 +844,43 @@ const scanTabs = async () => {
           badges.seen.length - withBadge > 0,
           `游戏库：没装 Mod 的卡片上确实没有角标（${badges.seen.length - withBadge} 张干净）`,
         );
+
+        /*
+         * 角标要**跟着装/卸立刻变**，而不是等下一次全库扫描。
+         *
+         * 0.1.82 真机反馈「那个 optiscaler 的图标并没有绘制上去」的根因是**扫描缓存版本没升**
+         * （老缓存里没有 hasMod 这个字段）—— 那一半靠 `scan.v3` 解决；这一条钉的是另一半：
+         * 装/卸 Mod 之后角标必须马上亮/灭，走的是 `setModFlag` 那份即时覆盖。
+         */
+        const live = await page.eval(`
+          // ⚠️ 必须 import **页面真正加载过的那个 URL**：Vite dev 下 HMR 会给模块加「?t=<时间戳>」后缀，
+          // 换成裸路径就是另一个模块实例 —— setModFlag 改的是那份拷贝，界面永远不会动
+          // （本机实测踩过：断言一直红，看着像 React 没重渲染）。
+          const loaded = performance
+            .getEntriesByType('resource')
+            .map((e) => e.name)
+            .filter((n) => n.includes('/src/library/useLocalLibrary.ts'))
+            .pop();
+          const mod = await import(/* @vite-ignore */ loaded || '/src/library/useLocalLibrary.ts');
+          const preview = await import('/src/data/previewGames.ts');
+          const withMod = preview.PREVIEW_GAMES.filter((g) => g.hasMod);
+          if (withMod.length === 0) return null;
+          const sel = '.k1-item [data-card-id="' + withMod[0].id + '"]';
+          const before = !!document.querySelector(sel + ' .library-mod-badge');
+          mod.setModFlag(String(withMod[0].id), false);
+          await new Promise((r) => setTimeout(r, 150));
+          const after = !!document.querySelector(sel + ' .library-mod-badge');
+          mod.setModFlag(String(withMod[0].id), undefined);
+          await new Promise((r) => setTimeout(r, 150));
+          const restored = !!document.querySelector(sel + ' .library-mod-badge');
+          return { before, after, restored };
+        `);
+        note(
+          !!live && live.before && !live.after && live.restored,
+          live
+            ? `游戏库：装/卸 Mod 后角标立刻跟着变（卸掉→消失=${!live.after}，还原→回来=${live.restored}）`
+            : "游戏库：预览数据里没有 hasMod 的游戏，量不到角标联动",
+        );
       }
 
       if (name === "游戏库") {
