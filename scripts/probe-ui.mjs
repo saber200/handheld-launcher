@@ -1424,14 +1424,38 @@ const scanTabs = async () => {
      * （不能用 `Network.setBlockedURLs`：那是瞬间失败，错误事件可能早于 React 挂上 onError，
      * 图片会一直停在破图状态，测试失真 —— 本机实测踩过。）
      */
+    /*
+     * 这一档（宽图）**由我们自己喂一张 1×1 PNG**，不走真实 CDN。
+     *
+     * 为什么：断言要证明的是**我们这条回退链走到了宽图**，而不是"Steam 的 CDN 此刻活着"。
+     * 之前直接放行让它去真拉 `library_hero.jpg`，CDN 一慢/一抖就有卡片继续退到下一档，
+     * 于是这条断言在 1920×1080 上反复变红（2026-10-12 实测：同样代码两次跑出 2/12 与 6/12）。
+     * 自己 fulfill 之后，链路的输入是确定的，断言才真正锁住我们的行为。
+     */
+    const PIXEL_PNG =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     await page.send("Fetch.enable", {
       patterns: [
         { urlPattern: "*library_600x900*", requestStage: "Request" },
         { urlPattern: "*library_capsule*", requestStage: "Request" },
         { urlPattern: "*header.jpg", requestStage: "Request" },
+        { urlPattern: "*library_hero.jpg", requestStage: "Request" },
       ],
     });
-    page.on("Fetch.requestPaused", ({ requestId }) => {
+    page.on("Fetch.requestPaused", ({ requestId, request }) => {
+      const url = request?.url ?? "";
+      if (url.includes("library_hero.jpg")) {
+        // 宽图档：直接给图（200 + image/png），让回退链在这里**确定性地**停下。
+        void page
+          .send("Fetch.fulfillRequest", {
+            requestId,
+            responseCode: 200,
+            responseHeaders: [{ name: "Content-Type", value: "image/png" }],
+            body: PIXEL_PNG,
+          })
+          .catch(() => {});
+        return;
+      }
       setTimeout(() => {
         void page.send("Fetch.failRequest", { requestId, errorReason: "Failed" }).catch(() => {});
       }, 200);
@@ -1470,7 +1494,7 @@ const scanTabs = async () => {
     const placeholder = covers.filter((c) => c.占位).length;
     note(
       covers.length > 0 && onHero === covers.length && placeholder === 0,
-      `封面 404 时卡片退到宽图（${onHero}/${covers.length} 张的 src 是 library_hero.jpg，占位 ${placeholder} 张，其中 ${withArt} 张已下载完）`,
+      `封面 404 时卡片退到宽图（${onHero}/${covers.length} 张的 src 是 library_hero.jpg，占位 ${placeholder} 张；宽图由探针自己喂，不看 CDN 脸色）`,
     );
     await page.send("Fetch.disable");
   } finally {
