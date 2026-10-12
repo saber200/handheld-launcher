@@ -49,15 +49,52 @@ static EMU_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 #[cfg_attr(not(windows), allow(dead_code))]
 static EMU_INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// 「同一个官方文件挂在另一台**官方**主机上」。
+///
+/// 为什么需要它：GitHub 的 release 资产在有些网络下拉不动（用户真机报「街机安装一直提示
+/// 下载失败」—— 那个包 87 MB，走 GitHub 时断在中途），而 MAME 官方发布页**同时**把同一个
+/// 文件挂在 SourceForge 上（名字、字节数一模一样：`mame0289b_x64.exe` 87,626,249 字节，
+/// 两边实测都是 200 + 同一个 Content-Length）。拉不动就换这台官方主机再试一遍，
+/// 而不是把用户的掌机指去某个第三方镜像站 —— 那种站上的"同一个文件"没人能核实。
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Clone, Copy)]
+enum Mirror {
+    /// SourceForge：`https://downloads.sourceforge.net/project/<项目>/<目录>/<文件名>`。
+    ///
+    /// 目录由 release 的 tag 推出来：MAME 的 tag 是 `mame0289`（`<前缀>` + `0` + `289`），
+    /// SourceForge 那边是 `mame/0.289/`。文件名与 GitHub 那侧完全一致，直接用挑中的那个。
+    SourceForge {
+        project: &'static str,
+        /// tag 里版本号前面的固定前缀（MAME 是 `mame`，去掉它剩下 `0289`）。
+        tag_prefix: &'static str,
+    },
+}
+
 /// 模拟器的二进制从哪来。
 #[cfg_attr(not(windows), allow(dead_code))]
 enum Source {
-    /// GitHub Release：`(仓库, 资产名必须包含的小写片段, 备用片段)`。
+    /// GitHub Release：`(仓库, 资产名必须包含的小写片段, 备用片段, 备源)`。
     ///
     /// 有两个片段是因为 RPCS3 那种仓库会改命名：现在的构建叫 `..._win64_msvc.7z`，
     /// 2021 年的老构建叫 `..._win64.7z`（没有 `_msvc`）。主片段匹配不上时再用备用的，
     /// 两个都没有才报错。备用片段传空串 = 没有备用。
     Github {
+        repo: &'static str,
+        asset: &'static str,
+        asset_fallback: &'static str,
+        /// 官方备源（没有就 `None`）—— 见 `Mirror` 的说明。
+        mirror: Option<Mirror>,
+    },
+    /// 自建 Forgejo/Gitea 的 release（Eden 模拟器）。
+    ///
+    /// Eden 的代码与发布都不在 GitHub，在自己那台 Forgejo 上
+    /// （`https://git.eden-emu.dev/eden-emu/eden`）；它的 API 与 GitHub 形状相近但字段名不同
+    /// （`assets[].browser_download_url` 是同一个名字，列表接口是
+    /// `/api/v1/repos/<owner>/<repo>/releases?limit=1`），所以单独一个分支比硬塞进
+    /// `resolve_github` 清楚。
+    Forgejo {
+        /// API 根（`https://git.eden-emu.dev/api/v1`）。
+        api: &'static str,
         repo: &'static str,
         asset: &'static str,
         asset_fallback: &'static str,
@@ -267,6 +304,7 @@ const CATALOG: &[EmulatorDef] = &[
             repo: "PCSX2/pcsx2",
             asset: "windows-x64-qt.7z",
             asset_fallback: "",
+            mirror: None,
         },
         // PCSX2 认的是 exe 同目录的空**文件** `portable.txt`（官方文档；它还有 `-portable`
         // 参数，但用户从资源管理器直接双击 exe 时参数就没了，标记文件更稳）。
@@ -295,6 +333,7 @@ const CATALOG: &[EmulatorDef] = &[
             repo: "RPCS3/rpcs3-binaries-win",
             asset: "_win64_msvc.7z",
             asset_fallback: "_win64.7z",
+            mirror: None,
         },
         // RPCS3 当前版本（源码 `Utilities/File.cpp` 的 `fs::get_config_dir()`）默认就用 exe
         // 所在目录，本来就不写 AppData；这个 `portable` 目录是官方也认的显式开关。
@@ -304,28 +343,44 @@ const CATALOG: &[EmulatorDef] = &[
         id: "switch",
         name: "Nintendo Switch",
         badge: "NS",
-        emulator: "Ryujinx",
-        vendor: "Ryujinx Project",
+        // 2026-10-12 用户要求换掉：Ryujinx 2024 年下架（那张卡原来只写「本程序不提供下载」，
+        // 等于这一格永远装不了）。Eden 是它之后还在维护的一支（Yuzu/Suyu 血统），
+        // 官方有 Windows 包、有稳定版、有自建发布站 —— 于是这一格回到「能自动装」。
+        emulator: "Eden",
+        vendor: "Eden Project",
         desc: (
-            "Switch 模拟器。原项目 2024 年下架，本程序不提供下载。",
-            "Switch emulator. The original project was taken down in 2024; this app offers no download.",
+            "Switch 模拟器（原 Ryujinx 下架后换成 Eden）。",
+            "Switch emulator — Eden, after Ryujinx was taken down.",
         ),
-        dir: "Ryujinx",
-        exe: "Ryujinx.exe",
-        exe_rel: "Ryujinx.exe",
+        dir: "Eden",
+        exe: "eden.exe",
+        exe_rel: "eden.exe",
         note: Some((
-            "这一项只作说明：本程序不提供下载，也不会指向第三方镜像站。",
-            "Informational only: this app won't download it and won't point at third-party mirrors.",
+            "只玩你自己拥有的游戏。本程序不附带任何游戏本体。",
+            "Play games you own. This app ships no game content.",
         )),
-        source: Source::Official {
-            reason: (
-                "原项目下架之后，剩下的同名站点与镜像站都不是原来那个项目在维护，没法核实。第三方来源一律不代装、也不代为指路。",
-                "After the takedown, the remaining look-alike sites and mirrors are no longer run by the original project and can't be verified. Third-party sources are neither installed nor linked.",
-            ),
-            // 故意留空：宁可什么都不给，也不指一个核实不了的站。
-            url: "",
+        // Eden 的代码与发布都在它自己的 Forgejo 上（不在 GitHub）。资产名形如
+        // `Eden-Windows-v0.2.1-amd64-msvc-standard.zip`。
+        //
+        // **为什么首选 msvc-standard 而不是官方推荐的 clang-pgo**（2026-10-12 逐条核过官方
+        // release notes 的分档表）：clang-pgo 是 MinGW + PGO，官方写明「要求 Ryzen / 第 4 代
+        // Intel 或更新」（即 x86-64-v3），老掌机（Jasper Lake 那类）跑它会直接非法指令崩掉；
+        // msvc-standard 只要求 x86-64 基线，Intel / AMD 通吃，官方也把它写成「其他构建出图形
+        // 问题时的兜底」。拿不准的硬件上，能跑比快一点重要。
+        // 2026-10-12 实测：直链 HTTP 200、Content-Length 31,319,001、content-type: application/zip、
+        // 走 Cloudflare（cf-cache-status: HIT）、支持 Range（206）。
+        source: Source::Forgejo {
+            api: "https://git.eden-emu.dev/api/v1",
+            repo: "eden-emu/eden",
+            asset: "amd64-msvc-standard.zip",
+            // msvc 那份哪天不发了，就退到同架构的 gcc 构建（同样要求 x86-64-v3，但总比 arm64 强）。
+            asset_fallback: "amd64-gcc-standard.zip",
         },
-        portable: PortableMark::Dir("portable"),
+        // 源码 `src/common/fs/path_util.cpp::Reinitialize()`：Windows 上先看
+        // **exe 同目录下有没有 `user` 目录**（`#define PORTABLE_DIR "user"`，见 `fs_paths.h`），
+        // 有就整个数据目录（config / nand / keys / saves）都落在那里，没有才退回 `%APPDATA%\eden`。
+        // 和 shadPS4 那个 `user` 目录是同一个套路，但不是同一个程序 —— 改这里之前重新核一遍。
+        portable: PortableMark::Dir("user"),
     },
     EmulatorDef {
         id: "ps4",
@@ -345,6 +400,7 @@ const CATALOG: &[EmulatorDef] = &[
             repo: "shadps4-emu/shadPS4",
             asset: "win64",
             asset_fallback: "",
+            mirror: None,
         },
         // shadPS4 认的是 exe 同目录下一个叫 `user` 的**文件夹**（源码 `path_util.cpp` 的
         // `PORTABLE_DIR = "user"`，判断用的是进程工作目录；我们从 exe 所在目录启动它，
@@ -369,6 +425,12 @@ const CATALOG: &[EmulatorDef] = &[
             repo: "mamedev/mame",
             asset: "b_x64.exe",
             asset_fallback: "x64.exe",
+            // 真机报「一直提示下载失败」时加的这一档：同一个文件 MAME 官方也挂在 SourceForge，
+            // 而 GitHub 那 87 MB 在某些网络下拉不完（2026-10-12 用户真机）。
+            mirror: Some(Mirror::SourceForge {
+                project: "mame",
+                tag_prefix: "mame",
+            }),
         },
         // **这一项有一处没能本机验证**：MAME 的 `mame0289b_x64.exe` 是一个 7z 自解压包
         // （文件头是 `MZ` 的 PE 程序，7z 结构在文件尾）。`extract_archive` 按扩展名把它
@@ -544,7 +606,9 @@ fn current_root(app: &tauri::AppHandle) -> PathBuf {
 #[cfg_attr(not(windows), allow(dead_code))]
 struct Resolved {
     version: String,
-    url: String,
+    /// 依次尝试的下载地址：**第一项是主源**，后面是同一个文件的官方备源（见 `Mirror`）。
+    /// 一个都没有时 `resolve` 就已经报错了，所以这里至少一项。
+    urls: Vec<String>,
     file_name: String,
     bytes: u64,
     /// 看 release 说明用（本版没用到，但账本与卡片以后要）。
@@ -580,18 +644,57 @@ fn version_from_asset_name(name: &str) -> Option<String> {
     None
 }
 
+/// tag → 卡片上显示的版本号。
+///
+/// 三种情况（都是实测见过的形状）：
+///   - `v0.2.1` / `v.0.19.0`（Eden / shadPS4）→ 去掉 `v` / `v.` 前缀 → `0.2.1` / `0.19.0`；
+///   - `<字母><纯数字>`（MAME 的 tag 是 `mame0289`）→ `0.289` —— 它把点省了当 tag，
+///     直接显示 `mame0289` 在卡片上很难看；
+///   - 其他（RPCS3 的 `build-<40 位 sha>`）原样返回 —— 但那种仓库的**附件名**里有真版本号，
+///     `version_from_asset_name` 会先接住（见调用点）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn version_from_tag(tag: &str) -> String {
+    let trimmed = tag.trim_start_matches('v').trim_start_matches('.');
+    if trimmed != tag {
+        return trimmed.to_string();
+    }
+    let digits = tag.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+    let prefix = &tag[..tag.len() - digits.len()];
+    if !prefix.is_empty() && digits.len() >= 2 && digits.chars().all(|c| c.is_ascii_digit()) {
+        let (head, rest) = digits.split_at(1);
+        return format!("{head}.{rest}");
+    }
+    tag.to_string()
+}
+
 /// GitHub Release 里挑资产。返回 `Err` 时里面已经是给用户看的话。
 #[cfg(windows)]
 fn resolve_github(
     repo: &str,
     asset_needle: &str,
     asset_fallback: &str,
+    mirror: Option<Mirror>,
 ) -> Result<Resolved, String> {
     let body = crate::net::get_text(
         &format!("https://api.github.com/repos/{repo}/releases/latest"),
         512 * 1024,
     )?;
-    let release: serde_json::Value = serde_json::from_str(&body).map_err(|err| {
+    github_from_json(&body, asset_needle, asset_fallback, mirror)
+}
+
+/// 「GitHub 的 release JSON → 下载地址」——**纯函数**，与网络无关。
+///
+/// 为什么拆出来：`ureq` 只在 Windows 依赖里，这段逻辑要是和 HTTP 调用写在一起，本机
+/// （macOS）就一行都测不到 —— 而它正是「挑错资产 / 版本号抠错 / 备源地址推错」这些
+/// 一错就要重发一版的地方。拆开之后本机可以直接拿真实的 API 返回（缩掉几个字段）当夹具测。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn github_from_json(
+    body: &str,
+    asset_needle: &str,
+    asset_fallback: &str,
+    mirror: Option<Mirror>,
+) -> Result<Resolved, String> {
+    let release: serde_json::Value = serde_json::from_str(body).map_err(|err| {
         pick(
             &format!("读不懂 GitHub 的返回：{err}"),
             &format!("Couldn't parse GitHub's reply: {err}"),
@@ -664,13 +767,177 @@ fn resolve_github(
         .get("size")
         .and_then(|value| value.as_u64())
         .unwrap_or(0);
+    // 版本号优先从**附件名**里取（RPCS3 的 tag 是 `build-<sha>`，不是版本号）；
+    // 附件名里没有 `v<数字>` 那种写法时退回 tag —— 但要把 `v` / `v.` 这类前缀去掉，
+    // 否则卡片上会写「.0.19.0」（shadPS4 的 tag 就是 `v.0.19.0`）。
+    let version = version_from_asset_name(&file_name).unwrap_or_else(|| version_from_tag(&tag));
+    let mut urls = vec![url];
+    if let Some(mirror) = mirror {
+        if let Some(fallback) = mirror_url(&mirror, &tag, &file_name) {
+            urls.push(fallback);
+        }
+    }
     Ok(Resolved {
-        // 版本号优先从**附件名**里取（RPCS3 的 tag 是 `build-<sha>`，不是版本号）；
-        // 附件名里没有 `v<数字>` 那种写法时退回 tag —— 但要把 `v` / `v.` 这类前缀去掉，
-        // 否则卡片上会写「.0.19.0」（shadPS4 的 tag 就是 `v.0.19.0`）。
-        version: version_from_asset_name(&file_name)
-            .unwrap_or_else(|| tag.trim_start_matches('v').trim_start_matches('.').to_string()),
-        url,
+        version,
+        urls,
+        file_name,
+        bytes,
+        page,
+    })
+}
+
+/// 官方备源的直链（推不出来就返回 `None`，那就只剩主源 —— 不编地址）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn mirror_url(mirror: &Mirror, tag: &str, file_name: &str) -> Option<String> {
+    match mirror {
+        Mirror::SourceForge {
+            project,
+            tag_prefix,
+        } => {
+            // `mame0289` → `0289` → `0.289`（SourceForge 的目录名是带点的版本号）。
+            let digits = tag.strip_prefix(tag_prefix)?;
+            let (head, rest) = digits.split_at(digits.len().min(1));
+            if rest.is_empty() || !head.chars().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            Some(format!(
+                "https://downloads.sourceforge.net/project/{project}/{tag_prefix}/{head}.{rest}/{file_name}"
+            ))
+        }
+    }
+}
+
+/// Forgejo / Gitea 的 release：`/api/v1/repos/<owner>/<repo>/releases?limit=1`。
+///
+/// 与 GitHub 那段的差别只有三处：地址、`assets[].browser_download_url` 之外不需要别的字段、
+/// 以及**列表本身就是数组**（GitHub 是单个对象）。其余判断（预发布不装、按片段挑资产、
+/// 归档后缀、版本号从附件名里抠）照旧 —— 两处各写一套迟早会走偏。
+#[cfg(windows)]
+fn resolve_forgejo(
+    api: &str,
+    repo: &str,
+    asset_needle: &str,
+    asset_fallback: &str,
+) -> Result<Resolved, String> {
+    // 取 20 条而不是 1 条：要靠**tag 的形状**挑稳定版，见 `forgejo_from_json`。
+    let body = crate::net::get_text(
+        &format!("{api}/repos/{repo}/releases?limit=20"),
+        1024 * 1024,
+    )?;
+    forgejo_from_json(&body, asset_needle, asset_fallback)
+}
+
+/// 「Forgejo 的 releases JSON → 下载地址」——纯函数，理由同 `github_from_json`。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn forgejo_from_json(
+    body: &str,
+    asset_needle: &str,
+    asset_fallback: &str,
+) -> Result<Resolved, String> {
+    let releases: serde_json::Value = serde_json::from_str(body).map_err(|err| {
+        pick(
+            &format!("读不懂发布站的返回：{err}"),
+            &format!("Couldn't parse the release server's reply: {err}"),
+        )
+    })?;
+    let list = releases.as_array().ok_or_else(|| {
+        pick(
+            "发布站的返回不是一份 release 列表。",
+            "The release server didn't return a list of releases.",
+        )
+    })?;
+    /*
+     * **稳定版只能靠 tag 的形状挑**：Eden 那台 Forgejo 上 `prerelease` 字段没有区分度 ——
+     * 2026-10-12 实测 14 条 release（含全部 rc）的 `prerelease` **统统是 false**，
+     * 信它就会把 `v0.2.0-rc2` 装到用户机器上。所以：`tag_name` 必须严格是 `v<数字>.<数字>.<数字>`，
+     * 且仍要过一遍 `prerelease` 这道闸（别的 Forgejo 实例是正常填的）。
+     */
+    let is_stable = |release: &serde_json::Value| {
+        if release
+            .get("prerelease")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        release
+            .get("tag_name")
+            .and_then(|value| value.as_str())
+            .is_some_and(|tag| {
+                let mut parts = tag.trim_start_matches('v').split('.');
+                let (Some(a), Some(b), Some(c), None) =
+                    (parts.next(), parts.next(), parts.next(), parts.next())
+                else {
+                    return false;
+                };
+                [a, b, c]
+                    .iter()
+                    .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+            })
+    };
+    let release = list.iter().find(|release| is_stable(release)).ok_or_else(|| {
+        pick(
+            "发布站上没有正式版（只有预发布或每日构建），这次先不装。",
+            "The release server has no stable release (only pre-releases or nightlies).",
+        )
+    })?;
+    let tag = release
+        .get("tag_name")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let page = release
+        .get("html_url")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let assets = release
+        .get("assets")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let matches = |asset: &serde_json::Value, needle: &str| {
+        let name = asset
+            .get("name")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        !needle.is_empty()
+            && name.contains(needle)
+            && [".7z", ".zip", ".exe", ".tar.xz"]
+                .iter()
+                .any(|ext| name.ends_with(ext))
+    };
+    let needle = asset_needle.to_ascii_lowercase();
+    let fallback = asset_fallback.to_ascii_lowercase();
+    let asset = assets
+        .iter()
+        .find(|asset| matches(asset, &needle))
+        .or_else(|| assets.iter().find(|asset| matches(asset, &fallback)))
+        .ok_or_else(|| {
+            pick(
+                "这个版本里没有我们要的那个安装包（官方换了打包方式），已停止下载。",
+                "This release has no asset matching our pattern (packaging changed); download stopped.",
+            )
+        })?;
+    let url = asset
+        .get("browser_download_url")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| pick("这个安装包没给下载地址。", "That asset has no download URL."))?
+        .to_string();
+    let file_name = asset
+        .get("name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("download.bin")
+        .to_string();
+    let bytes = asset
+        .get("size")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    let version = version_from_asset_name(&file_name).unwrap_or_else(|| version_from_tag(&tag));
+    Ok(Resolved {
+        version,
+        urls: vec![url],
         file_name,
         bytes,
         page,
@@ -710,7 +977,7 @@ fn resolve_retroarch() -> Result<Resolved, String> {
     let url = format!("https://buildbot.libretro.com/stable/{version}/windows/x86_64/RetroArch.7z");
     Ok(Resolved {
         version,
-        url,
+        urls: vec![url],
         file_name: "RetroArch.7z".to_string(),
         // 目录列表里没有大小，交给下载时的 Content-Length。
         bytes: 0,
@@ -739,7 +1006,14 @@ fn resolve(def: &EmulatorDef) -> Result<Resolved, String> {
                 repo,
                 asset,
                 asset_fallback,
-            } => resolve_github(repo, asset, asset_fallback),
+                mirror,
+            } => resolve_github(repo, asset, asset_fallback, *mirror),
+            Source::Forgejo {
+                api,
+                repo,
+                asset,
+                asset_fallback,
+            } => resolve_forgejo(api, repo, asset, asset_fallback),
             Source::RetroArchBuildbot => resolve_retroarch(),
             Source::Official { .. } => Err(pick(
                 "这一项没有可直接下载的官方安装包。",
@@ -1134,13 +1408,43 @@ fn install_into(
     total: u64,
 ) -> Result<(String, PathBuf, u64), String> {
     let archive = staging.join(&resolved.file_name);
-    crate::net::download(
-        &resolved.url,
-        &archive,
-        total,
-        &|| EMU_CANCEL.load(std::sync::atomic::Ordering::Relaxed),
-        &|done, total| emit(app, "download", done, total),
-    )?;
+    /*
+     * 依次尝试主源与官方备源（见 `Mirror`）。
+     *
+     * 用户真机上的现场：街机那个包 87 MB，走 GitHub 断在中途，报「下载失败」。
+     * 同一份文件在 MAME 官方的 SourceForge 上也有，所以这里换一台官方主机重来一次 ——
+     * 每次换源都把进度条归零重发一遍「下载」阶段（用户看到的是「又从头下了一次」，
+     * 而不是进度条停在 60% 不动）。`net::download` 失败时自己会把半截文件删掉，
+     * 所以重试不会拿到上一次的残片。
+     * 取消是用户的意愿：一旦点了取消就立刻退出，不换源重试。
+     */
+    let cancelled = || EMU_CANCEL.load(std::sync::atomic::Ordering::Relaxed);
+    let mut failure: Option<String> = None;
+    let mut downloaded = false;
+    for (index, url) in resolved.urls.iter().enumerate() {
+        if index > 0 {
+            emit(app, "download", 0, total);
+        }
+        match crate::net::download(url, &archive, total, &cancelled, &|done, total| {
+            emit(app, "download", done, total)
+        }) {
+            Ok(()) => {
+                downloaded = true;
+                break;
+            }
+            Err(err) => {
+                if cancelled() {
+                    return Err(err);
+                }
+                failure = Some(err);
+            }
+        }
+    }
+    if !downloaded {
+        return Err(failure.unwrap_or_else(|| {
+            pick("下载失败：没有可用的下载源。", "Download failed: no source available.")
+        }));
+    }
 
     emit(app, "extract", 0, 0);
     /*
@@ -1357,6 +1661,125 @@ mod tests {
         dir
     }
 
+    /// tag → 卡片上的版本号：三种形状各来一个。
+    #[test]
+    fn turns_tags_into_readable_versions() {
+        assert_eq!(version_from_tag("v0.2.1"), "0.2.1");
+        assert_eq!(version_from_tag("v.0.19.0"), "0.19.0");
+        // MAME：`mame0289` 是 `0.289` 去掉了点。
+        assert_eq!(version_from_tag("mame0289"), "0.289");
+        assert_eq!(version_from_tag("mame0301"), "0.301");
+        // RPCS3：tag 是 `build-<sha>`，这里原样返回（真版本号在附件名里，另一条路会接住）。
+        assert_eq!(version_from_tag("build-987129bc"), "build-987129bc");
+    }
+
+    /// GitHub 的 release JSON → 下载地址：挑对资产、抠出版本号、把官方备源排到后面。
+    ///
+    /// 夹具是**真实 API 返回**（2026-10-12 抓的 `repos/mamedev/mame/releases/latest`，
+    /// 只留了用得上的字段）：MAME 那份里同时有 arm64 / x64 / Linux 包与校验文件，
+    /// 挑错一个就是把 85 MB 的 arm64 包装进掌机。
+    #[test]
+    fn picks_the_right_asset_and_mirror_from_a_github_release() {
+        let body = r#"{
+          "tag_name": "mame0289",
+          "prerelease": false,
+          "html_url": "https://github.com/mamedev/mame/releases/tag/mame0289",
+          "assets": [
+            {"name": "mame0289b_arm64.exe", "size": 85192947, "browser_download_url": "https://github.com/mamedev/mame/releases/download/mame0289/mame0289b_arm64.exe"},
+            {"name": "mame0289b_x64.exe", "size": 87626249, "browser_download_url": "https://github.com/mamedev/mame/releases/download/mame0289/mame0289b_x64.exe"},
+            {"name": "mame0289lx.zip", "size": 19725605, "browser_download_url": "https://github.com/mamedev/mame/releases/download/mame0289/mame0289lx.zip"},
+            {"name": "SHA256SUMS", "size": 415, "browser_download_url": "https://github.com/mamedev/mame/releases/download/mame0289/SHA256SUMS"}
+          ]
+        }"#;
+        let mirror = Mirror::SourceForge {
+            project: "mame",
+            tag_prefix: "mame",
+        };
+        let resolved = github_from_json(body, "b_x64.exe", "x64.exe", Some(mirror)).unwrap();
+        assert_eq!(resolved.version, "0.289");
+        assert_eq!(resolved.file_name, "mame0289b_x64.exe");
+        assert_eq!(resolved.bytes, 87626249);
+        // 主源在前、官方备源在后（下载失败时才换第二项）。
+        assert_eq!(resolved.urls.len(), 2);
+        assert!(resolved.urls[0].starts_with("https://github.com/mamedev/mame/releases/download/"));
+        assert_eq!(
+            resolved.urls[1],
+            "https://downloads.sourceforge.net/project/mame/mame/0.289/mame0289b_x64.exe"
+        );
+
+        // 校验文件（.txt/.sha256）不许被当成安装包；没有匹配资产时要报错而不是瞎挑。
+        assert!(github_from_json(body, "whatsnew", "", None).is_err());
+        // 预发布不装。
+        let pre = body.replace("\"prerelease\": false", "\"prerelease\": true");
+        assert!(github_from_json(&pre, "b_x64.exe", "", None).is_err());
+    }
+
+    /// Forgejo 的 releases JSON → 下载地址（Eden 走这一条）。
+    ///
+    /// 夹具同样是真实返回（2026-10-12 抓的 `git.eden-emu.dev/api/v1/repos/eden-emu/eden/releases`），
+    /// 里面有 Android / Linux / Windows 三种包、Windows 又分 msvc / clang-pgo / arm64 ——
+    /// 挑错的后果是把 Android 的 apk 或 arm64 的包装进 x64 掌机。
+    #[test]
+    fn picks_the_windows_zip_from_a_forgejo_release() {
+        let body = r#"[{
+          "tag_name": "v0.2.0-rc2",
+          "prerelease": false,
+          "html_url": "https://git.eden-emu.dev/eden-emu/eden/releases/tag/v0.2.0-rc2",
+          "assets": [
+            {"name": "Eden-Windows-v0.2.0-rc2-amd64-msvc-standard.zip", "size": 0, "browser_download_url": "https://stable.eden-emu.dev/v0.2.0-rc2/Eden-Windows-v0.2.0-rc2-amd64-msvc-standard.zip"}
+          ]
+        }, {
+          "tag_name": "v0.2.1",
+          "prerelease": false,
+          "html_url": "https://git.eden-emu.dev/eden-emu/eden/releases/tag/v0.2.1",
+          "assets": [
+            {"name": "Eden-Android-v0.2.1-standard.apk", "size": 0, "browser_download_url": "https://stable.eden-emu.dev/v0.2.1/Eden-Android-v0.2.1-standard.apk"},
+            {"name": "Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage", "size": 0, "browser_download_url": "https://stable.eden-emu.dev/v0.2.1/Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage"},
+            {"name": "Eden-Windows-v0.2.1-amd64-clang-pgo.zip", "size": 0, "browser_download_url": "https://stable.eden-emu.dev/v0.2.1/Eden-Windows-v0.2.1-amd64-clang-pgo.zip"},
+            {"name": "Eden-Windows-v0.2.1-arm64-msvc-standard.zip", "size": 0, "browser_download_url": "https://stable.eden-emu.dev/v0.2.1/Eden-Windows-v0.2.1-arm64-msvc-standard.zip"}
+          ]
+        }]"#;
+        // 夹具**故意把 `v0.2.0-rc2` 放在前面**：那台 Forgejo 的 `prerelease` 字段连 rc 都写 false，
+        // 所以只能靠 tag 形状跳过它 —— 挑错了就是把 rc 装到用户机器上。
+        let resolved = forgejo_from_json(body, "windows-v", "-windows-").unwrap();
+        assert_eq!(resolved.version, "0.2.1");
+        assert!(
+            !resolved.file_name.contains("rc"),
+            "挑到了预发布版：{}",
+            resolved.file_name
+        );
+        assert_eq!(resolved.file_name, "Eden-Windows-v0.2.1-amd64-clang-pgo.zip");
+        assert_eq!(resolved.urls.len(), 1);
+        assert!(resolved.urls[0].starts_with("https://stable.eden-emu.dev/v0.2.1/"));
+        // 资产列表是空的时候要报错，而不是给一个空地址。
+        assert!(forgejo_from_json("[]", "windows", "").is_err());
+    }
+
+    /// 官方备源的地址推导（MAME → SourceForge）。
+    ///
+    /// 这一条钉的是**用户真机报「下载失败」之后加的那一档**：GitHub 拉不动 87 MB 的包时换
+    /// SourceForge。地址是实测过的（2026-10-12：302 → 镜像 200，Content-Length 87,626,249，
+    /// 与 GitHub 那侧同一个字节数），所以这里断言的是那个**真实 URL**，不是随手编的形状。
+    #[test]
+    fn builds_the_sourceforge_mirror_url() {
+        let mirror = Mirror::SourceForge {
+            project: "mame",
+            tag_prefix: "mame",
+        };
+        assert_eq!(
+            mirror_url(&mirror, "mame0289", "mame0289b_x64.exe").as_deref(),
+            Some("https://downloads.sourceforge.net/project/mame/mame/0.289/mame0289b_x64.exe")
+        );
+        // 三位数版本（MAME 0.300 之后）也要推得对：`mame0301` → `mame/0.301`。
+        assert_eq!(
+            mirror_url(&mirror, "mame0301", "mame0301b_x64.exe").as_deref(),
+            Some("https://downloads.sourceforge.net/project/mame/mame/0.301/mame0301b_x64.exe")
+        );
+        // 推不出来就返回 None（只剩主源），不许编一个看起来像的地址。
+        assert_eq!(mirror_url(&mirror, "build-abc123", "x.exe"), None);
+        assert_eq!(mirror_url(&mirror, "mame", "x.exe"), None);
+    }
+
     /// 找主程序：约定的相对路径优先，找不到就按文件名往下搜（官方换打包结构时的兜底）。
     #[test]
     fn finds_the_exe_directly_or_by_name() {
@@ -1461,6 +1884,15 @@ mod tests {
         // shadPS4：`user` **目录**。
         apply_portable(&exe_dir, def_by_id("ps4").unwrap().portable, &target).unwrap();
         assert!(exe_dir.join("user").is_dir(), "shadPS4 的便携标记必须是 user 目录");
+
+        // Eden（Switch）：也是 `user` **目录**，但和 shadPS4 是两个程序 ——
+        // 源码 `src/common/fs/fs_paths.h` 的 `#define PORTABLE_DIR "user"`，判据在
+        // `src/common/fs/path_util.cpp::Reinitialize()`：Windows 上先看 exe 同目录有没有 `user`，
+        // 有就整份数据目录（config / nand / keys / saves）都落在那里，没有才写 `%APPDATA%\eden`。
+        // 先把 shadPS4 那一步留下的目录删掉，免得这条断言是「前一步的功劳」。
+        std::fs::remove_dir_all(exe_dir.join("user")).unwrap();
+        apply_portable(&exe_dir, def_by_id("switch").unwrap().portable, &target).unwrap();
+        assert!(exe_dir.join("user").is_dir(), "Eden 的便携标记必须是 user 目录");
 
         // MAME：什么都不放。
         let before: Vec<_> = std::fs::read_dir(&exe_dir).unwrap().flatten().map(|e| e.file_name()).collect();

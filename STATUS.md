@@ -5,6 +5,8 @@
 
 对照「已经能用 / 刚改完待打包验证 / 还没做」。掌机请以最新 Release 为准。
 
+**未发布（0.1.75）：Switch 卡换成 Eden + 街机「装不上」的真根因** —— 用户要求把已下架的 Ryujinx 换成 Eden（Eden 官方有 Windows 包、有稳定版、有自建发布站），并报「街机安装一直提示下载失败」。Eden 那条照官方分档表选了 **msvc-standard**（clang-pgo 要 x86-64-v3，老掌机会崩），稳定版靠 **tag 形状**挑（那台 Forgejo 连 rc 的 `prerelease` 都是 false）；街机那条查出**两个真根因**：判定 7z 的判据原来在**文件尾**找签名（真 7z 的尾部是 next header，签名只在开头），于是自解压包一路走到 zip 分支；就算认出来了，`sevenz-rust2` 也读不了 SFX（它从偏移 0 读签名）。现在「判定」与「解压」共用同一个 7z 流起点查找（扫开头 1 MiB + 签名头自洽校验），解压走一个 60 行的偏移窗口 reader —— 本机用「真 7z + 4 KiB stub」的测试把解压这条路走通了；下载还按用户要求加了 SourceForge 官方备源。细则见下面「未发布（0.1.75）」一节。
+
 **未发布（0.1.74）：卡片名字底下的阴影要盖到卡片下沿** —— 0.1.73 那版把名字的下内边距挪成 `bottom`、半截字是没了，但**铺渐变的那层盒子跟着抬高了 7dp**：卡片最底下露出一条没压暗的封面，和上面的深色块之间是一道硬边（用户圈出来：「你下面要么就全盖上，不然突然有一块黑色」）。修法是把名字拆成两层：外层贴底（`bottom: 0`）铺渐变、带 facts 时用 `padding-bottom` 让位，里层下内边距为 0、专门限行 —— 「裁切线落在最后一行下面」和「阴影盖满到卡片下沿」在同一层上做不到，拆开就同时成立。探针 K1 那组断言扩成四条（新增「阴影盖到卡片下沿，最大差 0dp」）。细则见下面「未发布（0.1.74）」一节。
 
 **已发布 `v0.1.73`（2026-10-12，真机装过）**：三个页面的样式问题（用户真机照片） —— 0.1.72 装上掌机之后，用户发来模拟器 / 工具箱 / 游戏库三张照片：「要么是不对齐，要么是文字显示不全，要么是封面没正确显示，要么是按钮间没间距」。四条全是**真机才显形**的（长英文游戏名 + 真实系统数据 + 1280×720 逻辑分辨率，浏览器预览里都是短中文名、没有后端）：① 卡片名字被 `-webkit-line-clamp` 切掉半行 —— 裁切线是内边距盒的边，下内边距那 7dp 正好把下一行露出来（挪成 `bottom` 就好，全项目另外 8 处 `line-clamp` 都查过没事）；② 有张卡的封面空着 —— 不是坏了，是那个游戏 Steam **只给了宽图**（实测 appid 3841510 的竖封面 / 胶囊 / 头图全 404、`library_hero.jpg` 是 200），卡片封面回退链现在补上宽图与头图这两档；③ 工具箱每行那三颗按钮只隔 2dp（行高 28 = 按钮高），改成 10dp；④ 模拟器六张卡 `align-items: start` 各按内容收，同一行底边参差 —— 改成整行等高、按钮压到卡底。探针为这四条各加了一条断言（含「竖封面 404 时退到宽图」那一关，用 CDP 延迟失败造真 404）。细则见下面「未发布（0.1.73）」一节。
@@ -112,6 +114,67 @@
   真机也一次没装过这一版。装机时要看的就一件事 —— **小组件那几处入口消失后其余页面照旧**
   （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
   （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
+
+## 未发布（0.1.75）：Switch 卡换成 Eden；街机「装不上」的真根因（2026-10-12，用户要求 + 真机报错）
+
+用户两条要求 / 一条报错：①「模拟器里面 NS 无法下载安装，因为原项目 2024 年下架了，换成 Eden」；
+②「街机模拟器点了安装一直提示下载失败，换个源」；③「给所有模拟器加一个 ROM 列表 + 下载游戏」
+（第 ③ 条见下一节）。
+
+### ① Switch 卡：Ryujinx（手动项）→ Eden（可自动装）
+
+- **来源与依据都核过**：Eden 的代码与发布在它自己的 Forgejo（`git.eden-emu.dev/eden-emu/eden`），
+  API `GET /api/v1/repos/eden-emu/eden/releases?limit=20`；二进制在 `stable.eden-emu.dev/<tag>/<file>`
+  （Cloudflare，实测 200 + `Content-Length: 31,319,001`、支持 Range）。包是平铺的 zip，
+  **主程序就叫 `eden.exe`**（本机用 Range 取 zip 尾部 128 KiB 解 central directory 看到的：21 条，含
+  `eden.exe` / `eden-cli.exe` / `LICENSES/`）。
+- **便携模式**：`user` **目录**（源码 `src/common/fs/fs_paths.h` 的 `#define PORTABLE_DIR "user"`，
+  判据在 `path_util.cpp::Reinitialize()`：Windows 上 exe 同目录有 `user` 目录就整份数据目录落在那里，
+  否则退回 `%APPDATA%\eden`）。和 shadPS4 那个 `user` 目录同名不同程序，单测里两条断言分开钉住。
+- **两个坑（都是调研时实测出来的，写进代码注释了）**：
+  1. **不能信 `prerelease` 字段**：那台 Forgejo 上 14 条 release（含全部 rc）的 `prerelease`
+     **统统是 false** —— 信它就会把 `v0.2.0-rc2` 装到用户机器上。现在按 `tag_name` 形状挑
+     （严格 `v<数字>.<数字>.<数字>`），并额外过一遍 `prerelease` 闸。测试夹具里**故意把 rc 放在前面**。
+  2. **不能默认选官方推荐的 clang-pgo**：官方 release notes 的分档表写明 clang-pgo 是 MinGW + PGO、
+     **要求 Ryzen / 第 4 代 Intel 或更新**（x86-64-v3），老掌机会非法指令崩溃；
+     `msvc-standard` 只要求 x86-64 基线、Intel/AMD 通吃，官方也把它列为「其他构建出图形问题时的兜底」。
+     所以首选 `amd64-msvc-standard.zip`，备选 `amd64-gcc-standard.zip`。
+- 顺带：`ROM_PLATFORMS`（导入 ROM 的分组表）里 switch 那行的模拟器名、存档备份表里的
+  `%APPDATA%\Ryujinx\saves` 都跟着改成 Eden（`%APPDATA%\eden\nand`）。
+
+### ② 街机「点了安装一直提示下载失败」：两个真根因，都不是「源坏了」
+
+1. **判定 7z 的那条判据对真包永远为假**（这是主因）。`looks_like_7z` 原来在**文件尾 32 字节**里找
+   7z 签名 —— 而真 7z 的尾部是 next header（编码头首字节 `0x17`），**签名只在开头**。
+   于是 MAME 那个自解压包（`mame0289b_x64.exe`）一路走到 zip 分支，`Expand-Archive` 只吃 `.zip`
+   → 报「压缩包可能损坏」。上一版那句注释「标准 7z 库都支持从尾部读 SFX」也是错的。
+   现在判据和真正解压时用的是**同一个函数** `find_7z_start`：扫开头 1 MiB 找签名
+   `37 7A BC AF 27 1C`，再用签名头里的 `NextHeaderOffset`/`NextHeaderSize` 校验
+   `起点 + 32 + nextOff + nextSize == 文件大小`（实测 MAME 那个包：stub 205,824 字节，等式成立）。
+2. **`sevenz-rust2` 解不了自解压包**：它的 `Archive::read` 第一件事是 `seek(Start(0))` 读 6 字节签名
+   （该库 `reader.rs:196-204`），在 SFX 上读到 `MZ` → `BadSignature`。库本身没有任何 SFX 支持
+   （README 与 issue 全文搜不到）。修法是加一个约 60 行的 `Read + Seek` **偏移窗口**
+   （`SevenZipWindow`：逻辑 0 映射到 7z 流起点），库里所有偏移本来就相对那个起点。
+   **不引 7z CLI、也不去执行那个下载下来的 exe**。
+3. **备源照用户说的加了**：`Resolved` 从「一个 url」改成「一串 urls」，下载按顺序试 ——
+   MAME 的备源是 SourceForge（官方发布页自己列的镜像，同一个文件：`mame0289b_x64.exe`
+   87,626,249 字节，实测 302 → 镜像 200，与 GitHub 那侧字节数一模一样）。GitHub 那 87 MB
+   在某些网络下拉不完时自动换源；每次换源把进度条归零重发（用户看到「又从头下了一次」而不是卡住）。
+   第三方 GitHub 代理（ghproxy 等）**没用** —— 那是让掌机从来路不明的主机装 exe，和这个项目一贯
+   的规矩冲突。
+4. **本机可测的部分全钉住了**：`find_7z_start` 与 `looks_like_7z` 是纯 std（跨平台），
+   两个单测 —— 一个是「判得出自解压包、且签名头对不上文件大小的不算」，
+   一个是**真解压**：用 `sevenz_rust2` 的 writer 现造一个真 7z、前面糊 4 KiB stub，
+   走 `extract_7z_window` 把里面的 `hello.txt` 解出来（macOS 上就能跑，靠 `[dev-dependencies]`
+   那份 sevenz-rust2）。另外 GitHub/Forgejo 的 JSON 解析也拆成了纯函数并挂了真实 API 夹具测试。
+
+### 本机验证
+
+- `cargo test --workspace` 87 项全过（含上面那几个新测试）、`cargo clippy --workspace --all-targets` 干净
+  （只剩「Windows 专属函数在 macOS 上没人用」那类既有告警）；`npm run build`、`audit-ui`、`audit-acl` 全过。
+- 探针新增两条：**六张卡都能自动装（手动项 0 个）**、**Switch 卡用的是 Eden**。
+- **没验证的**：真机上的实际安装 —— Eden 的包能不能解、`user` 目录建了之后配置是不是真落在程序目录、
+  MAME 那个 575 MB 解压要多久。这三条只能上机验。
 
 ## 未发布（0.1.74）：卡片名字底下的阴影要盖到卡片下沿（2026-10-12，用户真机照片）
 

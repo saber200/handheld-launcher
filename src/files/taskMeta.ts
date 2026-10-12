@@ -31,7 +31,7 @@ export const ROM_PLATFORMS: RomPlatform[] = [
     key: "switch",
     label: "Nintendo Switch",
     folder: "switch",
-    emulator: "Ryujinx",
+    emulator: "Eden",
     exts: [".nsp", ".xci", ".nca"],
     color: "accent",
   },

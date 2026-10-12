@@ -240,21 +240,22 @@ pub fn extract_archive(
 /// 这个包该按 7z 解吗？
 ///
 /// 不能只看扩展名：**MAME 的官方 Windows 包是 `mame0289b_x64.exe`** —— 一个 7z 自解压包
-/// （文件头是 `MZ` 的 PE 程序，7z 结构挂在文件尾）。按扩展名判的话 `.exe` 会走到 zip 分支，
-/// 而 `Expand-Archive` 只吃 `.zip`，于是街机那张卡**每次都报「压缩包可能损坏」，永远装不上**
-/// （2026-10-10 的对抗性审查抓到的就是这个）。
+/// （文件头是 `MZ` 的 PE 程序，7z 结构跟在 stub 后面）。按扩展名判的话 `.exe` 会走到 zip 分支，
+/// 而 `Expand-Archive` 只吃 `.zip`，于是街机那张卡报「压缩包可能损坏」、永远装不上。
 ///
-/// 所以：扩展名是 `7z` 就用；是 `exe` 也不要直接否掉，而是**读文件尾的 7z 签名**
-/// （`37 7A BC AF 27 1C`）。自解压包一定带这个尾签名（那是 7z 格式本身的结束标记），
-/// 而真正的 zip 自解压包尾签名是 `PK\x05\x06`，不会被误判。
+/// 判据 = **文件头 1 MiB 内有没有 7z 流**（自解压包一定在开头不远处）+ 签名头里的
+/// `NextHeaderOffset` / `NextHeaderSize` 能对上文件大小。见 `find_7z_start`。
 ///
-/// 这个函数本身与平台无关（只用 std），所以不加 `cfg` —— 好让它在 macOS 上也能被单测跑到
-/// （调用点 `extract_archive` 是 Windows 专属，所以非 Windows 上它只被测试用到）：
+/// ⚠️ 上一版这里找的是**文件尾 32 字节里的签名**，那个判据对**真包永远为假**：
+/// 7z 的尾部是 next header（编码头首字节是 `0x17`），签名只在**开头**。
+/// 2026-10-12 用户真机报「街机安装一直提示下载失败」，根因就在这一条
+/// ——（本机用真 MAME 包核过：`mame0289b_x64.exe` 的 7z 流起点是 205,824，尾部 32 字节里没有签名）。
+///
+/// 这个函数本身与平台无关（只用 std），所以不加 `cfg` —— 好让它在 macOS 上也能被单测跑到：
 /// 「MAME 装不上」那个 bug 就是一条本机可测的纯函数判定，没有任何理由等真机才发现。
 /// （`Path` 同理，在函数体内 use：文件头那两行是 Windows 专属的导入。）
 #[cfg_attr(not(windows), allow(dead_code))]
 fn looks_like_7z(archive: &std::path::Path) -> bool {
-    use std::io::{Read, Seek, SeekFrom};
     let by_extension = archive
         .extension()
         .and_then(|ext| ext.to_str())
@@ -272,33 +273,186 @@ fn looks_like_7z(archive: &std::path::Path) -> bool {
     let Ok(mut file) = std::fs::File::open(archive) else {
         return false;
     };
-    let Ok(size) = file.metadata().map(|meta| meta.len()) else {
-        return false;
-    };
-    // 尾签名在最后 32 字节之内（7z 的结束头固定落在文件尾）。
-    let tail_len = size.min(32) as usize;
-    if tail_len == 0 {
-        return false;
+    // 用和真正解压时**同一个**判定：找得到 7z 流才算 7z。两处各写一套迟早走偏。
+    find_7z_start(&mut file).is_ok()
+}
+
+/* ── 7z 自解压包（SFX）的读取窗口 ───────────────────────────────────────────
+ *
+ * 为什么需要（2026-10-12，用户真机「街机模拟器点了安装一直提示下载失败」的真根因）：
+ * MAME 官方的 Windows 包 `mame0289b_x64.exe` 是一个 **7z 自解压包** —— 前面 205,824 字节是
+ * PE stub（首字节 `4d 5a` = "MZ"），真正的 7z 结构挂在文件尾。而 `sevenz-rust2` 的
+ * `Archive::read` 第一件事就是 `seek(Start(0))` 读 6 字节签名（该库 `reader.rs:196-204`），
+ * 在 SFX 上读到的是 `MZ...` → 直接 `BadSignature`。库本身**没有任何 SFX 支持**
+ * （README 与 issue 里全文搜不到），所以上一版那句「标准 7z 库都支持从尾部读 SFX，
+ * 理论上没问题」是错的 —— 真机装不上就是这里。
+ *
+ * 好在它的所有偏移都相对 **7z 流起点**（`header_pos = 32 + next_header_offset`），
+ * 于是给它一个「逻辑 0 = 7z 起点」的 Read+Seek 包装就够了：不引 7z CLI、也不用让用户
+ * 自己去跑那个 exe（那等于让掌机执行一个刚下下来的二进制）。
+ *
+ * 起点怎么找：扫开头 1 MiB 找签名 `37 7A BC AF 27 1C`，再用签名头里的
+ * `NextHeaderOffset` / `NextHeaderSize` 校验 `起点 + 32 + nextOff + nextSize == 文件大小`
+ * （这条等式是实测 MAME 那个包对上的），不写死 205,824。
+ */
+#[cfg_attr(not(windows), allow(dead_code))]
+const SEVEN_Z_SIGNATURE: [u8; 6] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
+
+/// 自解压 stub 最多扫多长（MAME 的是 205,824 字节，留 1 MiB 余量足够）。
+#[cfg_attr(not(windows), allow(dead_code))]
+const SFX_SCAN_LIMIT: u64 = 1024 * 1024;
+
+/// 把 `inner` 的逻辑 0 挪到 `offset` 的那个 Read + Seek 包装。
+#[cfg(any(windows, test))]
+pub struct SevenZipWindow<R> {
+    inner: R,
+    offset: u64,
+    len: u64,
+}
+
+#[cfg(any(windows, test))]
+impl<R: std::io::Read + std::io::Seek> SevenZipWindow<R> {
+    /// 找到 7z 流起点并包好（普通 7z 的起点就是 0）。
+    pub fn new(mut inner: R) -> Result<Self, String> {
+        let offset = find_7z_start(&mut inner)?;
+        let len = inner
+            .seek(std::io::SeekFrom::End(0))
+            .map_err(|err| crate::i18n::pick(&format!("读不了这个包：{err}"), &format!("Couldn't read this archive: {err}")))?
+            - offset;
+        inner
+            .seek(std::io::SeekFrom::Start(offset))
+            .map_err(|err| crate::i18n::pick(&format!("读不了这个包：{err}"), &format!("Couldn't read this archive: {err}")))?;
+        Ok(Self { inner, offset, len })
     }
-    if file.seek(SeekFrom::End(-(tail_len as i64))).is_err() {
-        return false;
+
+    /// 7z 流在文件里的起点（普通 7z 是 0）。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn offset(&self) -> u64 {
+        self.offset
     }
-    let mut tail = vec![0u8; tail_len];
-    if file.read_exact(&mut tail).is_err() {
-        return false;
+}
+
+#[cfg(any(windows, test))]
+impl<R: std::io::Read + std::io::Seek> std::io::Read for SevenZipWindow<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // 不许读过头（库里按 len 算尾部 next header 的位置）。
+        let pos = self.inner.stream_position()?;
+        let left = self.len.saturating_sub(pos.saturating_sub(self.offset));
+        if left == 0 {
+            return Ok(0);
+        }
+        let want = buf.len().min(left as usize);
+        self.inner.read(&mut buf[..want])
     }
-    tail.windows(6).any(|window| window == b"7z\xBC\xAF'\x1C")
+}
+
+#[cfg(any(windows, test))]
+impl<R: std::io::Read + std::io::Seek> std::io::Seek for SevenZipWindow<R> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let target = match pos {
+            std::io::SeekFrom::Start(value) => value as i128,
+            std::io::SeekFrom::End(value) => self.len as i128 + value as i128,
+            std::io::SeekFrom::Current(value) => {
+                (self.inner.stream_position()? as i128 - self.offset as i128) + value as i128
+            }
+        };
+        if target < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek before the 7z stream",
+            ));
+        }
+        let real = self.inner.seek(std::io::SeekFrom::Start(self.offset + target as u64))?;
+        Ok(real - self.offset)
+    }
+}
+
+/// 7z 流在文件里的起点：普通 7z 是 0，自解压包是签名所在的那个偏移。
+///
+/// 只用 std，所以**不加 cfg**：跨平台的 `looks_like_7z` 要用它当判据，
+/// 本机的单测也靠它（「MAME 装不上」就是这条能本机钉住的判定）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn find_7z_start<R: std::io::Read + std::io::Seek>(reader: &mut R) -> Result<u64, String> {
+    // 泛型上已经写了 Read + Seek，方法直接可用，不必再 use 一次（use 了反而报 unused）。
+    use std::io::SeekFrom;
+    let total = reader.seek(SeekFrom::End(0)).map_err(read_error)?;
+    reader.seek(SeekFrom::Start(0)).map_err(read_error)?;
+    let scan = SFX_SCAN_LIMIT.min(total) as usize;
+    let mut head = vec![0u8; scan];
+    reader.read_exact(&mut head).map_err(read_error)?;
+    // 普通 7z：签名就在 0，剩下的交给库自己判（别在这里替它下结论）。
+    if head.starts_with(&SEVEN_Z_SIGNATURE) {
+        return Ok(0);
+    }
+    let mut index = 0usize;
+    while let Some(found) = head[index..]
+        .windows(SEVEN_Z_SIGNATURE.len())
+        .position(|window| window == SEVEN_Z_SIGNATURE)
+    {
+        let at = (index + found) as u64;
+        // 签名头 32 字节：签名 6 + 版本 2 + StartHeaderCRC 4 + NextHeaderOffset 8 + NextHeaderSize 8 + NextHeaderCRC 4
+        if let Some(rest) = head.get(at as usize + 12..at as usize + 28) {
+            let next_offset = u64::from_le_bytes(rest[..8].try_into().unwrap_or_default());
+            let next_size = u64::from_le_bytes(rest[8..].try_into().unwrap_or_default());
+            if at + 32 + next_offset + next_size == total {
+                return Ok(at);
+            }
+        }
+        index = at as usize + 1;
+    }
+    Err(crate::i18n::pick(
+        "这个包里找不到 7z 数据（既不是 7z，也不像是 7z 自解压包）。",
+        "No 7z data found in this file (it's neither a 7z nor a 7z self-extracting archive).",
+    ))
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_error(err: std::io::Error) -> String {
+    crate::i18n::pick(&format!("读不了这个包：{err}"), &format!("Couldn't read this archive: {err}"))
+}
+
+/// 打开（可能带自解压 stub 的）7z 包，返回包里那份 Archive 元数据。
+#[cfg(any(windows, test))]
+pub fn read_7z_archive<R: std::io::Read + std::io::Seek>(
+    reader: R,
+) -> Result<sevenz_rust2::Archive, String> {
+    let mut window = SevenZipWindow::new(reader)?;
+    sevenz_rust2::Archive::read(&mut window, &sevenz_rust2::Password::empty()).map_err(|err| {
+        crate::i18n::pick(
+            &format!("读不出这个 7z：{err}"),
+            &format!("Couldn't read this 7z: {err}"),
+        )
+    })
+}
+
+/// 解开（可能带自解压 stub 的）7z 包。`report` 收的是「已处理条目数 / 总条目数」。
+#[cfg(any(windows, test))]
+pub fn extract_7z_window<R: std::io::Read + std::io::Seek>(
+    reader: R,
+    dest: &std::path::Path,
+    report: &dyn Fn(u64, u64),
+) -> Result<(), String> {
+    let window = SevenZipWindow::new(reader)?;
+    let mut done: u64 = 0;
+    sevenz_rust2::decompress_with_extract_fn(window, dest, |entry, reader, path| {
+        done += 1;
+        report(done, 0);
+        sevenz_rust2::default_entry_extract_fn(entry, reader, path)
+    })
+    .map_err(|err| {
+        crate::i18n::pick(
+            &format!("解压失败：{err}"),
+            &format!("Extract failed: {err}"),
+        )
+    })
 }
 
 #[cfg(windows)]
 fn extract_7z(archive: &Path, dest: &Path, report: &dyn Fn(u64, u64)) -> Result<(), String> {
     // 先只看条目名（读元数据，不解压）：库不保证拒绝写到目标目录外的名字。
-    let listing = sevenz_rust2::Archive::open(archive).map_err(|err| {
-        crate::i18n::pick(
-            &format!("读不出这个 7z：{err}"),
-            &format!("Couldn't read this 7z: {err}"),
-        )
-    })?;
+    // `Archive::open` 只认普通 7z（它内部从偏移 0 读签名），所以这里走
+    // `read_7z_archive` —— 自解压包（MAME 的 Windows 包就是）也能读。
+    let listing = read_7z_archive(std::fs::File::open(archive).map_err(read_error)?)?;
     if let Some(bad) = listing
         .files
         .iter()
@@ -317,17 +471,12 @@ fn extract_7z(archive: &Path, dest: &Path, report: &dyn Fn(u64, u64)) -> Result<
     // 逐条回调只用来数进度：文件仍然由库自己写盘（`default_entry_extract_fn`），
     // 我们不碰写文件的逻辑 —— 在这儿自己写盘就等于把上面那道越界检查绕过去了。
     let total = listing.files.len() as u64;
-    let mut done: u64 = 0;
-    sevenz_rust2::decompress_file_with_extract_fn(archive, &dest, |entry, reader, path| {
-        done += 1;
-        report(done, total);
-        sevenz_rust2::default_entry_extract_fn(entry, reader, path)
-    })
-    .map_err(|err| {
-        crate::i18n::pick(
-            &format!("解压失败：{err}"),
-            &format!("Extract failed: {err}"),
-        )
+    // 再打开一次文件用来解压（元数据那一次已经把 reader 消耗掉了）。
+    let file = std::fs::File::open(archive).map_err(read_error)?;
+    let mut seen: u64 = 0;
+    extract_7z_window(file, &dest, &|_, _| {
+        seen += 1;
+        report(seen, total);
     })
 }
 
@@ -379,11 +528,15 @@ mod tests {
 
     /// **这个测试是给「街机那张卡永远装不上」上的锁。**
     ///
-    /// MAME 的官方 Windows 包是 `mame0289b_x64.exe`：一个 7z 自解压包（PE 头 + 尾部的 7z
-    /// 结构）。只看扩展名的话 `.exe` 会走到 zip 分支，而 `Expand-Archive` 只吃 `.zip` ——
-    /// 结果是每次都报「压缩包可能损坏」。所以判定必须也认**文件尾的 7z 签名**。
+    /// MAME 的官方 Windows 包是 `mame0289b_x64.exe`：一个 7z 自解压包。只看扩展名的话 `.exe`
+    /// 会走到 zip 分支，而 `Expand-Archive` 只吃 `.zip` —— 结果是每次都报「压缩包可能损坏」。
+    ///
+    /// ⚠️ 判据**不能**是「文件尾有没有签名」：真 7z 的尾部是 next header（首字节 `0x17`），
+    /// 签名只在开头。上一版就是按尾巴找的，于是真包一律判成「不是 7z」，这个测试当时
+    /// 也照着错的前提手搓了一个「尾部带签名」的假包，一路绿着 —— 真机上却永远装不上。
+    /// 现在判据是「开头 1 MiB 里找得到 7z 流 + 签名头自洽」，见 `find_7z_start`。
     #[test]
-    fn detects_7z_by_extension_and_by_sfx_tail() {
+    fn detects_7z_by_extension_and_by_sfx_header() {
         let dir = temp_dir("sevenz");
 
         // 扩展名就是 7z：不用读文件内容。
@@ -391,13 +544,17 @@ mod tests {
         std::fs::write(&plain, b"7z\xBC\xAF'\x1C").unwrap();
         assert!(looks_like_7z(&plain));
 
-        // 自解压包：PE 头 + 一堆垃圾 + 尾部的 7z 签名（`MZ` 开头，像 MAME 那个包）。
+        // 自解压包：PE stub + 一个自洽的 7z 签名头（`NextHeaderOffset/Size` 要能对上文件大小）。
         let sfx = dir.join("mame0289b_x64.exe");
-        let mut body = b"MZ\x90\x00\x03\x00\x00\x00".to_vec();
-        body.extend(std::iter::repeat_n(0u8, 4096));
-        body.extend_from_slice(b"7z\xBC\xAF'\x1C");
-        std::fs::write(&sfx, &body).unwrap();
+        std::fs::write(&sfx, build_fake_sfx(4096, 64)).unwrap();
         assert!(looks_like_7z(&sfx), "自解压的 .exe 没被认成 7z —— 街机那张卡就会走 zip 分支");
+
+        // 签名头对不上文件大小的（例如被人截断）不算 7z。
+        let broken = dir.join("truncated.exe");
+        let mut body = build_fake_sfx(4096, 64);
+        body.truncate(body.len() - 10);
+        std::fs::write(&broken, &body).unwrap();
+        assert!(!looks_like_7z(&broken), "签名头对不上文件大小还判成 7z，会把坏包送去解压");
 
         // 普通的 exe 不能误判成 7z。
         let exe = dir.join("setup.exe");
@@ -413,6 +570,89 @@ mod tests {
         let empty = dir.join("empty.exe");
         std::fs::write(&empty, b"").unwrap();
         assert!(!looks_like_7z(&empty));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 手搓一个「PE stub + 自洽 7z 签名头」的假自解压包（只为判定/找起点用，内容不是真 7z）。
+    fn build_fake_sfx(stub_len: usize, next_size: usize) -> Vec<u8> {
+        let mut body = b"MZ\x90\x00\x03\x00\x00\x00".to_vec();
+        body.resize(stub_len, 0);
+        body.extend_from_slice(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]); // 签名
+        body.extend_from_slice(&[0x00, 0x04]); // 版本
+        body.extend_from_slice(&[0u8; 4]); // StartHeaderCRC
+        // 紧跟签名头的 next header（32 字节头之后就是它）
+        body.extend_from_slice(&0u64.to_le_bytes()); // NextHeaderOffset
+        body.extend_from_slice(&(next_size as u64).to_le_bytes()); // NextHeaderSize
+        body.extend_from_slice(&[0u8; 4]); // NextHeaderCRC
+        body.resize(body.len() + next_size, 0x17);
+        body
+    }
+
+    /// **自解压包真的能解开**（上一条只钉了「认得出」，这条钉「解得开」）。
+    ///
+    /// 真机现场：街机那张卡点了安装报失败。上一个测试证明包被认成了 7z，可是解压走的是
+    /// `sevenz_rust2`，它的 `Archive::read` 第一件事是从**偏移 0** 读 6 字节签名 ——
+    /// 自解压包那里是 `MZ`，直接 `BadSignature`。这一条用库自己的 writer 造一个真 7z、
+    /// 前面糊一层 PE stub，走 `extract_7z_window` 把内容解出来（本机 macOS 就能跑：
+    /// sevenz-rust2 在 `[dev-dependencies]` 里挂着同一份）。
+    #[test]
+    fn extracts_a_real_seven_zip_self_extracting_archive() {
+        use sevenz_rust2::{ArchiveEntry, ArchiveWriter};
+        let dir = temp_dir("sfx-extract");
+
+        // ① 一个真 7z，里面一个 hello.txt。
+        let plain = dir.join("plain.7z");
+        let mut writer = ArchiveWriter::create(&plain).unwrap();
+        writer
+            .push_archive_entry(
+                ArchiveEntry::new_file("hello.txt"),
+                Some(std::io::Cursor::new(b"hello from inside the stub".to_vec())),
+            )
+            .unwrap();
+        writer.finish().unwrap();
+
+        // ② 前面糊一段 PE stub（MAME 那个包是 205,824 字节；这里 4 KiB 足够说明问题）。
+        let sfx = dir.join("mame-test.exe");
+        let inner = std::fs::read(&plain).unwrap();
+        let mut body = b"MZ\x90\x00\x03\x00\x00\x00".to_vec();
+        body.extend(std::iter::repeat_n(0u8, 4096 - body.len()));
+        body.extend_from_slice(&inner);
+        std::fs::write(&sfx, &body).unwrap();
+
+        // ③ 认得出是 7z、找得到 7z 流起点、读得出元数据、也解得出内容。
+        assert!(looks_like_7z(&sfx));
+        let archive = read_7z_archive(std::fs::File::open(&sfx).unwrap()).unwrap();
+        assert_eq!(archive.files.len(), 1);
+        assert_eq!(archive.files[0].name, "hello.txt");
+
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let entries = std::cell::Cell::new(0u64);
+        extract_7z_window(std::fs::File::open(&sfx).unwrap(), &out, &|_, _| {
+            entries.set(entries.get() + 1)
+        })
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out.join("hello.txt")).unwrap(),
+            "hello from inside the stub",
+            "自解压包里的文件没解出来"
+        );
+        assert!(entries.get() >= 1, "解压回调一次都没被调用");
+
+        // ④ 普通 7z（偏移 0）走同一条路也不能坏。
+        let out2 = dir.join("out2");
+        std::fs::create_dir_all(&out2).unwrap();
+        extract_7z_window(std::fs::File::open(&plain).unwrap(), &out2, &|_, _| {}).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out2.join("hello.txt")).unwrap(),
+            "hello from inside the stub"
+        );
+
+        // ⑤ 两头都不是 7z 的文件要报一句人话，而不是 panic。
+        let junk = dir.join("junk.exe");
+        std::fs::write(&junk, b"MZ\x90\x00 nothing to see here").unwrap();
+        assert!(read_7z_archive(std::fs::File::open(&junk).unwrap()).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

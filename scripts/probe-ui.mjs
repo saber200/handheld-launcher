@@ -815,6 +815,30 @@ const scanTabs = async () => {
       }
 
       /*
+       * 模拟器：**六张卡都要能自动装**，而且 Switch 那张是 Eden（2026-10-12 用户要求换掉
+       * Ryujinx —— 它 2024 年下架，那张卡原来只写「本程序不提供下载」，等于这一格永远装不了）。
+       * 浏览器预览用的是 `src/data/previewEmulators.ts` 的假数据，但**形状与后端一致**，
+       * 所以「有没有手动项 / 模拟器叫什么」这两条在这里量得出来。
+       */
+      if (name === "模拟器") {
+        const cards = await page.eval(`
+          const rows = [...document.querySelectorAll('.emu-card')].map((card) => ({
+            badge: (card.querySelector('.emu-badge')?.textContent || '').trim(),
+            emulator: (card.querySelector('.emu-card-emu')?.textContent || '').trim(),
+            manual: card.classList.contains('is-manual'),
+            hasInstall: !!card.querySelector('.emu-actions .emu-btn.is-primary'),
+          }));
+          return rows;
+        `);
+        const manual = cards.filter((c) => c.manual);
+        note(cards.length === 6 && manual.length === 0,
+          `模拟器：6 张卡都能自动装（手动项 ${manual.length} 个${manual.length ? "：" + manual.map((c) => c.badge).join("、") : ""}）`);
+        const sw = cards.find((c) => c.badge === "NS");
+        note(!!sw && sw.emulator.includes("Eden"),
+          `模拟器：Switch 卡用的是 Eden（实测「${sw ? sw.emulator : "-"}」）`);
+      }
+
+      /*
        * 模拟器：同一行里六张卡必须等高、按钮在同一条线上（2026-10-12 用户真机截图「不对齐」）。
        * 原来是 align-items: start，各卡按内容收 —— 短卡与长卡底边差半张卡。
        */

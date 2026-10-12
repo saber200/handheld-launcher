@@ -62,7 +62,9 @@ export const backupSaves: TaskDef = {
       if (hit) add(game.name, hit);
     }
     // 模拟器的存档不在游戏名下面，单独补两条（改造包点名的两个）。
-    add("Ryujinx", joinPath(joinPath(ctx.dirs.roaming, "Ryujinx"), "saves"));
+    // Eden（Switch 模拟器）：便携模式下存档在程序目录的 `user/nand`，非便携才在 %APPDATA%\eden。
+    // 这里报的是后者的默认位置 —— 和上面几条一样，只求「扫得到」，不替用户猜便携目录在哪。
+    add("Eden", joinPath(joinPath(ctx.dirs.roaming, "eden"), "nand"));
     add("Citra", joinPath(joinPath(ctx.dirs.roaming, "Citra"), "saves"));
     const items: TaskScanItem[] = [];
     for (const row of candidates) {

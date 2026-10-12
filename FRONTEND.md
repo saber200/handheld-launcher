@@ -69,6 +69,32 @@
 > 「要用 winmm.dll + 游戏里图形 API 改成 DirectX 12」（文案在 Rust 侧，跟着那张表走）。用户仍然可以
 > 手动改注入名 —— 它只是默认值，不是锁。细则见 `STATUS.md` 的「未发布（0.1.67）」。
 
+## 未发布（0.1.75）：Switch 卡换 Eden；街机装不上的两个真根因
+
+**一句话**：用户要求把 2024 年下架、只能手动的 Ryujinx 换成 **Eden**（现在能自动装、能便携）；
+街机那张卡「一直提示下载失败」查出**两个真根因** —— 判定 7z 的判据在文件尾找签名（真包永远为假），
+以及 `sevenz-rust2` 根本读不了自解压包。两条都在本机用测试钉住了。
+
+- **Eden（`Source::Forgejo`）**：新的来源类型（自建 Forgejo 的 releases API）。
+  - **稳定版靠 tag 形状挑**：那台 Forgejo 上 14 条 release（含全部 rc）的 `prerelease` 全是 false，
+    信它就会装 rc。规则：`tag_name` 严格 `v<数字>.<数字>.<数字>` + `prerelease` 为假。
+  - **资产选 `amd64-msvc-standard.zip`**（不是官方推荐的 clang-pgo）：官方分档表写明 clang-pgo 是
+    MinGW+PGO、要 x86-64-v3，老掌机会非法指令；msvc-standard 只要求 x86-64 基线。
+  - **便携标记 `user` 目录**（源码 `fs_paths.h` 的 `PORTABLE_DIR`），和 shadPS4 同名不同程序。
+  - 主程序 `eden.exe`、包是平铺 zip（用 Range 取 zip 尾部解 central directory 核过）。
+- **街机**：
+  - `looks_like_7z` 原来是「文件尾 32 字节里找签名」——**对真包永远为假**（真 7z 的尾部是 next header）。
+    现在它直接复用 `find_7z_start`：扫开头 1 MiB 找签名 + 用签名头里的
+    `NextHeaderOffset`/`NextHeaderSize` 校验「起点 + 32 + 两值 == 文件大小」。
+  - 解压走 `SevenZipWindow`（逻辑 0 = 7z 流起点）—— `sevenz-rust2` 的 `Archive::read` 从偏移 0 读签名，
+    SFX 上读到 `MZ` 直接 `BadSignature`；库没有 SFX 支持，所以自己加一层窗口，不引 7z CLI、
+    也不执行下载下来的 exe。
+  - 下载支持**多源**：`Resolved.urls` 依次尝试，MAME 的备源是官方发布页列的 SourceForge
+    （同一文件、同字节数）。第三方 GitHub 代理没用 —— 和「不给掌机装来路不明的 exe」这条规矩冲突。
+- **测试**：`looks_like_7z` / `find_7z_start` 是纯 std（跨平台），单测覆盖「判得出 SFX」「签名头对不上
+  文件大小的不算」；**真解压**用 `sevenz_rust2` 的 writer 现造真 7z + 4 KiB stub 走一遍
+  `extract_7z_window`。GitHub / Forgejo 的 JSON 解析也拆成纯函数挂了真实夹具。
+
 ## 未发布（0.1.74）：卡片名字底下的阴影要盖到卡片下沿（用户真机照片 · 0.1.73 的补丁）
 
 **一句话**：0.1.73 那版把卡片名字的下内边距挪成 `bottom`，半截字没了，但**阴影跟着抬高了 7dp** ——
