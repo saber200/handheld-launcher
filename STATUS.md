@@ -117,6 +117,26 @@
   （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
   （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
 
+## 0.1.82（已发布，2026-10-12）：OTA 第一次真正跑通
+
+公开仓 `saber200/fantasyhub-releases` 里已经有 `v0.1.82` 的 Release，三个文件齐全：
+`FantasyHub_0.1.82_x64-setup.exe`（72,196,503 字节 ≈ 68.85 MiB）、同名 `.sig`、`latest.json`。
+**本机按掌机的方式把整条链路验了一遍**：
+
+- 应用读的那个地址（`releases/latest/download/latest.json`）→ **HTTP 200**，1591 字节；
+  `version = 0.1.82`，两个平台键（`windows-x86_64` / `windows-x86_64-nsis`）都在；
+- `latest.json` 里那份签名的 key id 与**应用里写死的公钥**完全一致（`8B142F2BFDDC57A3`）
+  → 掌机上的应用会接受这个包（这是"装得上"的最终证明）；
+- 安装包直链 → **HTTP 200**，`Content-Length: 72196503`（与 CI 日志里的 68.85 MiB 对上）。
+
+**结论**：v0.1.82 这一版**仍要手动装**（老版本没有更新能力）；从它开始，下次一有新版本，
+掌机开机就能在「设置 → 版本与更新」看到并一键更新。
+
+顺带清掉用户贴的那四条 Windows-only warning（都不是"忘了删"，而是同一份代码在两个平台上
+用到的东西不同）：测试模块里的 `PathBuf` / `Manager` 加 `#[allow(unused_imports)]` 并说明理由、
+`ReleaseAsset::tag` 与 `Source::Official` 加 `#[allow(dead_code)]` 并写清为什么留着
+（后者是"哪天又有模拟器下架"的那条退路）。
+
 ## 未发布（0.1.82）：OTA 第一次发版踩的两个坑（2026-10-12，用户贴的 CI 日志）
 
 v0.1.81 那次 **包编出来了、签名也签出来了**（`FantasyHub_0.1.81_x64-setup.exe` 68.85 MiB +

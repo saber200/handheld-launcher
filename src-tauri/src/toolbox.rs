@@ -1273,8 +1273,12 @@ fn pe_is_x64(bytes: &[u8]) -> Option<bool> {
 mod windows {
     use super::*;
     use std::fs;
+    // `PathBuf` 与 `Manager` 只在非 Windows 的分支里用到（Windows 上这几个测试走的是另一条路），
+    // 所以 Windows 构建会报 unused —— 这不是"忘了删"，而是同一份测试在两个平台上用的东西不同。
+    #[allow(unused_imports)]
     use std::path::{Path, PathBuf};
     use std::process::Command;
+    #[allow(unused_imports)]
     use tauri::{Emitter, Manager};
 
     pub fn runtimes() -> Vec<RuntimePackage> {
@@ -1773,6 +1777,9 @@ mod windows {
     /// 一次下载所需的全部信息（版本号要写进账本、大小用来判断缓存和校验完整性）。
     struct ReleaseAsset {
         version: String,
+        /// 原始 tag（`v0.9.4` 这种）。界面与账本目前只用 `version`，但测试夹具要按真形状造数据，
+        /// 所以留着 —— 报 `never read` 不是"忘了删"。
+        #[allow(dead_code)]
         tag: String,
         url: String,
         file_name: String,
