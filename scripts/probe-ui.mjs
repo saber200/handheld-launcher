@@ -910,6 +910,55 @@ const scanTabs = async () => {
             ),
           };
         `);
+        /*
+         * 用户 2026-10-12 真机反馈：「但凡我打开过一次显示详情后，之后就每次都显示详情了」。
+         * 这两个开关是"这一次查看"的临时状态，面板关了就该复位。这里照原场景走一遍：
+         * 打开 → 点开详情 → 关掉 → 再打开，必须又是收起的。
+         */
+        const reset = await page.eval(`
+          const openMod = async () => {
+            document.querySelector('.k1-actions .k1-btn.is-icon')?.click();
+            await new Promise((r) => setTimeout(r, 400));
+            const entry = [...document.querySelectorAll('.card-menu button')].find((b) =>
+              /安装 Mod|Install Mod/.test(b.textContent || ''),
+            );
+            entry?.click();
+            await new Promise((r) => setTimeout(r, 600));
+            return document.querySelector('.group-create-panel');
+          };
+          const closeMod = async () => {
+            const panel = document.querySelector('.group-create-panel');
+            const btn = [...(panel?.querySelectorAll('button') ?? [])].find((b) =>
+              /^(关闭|Close)$/.test((b.textContent || '').trim()),
+            );
+            btn?.click();
+            await new Promise((r) => setTimeout(r, 400));
+          };
+          const detailsOpen = (panel) =>
+            [...(panel?.querySelectorAll('button') ?? [])].some((b) =>
+              /收起详情|Hide details/.test(b.textContent || ''),
+            );
+          const panel1 = await openMod();
+          if (!panel1) return null;
+          // 点开「显示详情」
+          [...panel1.querySelectorAll('button')]
+            .find((b) => /显示详情|Show details/.test(b.textContent || ''))
+            ?.click();
+          await new Promise((r) => setTimeout(r, 250));
+          const openedAfterClick = detailsOpen(document.querySelector('.group-create-panel'));
+          await closeMod();
+          const panel2 = await openMod();
+          const reopenedCollapsed = panel2 ? !detailsOpen(panel2) : false;
+          await closeMod();
+          return { openedAfterClick, reopenedCollapsed };
+        `);
+        note(
+          !!reset && reset.openedAfterClick && reset.reopenedCollapsed,
+          reset
+            ? `装 Mod 面板：关掉再打开时「显示详情」是收起的（点开后展开=${reset.openedAfterClick}，重开收起=${reset.reopenedCollapsed}）`
+            : "装 Mod 面板：没能按原场景走一遍（打开失败）",
+        );
+
         // 量完**把面板关掉** —— 留着它会挡住后面"按 B 呼出卡片菜单"那条断言（本机实测踩到：
         // 面板还开着时，菜单按钮点下去什么都不发生，那条断言就假红）。
         await page.eval(`

@@ -272,6 +272,9 @@ export function LibraryShelf<T extends Item>({
   const closeModPanel = () => {
     setModFor(null);
     setModState(null);
+    // 顺带把"这一次查看"的两个开关复位（真正的复位在打开处，这里只是双保险）。
+    setModDetails(false);
+    setModMoreVersions(false);
   };
 
   useEffect(() => {
@@ -1320,6 +1323,15 @@ export function LibraryShelf<T extends Item>({
                       const item = items.find((entry) => entry.id === id);
                       setMenuCardId(null);
                       setMenuView("actions");
+                      /*
+                       * 每次打开都从**收起**开始。
+                       *
+                       * 用户 2026-10-12 真机反馈：「但凡我打开过一次显示详情后，之后就每次都显示详情了」
+                       * —— 这两个开关原来是组件级 state，面板关了它还在，于是"点开过一次"就变成永久展开。
+                       * 它们是**这一次查看**的临时状态，不该跨面板存活。
+                       */
+                      setModDetails(false);
+                      setModMoreVersions(false);
                       setModFor({ id, name: item ? library.names[id] || item.name : id });
                       setModState(null);
                       setModHook(DEFAULT_MOD_HOOK);
