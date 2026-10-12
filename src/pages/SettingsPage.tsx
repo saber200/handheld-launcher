@@ -10,7 +10,7 @@ import {
   usePrefs,
 } from "../settings/prefs";
 import { autoUiScale } from "../styles/scale";
-import { useManualUpdate, useUpdater } from "../system/updater";
+import { useManualUpdate } from "../system/updater";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -43,8 +43,9 @@ export function SettingsPage({ active, onClose }: Props) {
    * `useUpdater(active)` 在抽屉可见/引导走完之后**静默查一次**；下面那一行显示状态，
    * 有新版本时那颗按钮就是「更新并重启」（下载 + 校验签名 + 静默安装 + 重启全在插件里）。
    */
-  const updateState = useUpdater(active);
-  const [, recheckUpdate, installUpdate] = useManualUpdate();
+  // 开机那一次由 App 负责（见 App.tsx 的 checkForUpdate(true)）；这里只订阅同一份状态，
+  // 并按「有新版本 / 其余」给一颗按钮。
+  const [updateState, recheckUpdate, installUpdate] = useManualUpdate();
   const [appVersion, setAppVersion] = useState("");
 
   useEffect(() => {

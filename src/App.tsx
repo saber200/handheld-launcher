@@ -32,6 +32,7 @@ import { text, useI18n } from "./i18n";
 import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
 import { formatSize } from "./library/format";
 import { countedDrives, driveTotal, useDriveSpace } from "./system/drives";
+import { checkForUpdate } from "./system/updater";
 
 /**
  * 首页 / 下载：设计稿（K5 / K6）里画了，但要跑起来需要现在还不存在的数据源 ——
@@ -392,6 +393,18 @@ export default function App() {
   });
 
   const m = text();
+  /*
+   * OTA：**引导走完之后静默查一次**（用户 2026-10-12：「每次都要重新下载，好麻烦」）。
+   *
+   * 为什么挂在 App 而不是设置抽屉里：抽屉要用户主动拉开才挂载 —— 那样开机永远不会查，
+   * 「开机就知道有没有新版」就成了空话。失败**不打扰用户**（掌机可能压根没联网），
+   * 状态留在 idle，抽屉里那一行仍然可以手动点「检查更新」。
+   */
+  useEffect(() => {
+    if (intro !== "done") return;
+    void checkForUpdate(true);
+  }, [intro]);
+
   const finishIntro = useCallback(() => setIntro("done"), []);
   const mainLocked = intro !== "done";
 
