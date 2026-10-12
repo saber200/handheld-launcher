@@ -138,10 +138,19 @@
 - **CI**：`tauri-action` 加 `owner/repo`（tag → 公开仓）、`includeUpdaterJson: true`、
   `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)`；token 用 `RELEASE_TOKEN`（细粒度，只对公开仓有写权限）。
 
+**本机把「更新包签名」这条也验了**：用 CI 要用的那枚私钥签了一个测试文件，再把签名里的 key id
+与**应用里实际写着的公钥**（`tauri.conf.json` 的那串）对比 —— 都是 `8B142F2BFDDC57A3` ✓
+（这对不上就是"能查到新版本、下载完却在最后一步拒收"，报错只有一句英文，最难查）。
+另外新增 `scripts/audit-ota.mjs`（`npm run audit:ota`，pre-commit 也跑）当哨兵：它逐条检查
+「错了也不报错」的那些配置 —— `createUpdaterArtifacts`、公钥是不是合法 minisign 公钥、
+更新地址是不是指向公开仓、两个插件有没有装/注册/给权限、CI 里 `uploadUpdaterJson` 与
+`uploadUpdaterSignatures` 开着没、三个密钥/令牌有没有用到、`GITHUB_TOKEN` 有没有按构建类型切。
+整条链路与排错对照表写在 `docs/ota.md`。
+
 探针新增一条：设置抽屉里那一行存在、按钮可聚焦、预览里文案如实。1280×720 全过。
-⚠️ 1920×1080 那次跑出一个**与本次改动无关的**既有断言失败：「封面 404 时卡片退到宽图」要求
-12 张卡全部退到 `library_hero.jpg`，实测只有 2~6 张（两次跑数字不同）—— 那条断言依赖 Steam CDN
-当时的可达性（宽图也拉不到时会继续退到下一档），属于网络抖动，不是这次改出来的。
+「封面 404 时卡片退到宽图」那条断言也一并修好了：**宽图档改由探针自己 fulfill 一张 1×1 PNG**
+（原来是放行让浏览器真去拉 Steam CDN，等于在测"CDN 此刻活着"—— 同一份代码两次跑出 2/12 与 6/12）。
+现在链路的输入是确定的，两个分辨率都是 0 ❌。
 
 ## 未发布（0.1.80）：工具箱去掉 OptiScaler 那张卡；游戏卡片上标出「装了 OptiScaler」（2026-10-12，用户两条）
 

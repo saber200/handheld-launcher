@@ -15,7 +15,8 @@
     "lint:rust": "cargo clippy --workspace --all-targets",
     "audit:ui": "node scripts/audit-ui.mjs",
     "audit:acl": "node scripts/audit-acl.mjs",
-    "hooks": "git config core.hooksPath .githooks"
+    "hooks": "git config core.hooksPath .githooks",
+    "audit:ota": "node scripts/audit-ota.mjs"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.49.0",

@@ -21,6 +21,14 @@ staged=$(git diff --cached --name-only --diff-filter=ACMR)
 # capability 引用」三步齐全，少一步在真机上就是被 ACL 静默拒掉（v0.1.62 的「存储空间
 # 一直待接入」就是这个）。纯文本扫描、毫秒级，所以每次都跑。
 if printf '%s\n' "$staged" | grep -qE '\.(ts|tsx|rs|toml|json)$'; then
+  # OTA 的配置错误几乎都是静默的（发版照样绿、应用照样起，只是更新永远查不到/装不上），
+  # 所以和 acl 一样放进提交前这道闸。
+  echo "[pre-commit] node scripts/audit-ota.mjs"
+  node scripts/audit-ota.mjs || {
+    echo "[pre-commit] OTA 配置没过 —— 见上面每一条 ❌（它们都会让更新静默失效）。"
+    exit 1
+  }
+
   echo "[pre-commit] node scripts/audit-acl.mjs"
   node scripts/audit-acl.mjs || {
     echo "[pre-commit] 命令权限审计没过，提交已拦下。" >&2
