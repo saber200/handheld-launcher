@@ -1,18 +1,6 @@
 export type Locale = "zh" | "en";
 
 /** 底部提示条有内容的页面（首页 / 下载本版只有占位，但仍要给条上留开关抽屉那两条）。 */
-export type HintPage =
-  | "home"
-  | "games"
-  | "apps"
-  | "downloads"
-  | "files"
-  | "toolbox"
-  | "emulators";
-
-/** 提示条的一格：手柄按键 + 短标签。改造包 ui-strings.json 里就是这个结构。 */
-export type HintPair = [string, string];
-
 export type Catalog = {
   productName: string;
   about: string;
@@ -51,7 +39,6 @@ export type Catalog = {
     /** 锁定项给读屏的播报：「商店，即将开放，不可用」。 */
     lockedAria: (name: string) => string;
   };
-  hintPairs: Record<HintPage, HintPair[]>;
   /** 首页 / 下载：需要新数据源的页面，本版先占位并把话说清楚。 */
   /* ── 首页（画板 K5）与下载（画板 K6）：都是真数据，见 pages/HomePage.tsx / DownloadsPage.tsx ── */
   home: {
@@ -867,16 +854,6 @@ export const zh: Catalog = {
     lockedAria: (name) => `${name}，即将开放，不可用`,
   },
   // 提示条只写**真的绑上了**的按键 —— 设计稿里的 X 收藏 / Y 打开目录 / 快速菜单还没做，
-  // 现在写上去就是骗用户（按了没反应），等对应里程碑实现后再加。
-  hintPairs: {
-    home: [["LB/RB", "切换分区"], ["≡", "设置抽屉"]],
-    games: [["A", "启动"], ["B", "卡片菜单"], ["LT/RT", "切分组"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
-    apps: [["A", "启动 / 安装"], ["B", "卡片菜单"], ["LT/RT", "切分组"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
-    downloads: [["LB/RB", "切换分区"], ["≡", "设置抽屉"]],
-    files: [["A", "打开"], ["B", "返回"], ["X", "多选"], ["Y", "菜单"], ["LT/RT", "换栏"], ["LB/RB", "切分区"]],
-    toolbox: [["A", "安装 / 重装"], ["B", "返回"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
-    emulators: [["A", "安装 / 启动"], ["B", "返回"], ["LB/RB", "切分区"], ["≡", "设置抽屉"]],
-  },
   home: {
     resumeChip: "继续游玩",
     lastLaunched: (when) => `上次启动：${when}`,
@@ -1624,16 +1601,6 @@ export const en: Catalog = {
     lockedAria: (name) => `${name}, coming soon, unavailable`,
   },
   // Only bindings that actually work are listed: the design's X favourite / Y open folder /
-  // quick menu are not implemented yet, so promising them here would just break the promise.
-  hintPairs: {
-    home: [["LB/RB", "Sections"], ["≡", "Settings"]],
-    games: [["A", "Launch"], ["B", "Card menu"], ["LT/RT", "Groups"], ["LB/RB", "Sections"], ["≡", "Settings"]],
-    apps: [["A", "Launch / install"], ["B", "Card menu"], ["LT/RT", "Groups"], ["LB/RB", "Sections"], ["≡", "Settings"]],
-    downloads: [["LB/RB", "Sections"], ["≡", "Settings"]],
-    files: [["A", "Open"], ["B", "Back"], ["X", "Select"], ["Y", "Menu"], ["LT/RT", "Pane"], ["LB/RB", "Sections"]],
-    toolbox: [["A", "Install / reinstall"], ["B", "Back"], ["LB/RB", "Sections"], ["≡", "Settings"]],
-    emulators: [["A", "Install / launch"], ["B", "Back"], ["LB/RB", "Sections"], ["≡", "Settings"]],
-  },
   home: {
     resumeChip: "Continue",
     lastLaunched: (when) => `Last launched ${when}`,

@@ -149,17 +149,33 @@
   border-color: var(--accent);
 }
 
-.k2-search-open:focus,
-.k2-search-clear:focus {
-  outline: var(--focus-stroke) solid var(--accent);
-  outline-offset: calc(2 * var(--dp));
-  border-radius: var(--radius-tag);
+/*
+ * ⚠️ 框**里面**的控件（展开按钮 / 输入框 / 清除按钮）在聚焦时**一律不许自己画轮廓**。
+ *
+ * 用户 2026-10-12 的照片就是这条：外面那圈是 `.k2-search:focus-within` 的环（对的），
+ * 里面那圈是按钮自己的 `outline`（错的）—— 框有 12dp 内边距，内圈自然比外圈小一圈，
+ * 看上去就是「边框没有盖住搜索框、两头露出来」。上一版只把子控件的 `border-color` 抹了，
+ * `outline` 忘了抹，所以照片里还是两圈。
+ */
+.k2-search:focus-within .k2-search-open,
+.k2-search:focus-within .k2-search-input,
+.k2-search:focus-within .k2-search-clear {
+  outline: none;
 }
 
-/* chip 行：顶边落在画板 y=86（标题行盒底 83.6 + 2.4） */
+/* 单独聚焦（理论上到不了：焦点在子控件里就一定 :focus-within）也要画在**整个框**上，
+   留给键盘 Tab 那种情况 —— 环跟着里面的控件走就会两头露出来。 */
+.k2-search-open:focus,
+.k2-search-clear:focus {
+  outline: none;
+}
+
+/* chip 行：原来顶边贴在画板 y=86（标题行盒底 83.6 + 2.4），用户 2026-10-12 真机照片说
+   「分组距离标题太近了，不好看」—— 所以往下让开一段（12dp），标题与分组之间就透气了。
+   代价：卡片第一行跟着下移同样的距离（画板锚点从 134 变成 144）—— 这是用户要的取舍。 */
 .k2-head .library-group-row {
   grid-area: 2 / 1 / 3 / -1;
-  margin-top: calc(2 * var(--dp));
+  margin-top: calc(12 * var(--dp));
 }
 
 /* ── 6 列卡片网格（画板：卡片 152.7×176，间隙 16，第一行顶 134） ── */

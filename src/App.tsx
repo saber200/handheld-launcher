@@ -28,9 +28,7 @@ import {
   LockIcon,
   NavIcon,
 } from "./components/NavIcons";
-import { KeyCap } from "./components/KeyCap";
 import { text, useI18n } from "./i18n";
-import type { HintPage } from "./i18n/catalog";
 import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
 import { formatSize } from "./library/format";
 import { driveTotal, useDriveSpace } from "./system/drives";
@@ -375,8 +373,6 @@ export default function App() {
   });
 
   const m = text();
-  // 商店 / 社区是锁定项，永远进不来；这里仍显式排掉，好让类型收窄到 HintPage。
-  const hintPage: HintPage = tab === "store" || tab === "community" ? "home" : tab;
   const finishIntro = useCallback(() => setIntro("done"), []);
   const mainLocked = intro !== "done";
 
@@ -509,14 +505,12 @@ export default function App() {
           </span>
           <strong className="tnum">{storageHead}</strong>
         </span>
-        <div className="shell-hints">
-          {m.hintPairs[hintPage].map(([key, label]) => (
-            <span key={key} className="hint-pair">
-              <KeyCap label={key} className="hint-key" />
-              {label}
-            </span>
-          ))}
-        </div>
+        {/*
+         * 这里原来是那条按键提示（A 启动/安装 · B 卡片菜单 · LT/RT 切分组 · LB/RB 切分区 ·
+         * ≡ 设置抽屉）。用户 2026-10-12 定案去掉：「要么就只保留 B 键的呼出菜单，把下面的
+         * 菜单按钮组去掉（我比较倾向这个）」。理由也站得住：这些提示是**给第一次用的人看的**，
+         * 而掌机上的常驻界面每一帧都在为它付面积；手柄怎么按，第一次的引导里已经讲过一遍了。
+         */}
       </footer>
     </div>
     <div

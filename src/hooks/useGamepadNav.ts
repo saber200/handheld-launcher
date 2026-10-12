@@ -491,11 +491,23 @@ export function moveDirectionalFocus(dx: number, dy: number) {
       focusWithSfx(inside);
       return;
     }
-    // ② 这一行到头了 → 跨域：内容区的各个子域之间（卡片条 ⇄ chip 行 ⇄ 操作条）照样能横向走，
-    //    候选里照旧排除菜单。
+    /*
+     * ② 这一行到头了 → 跨域：内容区的各个子域之间（卡片条 ⇄ chip 行 ⇄ 操作条）照样能横向走，
+     *    候选里照旧排除菜单。
+     *
+     * ⚠️ **但只认「和我在同一横带里」的那些**（用户 2026-10-12）：「为什么我可以在列表里通过
+     * 左右键将聚焦移动到上面的分组之类的操作按钮里？我理解的是左右就应该负责左右，
+     * 不应该能负责上下」。原来这里把全页面的候选都丢给 `nearestSideways`，它会挑「横向最近」
+     * 的那个 —— 工具栏（搜索 / 新建分组 / 添加到…）正好压在卡片行上方，于是按右就往上跳了。
+     * 判据和上下键那边用的是同一条：**竖向要有重叠**，也就是「同一行」。
+     */
     if (!trapped) {
       const sideways = nearestSideways(
-        nodes.filter((node) => focusZone(node) !== SHELL_NAV_ZONE),
+        nodes.filter(
+          (node) =>
+            focusZone(node) !== SHELL_NAV_ZONE &&
+            overlapsVertically(node.getBoundingClientRect(), current),
+        ),
         nodes[index],
         current,
         dx,

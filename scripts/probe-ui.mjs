@@ -335,9 +335,14 @@ const run = async (width, height) => {
       Math.abs(g.hintBar.y + g.hintBar.h - g.viewport[1]) < 1.5,
       `底部状态条贴住屏幕下沿（底 ${(g.hintBar.y + g.hintBar.h).toFixed(1)} / 视口高 ${g.viewport[1]}）`,
     );
+    /*
+     * 0.1.78：底部那条按键提示（`A 启动/安装 · B 卡片菜单 · LT/RT 切分组 · LB/RB 切分区 ·
+     * ≡ 设置抽屉`）按用户要求整个去掉了 —— 状态条现在只剩左边的存储读数。
+     * 所以这条断言从「提示起于存储右边」改成「**提示整块不存在**，而且存储读数还在安全边内」。
+     */
     note(
-      g.storage.x >= 24 * dp - 0.5 && g.hints.x > g.storage.x + g.storage.w,
-      `状态条左边是存储读数、中间是按键提示（存储 ${g.storage.x}..${(g.storage.x + g.storage.w).toFixed(1)}，提示起于 ${g.hints.x}）`,
+      g.hints === null && g.storage && g.storage.x >= 24 * dp - 0.5,
+      `状态条只剩存储读数、按键提示已去掉（存储起于 ${g.storage ? g.storage.x : "-"}，提示块 ${g.hints ? "还在" : "已去掉"}）`,
     );
 
     // 聚焦项居中：前几张卡因为条的内容从那儿起、滚不过去，所以往右挪 5 张再看
@@ -605,7 +610,12 @@ const scanTabs = async () => {
           note(Math.abs(k2.cardW - expectedW) < 3,
             `K2 卡片宽 = 内容区 6 等分 = ${expectedW.toFixed(1)}（实测 ${k2.cardW}）`);
           note(Math.abs(k2.cardH - 176 * d) < 3, `K2 卡片高 176dp=${(176 * d).toFixed(1)}（实测 ${k2.cardH}）`);
-          note(Math.abs(k2.cardY - 134 * d) < 5, `K2 第一行顶 134dp=${(134 * d).toFixed(1)}（实测 ${k2.cardY}）`);
+          /*
+           * 第一行顶从画板的 134dp 变成 144dp：用户 2026-10-12 说「分组距离标题太近了不好看」，
+           * 所以 `.k2-head .library-group-row` 的 margin-top 从 2dp 加到 12dp —— 整块内容跟着
+           * 下移 10dp，这是用户要的取舍（画板值在这里让位给真机手感）。
+           */
+          note(Math.abs(k2.cardY - 144 * d) < 5, `K2 第一行顶 144dp=${(144 * d).toFixed(1)}（实测 ${k2.cardY}）`);
           note(Math.abs(k2.colGap - 16 * d) < 2 && Math.abs((k2.rowGap ?? 0) - 16 * d) < 2,
             `K2 卡片间隙 16dp（列 ${k2.colGap} / 行 ${k2.rowGap}）`);
           note(Math.abs(k2.headTop - 16 * d) < 2 && Math.abs(k2.headH - 20 * d) < 2,
@@ -769,6 +779,125 @@ const scanTabs = async () => {
        * 顺带钉住「行尾那段小字可省略」—— 日志那行是 `C:\\Users\\<用户名>\\AppData\\Roaming\\handheld-launcher`，
        * 用户名一长就会顶出卡片边缘。
        */
+      /*
+       * 0.1.78：用户 2026-10-12 晚的真机反馈（四张照片 + 一条补充）——
+       *   ① 软件库分组行离标题太近；② 搜索框焦点环没盖住整个框（照片里是"双边框"）；
+       *   ④ 底部按键提示条要去掉（只留 B 呼出菜单）；⑤ 分组 chip 不该能聚焦（切换只归 LT/RT）。
+       */
+      if (name === "软件库") {
+        const fb = await page.eval(`
+          const dp = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1;
+          const title = document.querySelector('.k2-head h2')?.getBoundingClientRect() ?? null;
+          const row = document.querySelector('.k2-head .library-group-row')?.getBoundingClientRect() ?? null;
+          const chips = [...document.querySelectorAll('.group-chip')];
+          const search = document.querySelector('.k2-search');
+          const input = document.querySelector('.k2-search-input');
+          // 焦点环：把焦点放进输入框，再量「环画在哪」「里面还有没有第二圈」。
+          // 上一版的毛病就是环画了两圈：外圈在 .k2-search 上（对），内圈是里面那颗按钮自己的
+          // outline（错）—— 框有 12dp 内边距，内圈自然小一圈，看着就是「边框没盖住搜索框」。
+          input?.focus();
+          const ring = search ? getComputedStyle(search) : null;
+          const kids = search
+            ? [...search.querySelectorAll('button, input')].map((el) => getComputedStyle(el).outlineStyle)
+            : [];
+          return {
+            dp,
+            gap: title && row ? +(row.top - title.bottom).toFixed(2) : null,
+            chips: chips.length,
+            chipFocusable: chips.filter((c) => c.hasAttribute('data-focusable')).length,
+            ringShadow: ring ? ring.boxShadow : "",
+            kidOutlines: kids,
+            hints: !!document.querySelector('.shell-hints'),
+          };
+        `);
+        note(
+          fb.gap != null && fb.gap >= 8 * fb.dp,
+          `软件库：分组行与标题之间留了间距（实测 ${fb.gap}px，要求 ≥ ${(8 * fb.dp).toFixed(0)}px）`,
+        );
+        note(
+          fb.chips > 0 && fb.chipFocusable === 0,
+          `软件库：分组 chip 不进焦点池（${fb.chips} 个 chip / ${fb.chipFocusable} 个可聚焦），鼠标仍可点`,
+        );
+        note(
+          !!fb.ringShadow && fb.ringShadow !== "none" && fb.kidOutlines.every((o) => o === "none"),
+          `软件库：搜索框焦点环只画在整个框上（外圈 ${fb.ringShadow ? "有" : "无"}，里面第 ${fb.kidOutlines.length} 个子控件 outline=${fb.kidOutlines.join("/") || "-"}）`,
+        );
+        note(!fb.hints, `底部按键提示条已去掉（实测${fb.hints ? "还在" : "不在"}）`);
+      }
+
+      /*
+       * 0.1.78：③ 左右键只管左右 —— 不许从卡片行跳到上面那排工具按钮；
+       *         ⑥ B 呼出的按钮组贴卡片右下角、压住卡片一部分、且不越出屏幕。
+       */
+      if (name === "游戏库") {
+        const nav = await page.eval(`
+          const card = document.querySelector('[data-card-id]');
+          card?.focus();
+          const mod = await import('/src/hooks/useGamepadNav.ts');
+          const bandOf = (el) => {
+            const r = el.getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom };
+          };
+          const band = card ? bandOf(card) : null;
+          let escaped = 0;
+          let sample = null;
+          if (band) {
+            for (const dx of [1, 1, 1, -1, -1, -1]) {
+              mod.moveDirectionalFocus(dx, 0);
+              const el = document.activeElement;
+              if (!el || el === document.body) continue;
+              const r = el.getBoundingClientRect();
+              const sameRow = r.bottom > band.top + 1 && r.top < band.bottom - 1;
+              if (!sameRow) {
+                escaped += 1;
+                sample = (el.textContent || el.className || '').toString().trim().slice(0, 24);
+              }
+            }
+          }
+          return { escaped, sample, hasBand: !!band };
+        `);
+        note(
+          nav.hasBand && nav.escaped === 0,
+          `游戏库：卡片行上按左右键不会跑出这一行（跑出去 ${nav.escaped} 次${nav.sample ? "，例如「" + nav.sample + "」" : ""}）`,
+        );
+
+        const menu = await page.eval(`
+          const dp = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1;
+          const card = document.querySelector('[data-card-id]');
+          card?.focus();
+          const open = document.querySelector('.k1-actions .k1-btn.is-icon');
+          open?.click();
+          await new Promise((r) => setTimeout(r, 500));
+          const menuEl = document.querySelector('.card-menu');
+          if (!menuEl || !card) return null;
+          const m = menuEl.getBoundingClientRect();
+          const c = card.getBoundingClientRect();
+          return {
+            dp,
+            rightAligned: +(c.right - m.right).toFixed(2),
+            overlapCard: +(c.bottom - m.bottom).toFixed(2),
+            insideView: m.left >= 0 && m.top >= 0 && m.right <= window.innerWidth && m.bottom <= window.innerHeight,
+            menuW: +m.width.toFixed(2),
+            cardW: +c.width.toFixed(2),
+          };
+        `);
+        note(
+          !!menu && menu.insideView && menu.rightAligned <= 2 * menu.dp && menu.overlapCard > 0,
+          menu
+            ? `游戏库：呼出的按钮组贴卡片右下角（右边缘差 ${menu.rightAligned}px、压在卡片内 ${menu.overlapCard}px、完全在屏幕内=${menu.insideView}）`
+            : "游戏库：呼出的按钮组没打开（量不到 .card-menu）",
+        );
+        // 关掉菜单再走：Escape 走的是 App.tsx 里 closeDialog 那条路（手柄 B 的键盘等价键）。
+        await page.send("Input.dispatchKeyEvent", {
+          type: "rawKeyDown",
+          key: "Escape",
+          code: "Escape",
+          windowsVirtualKeyCode: 27,
+        });
+        await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+        await sleep(250);
+      }
+
       if (name === "工具箱") {
         const k4 = await page.eval(`
           const host = document.querySelector('.k4-pair');

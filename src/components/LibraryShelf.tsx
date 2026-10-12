@@ -418,9 +418,10 @@ export function LibraryShelf<T extends Item>({
    * 卡片菜单贴着卡片放，并且**开着的时候一直跟着卡片走**。
    *
    * 两个坑都是真机反馈过的：
-   *   ① 位置要「贴着」：以前是 `min(卡片顶, 屏高−菜单高)` —— 卡片在屏幕下半部分时（K1 的
-   *      卡片条就在下半屏），菜单被顶到离卡片一大截的地方，用户的原话是「离主体特别远」。
-   *      现在优先放卡片下方、放不下就贴到卡片上方，只有卡片高到上下都塞不进才夹一下。
+   *   ① 位置要「贴着」，而且**压在卡片右下角上**：更早的版本是 `min(卡片顶, 屏高−菜单高)`
+   *      （离主体特别远），0.1.7x 改成「卡片下面 8dp」，用户 2026-10-12 又说「直接放在正下方
+   *      很容易超出屏幕被遮挡，看着也很难看」。现在的规矩见 `place()` 里的注释：
+   *      右边缘对齐卡片，底边压在卡片下沿之上 `overlap` 处。
    *   ② 量到的位置会变：卡片条在聚焦时会「平滑居中」，卡片自己还有 180ms 的放大过渡。
    *      只在开菜单那一帧量一次，菜单就会停在离卡片几十像素的地方。所以每帧跟着走，
    *      动画停下来它自然就不动了（`setMenuBox` 只在值真变了的时候才 setState）。
@@ -436,18 +437,22 @@ export function LibraryShelf<T extends Item>({
       if (!card) return;
       const rect = card.getBoundingClientRect();
       const menu = document.querySelector<HTMLElement>(".card-menu");
-      const width = Math.max(rect.width, menu?.offsetWidth ?? 0);
+      /*
+       * 位置：**贴当前卡片的右下角浮出来，并且压住卡片下沿一部分**（用户 2026-10-12）。
+       *
+       * 用户原话：「把呼出的按钮组放在卡片的右下方，可以覆盖到卡片一部分；你直接放在正下方，
+       * 很容易超出屏幕被遮挡，看着也很难看」。所以不再是「卡片下面 8dp」，而是：
+       *   右边缘对齐卡片右边缘、底边比卡片底边高 `overlap` —— 视觉上像从卡片里长出来，
+       *   卡片贴着屏幕下沿时也不会被切掉（最后还有一道夹取兜底）。
+       * 宽度用**菜单自己的**宽度（原来撑到卡片宽），否则右对齐之后左边会顶出卡片外面。
+       */
+      const width = menu?.offsetWidth ?? rect.width;
       const height = menu?.offsetHeight ?? 0;
-      const gap = 8;
-      const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
-      const below = rect.bottom + gap;
-      const above = rect.top - gap - height;
-      const top =
-        height > 0 && below + height <= window.innerHeight - 12
-          ? below
-          : height > 0 && above >= 12
-            ? above
-            : Math.max(12, Math.min(below, window.innerHeight - 12 - height));
+      const overlap = 16;
+      const clamp = (value: number, low: number, high: number) =>
+        Math.max(low, Math.min(value, Math.max(low, high)));
+      const left = clamp(rect.right - width, 12, window.innerWidth - width - 12);
+      const top = clamp(rect.bottom - overlap - height, 12, window.innerHeight - height - 12);
       setMenuBox((current) => {
         const next = { top, left, width: rect.width };
         if (current && current.top === next.top && current.left === next.left && current.width === next.width) return current;
@@ -519,7 +524,12 @@ export function LibraryShelf<T extends Item>({
               role="tab"
               aria-selected={library.activeId === "all"}
               className={chipClass(library.activeId === "all")}
-              data-focusable
+              /*
+               * **故意不写 `data-focusable`**（用户 2026-10-12）：「既然顶层 tab 按钮不能被聚焦，
+               * 分组的切换已经有 RT 和 LT 负责了，就也不应该能被聚焦才对」。
+               * 规矩：凡是被 LT/RT（分组）、LB/RB（分区）负责的开关都不进焦点池；
+               * 但**仍然可以点**（鼠标 / 触摸照样切），和顶层页签同一条路。
+               */
               onClick={() => {
                 if (library.activeId === "all") return;
                 playSfx("click");
@@ -536,7 +546,7 @@ export function LibraryShelf<T extends Item>({
                 role="tab"
                 aria-selected={library.activeId === group.id}
                 className={chipClass(library.activeId === group.id)}
-                data-focusable
+                /* 同上：分组 chip 不进焦点池，切换只归 LT/RT。 */
                 onClick={() => {
                   if (library.activeId === group.id) return;
                   playSfx("click");
