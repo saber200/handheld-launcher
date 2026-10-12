@@ -87,15 +87,27 @@ check(
 );
 
 /* ── ③ CI ─────────────────────────────────────────────────────────────── */
-const wf = read(".github/workflows/build-windows.yml");
+/*
+ * 先**把注释行去掉**再查：工作流里那些"⚠️ 别写成 uploadUpdaterJson"的说明本身含有旧名字，
+ * 不剥注释的话，哨兵会被自己的注释绊倒（2026-10-12 真踩到）。
+ */
+const wf = read(".github/workflows/build-windows.yml")
+  .split("\n")
+  .filter((line) => !line.trim().startsWith("#"))
+  .join("\n");
 check(wf.includes("tauri-apps/tauri-action"), "CI：用 tauri-action 构建与发布");
+// ⚠️ 输入名要跟**实际用的 ref**（`@v0`）对齐：v0 是 `includeUpdaterJson`，
+// `uploadUpdaterJson` 只在 `dev` 分支上（2026-10-12 v0.1.81 那次就是写错名字，
+// GitHub 只给一句 "Unexpected input(s)" 的警告、步骤照样绿，开关实际没生效）。
 check(
-  /uploadUpdaterJson:\s*true/.test(wf),
-  "CI：uploadUpdaterJson = true（⚠️ 不是 includeUpdaterJson —— 写错只警告不报错，latest.json 永远不产出）",
+  /includeUpdaterJson:\s*true/.test(wf) && !/uploadUpdaterJson/.test(wf),
+  "CI：includeUpdaterJson = true（v0 的输入名；写成 dev 分支的 uploadUpdaterJson 只会警告不生效）",
 );
+// 跨仓库发布必须给 releaseCommitish：公开仓没有我们私有仓的 commit，
+// 不给它，建 release 时会报 "tag_name is not a valid tag"（v0.1.81 的失败原因）。
 check(
-  /uploadUpdaterSignatures:\s*true/.test(wf),
-  "CI：uploadUpdaterSignatures = true（.sig 要跟安装包一起发）",
+  /releaseCommitish:\s*\$\{\{/.test(wf),
+  "CI：给了 releaseCommitish（跨仓库发布建 tag 要用公开仓自己的分支）",
 );
 check(
   /owner:\s*\$\{\{/.test(wf) && /repo:\s*\$\{\{/.test(wf) && wf.includes("fantasyhub-releases"),

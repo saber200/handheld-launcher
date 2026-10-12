@@ -117,6 +117,26 @@
   （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
   （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
 
+## 未发布（0.1.82）：OTA 第一次发版踩的两个坑（2026-10-12，用户贴的 CI 日志）
+
+v0.1.81 那次 **包编出来了、签名也签出来了**（`FantasyHub_0.1.81_x64-setup.exe` 68.85 MiB +
+`.sig` ✓），死在**发布**那一步。两个原因，都记在这儿：
+
+1. **`uploadUpdaterJson` 不是 `@v0` 的输入名**（我照 `dev` 分支核的，方向反了）。
+   v0 认的是 **`includeUpdaterJson`**，`uploadUpdaterJson` 是 dev 才有的新名字 —— 日志里那句
+   `Warning: Unexpected input(s) 'uploadUpdaterJson'` 就是它。**GitHub 对未知输入只给警告、
+   步骤照样绿**，等于 updater json 的开关根本没生效。教训：核 input 名要按**实际用的 ref** 核
+   （`api.github.com/repos/tauri-apps/tauri-action/contents/action.yml?ref=v0`），别照默认分支。
+2. **跨仓库建 release 必须给 `releaseCommitish`**：公开仓里**没有**我们私有仓那个 commit，
+   于是 GitHub 报 `tag_name is not a valid tag / target_commitish`。改成指向公开仓已有的 `main`
+   （tag 只是下载容器的挂点，应用读的是 `latest.json`）。
+
+`scripts/audit-ota.mjs` 也跟着修了两处：CI 那一组检查改成认 v0 的名字（并且**剥掉注释再查** ——
+工作流里"别写成 uploadUpdaterJson"的说明本身就含旧名字，不剥注释哨兵会被自己的注释绊倒），
+另加一条 `releaseCommitish` 的存在性检查。
+
+因为 tag 不可复用（v0.1.81 已存在且指向没有修复的提交），这一版**升到 0.1.82** 重新发。
+
 ## 未发布（0.1.81）：OTA 升级接好（用户 2026-10-12 要求）
 
 **为什么现在才做**：以前挡住 OTA 的是「独立前端进程 + Game Bar 小组件」两套东西要一起升级

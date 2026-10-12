@@ -97,13 +97,17 @@ jobs:
           # tag 构建 → 公开仓；开发构建 → 本仓（用默认的 GITHUB_TOKEN 也能发，这里统一走上面的 token）
           owner: ${{ github.ref_type == 'tag' && 'saber200' || github.repository_owner }}
           repo: ${{ github.ref_type == 'tag' && 'fantasyhub-releases' || github.event.repository.name }}
-          # ⚠️ 输入名是 `uploadUpdaterJson`（不是 includeUpdaterJson）—— 写错时 GitHub 只给一句
-          # "Unexpected input(s)" 的警告、**步骤照样绿**，但 `latest.json` 永远不产出，
-          # 结果就是「应用永远查不到新版本」这种最难查的静默失败。名字是从 tauri-action 的
-          # action.yml 里核过的（2026-10-12）。
-          uploadUpdaterJson: true
-          # 签名文件（`.sig`）必须一起上传：应用拿它校验更新包确实是我们签的。
-          uploadUpdaterSignatures: true
+          # ⚠️ 输入名以**实际用的那个 ref**（`@v0`）为准：v0 认 `includeUpdaterJson`，
+          # `uploadUpdaterJson` 是 `dev` 分支才有的新名字 —— 我照 dev 核过、写成了后者，
+          # 结果 2026-10-12 那次 v0.1.81 构建打出 `Unexpected input(s) 'uploadUpdaterJson'`：
+          # **GitHub 对未知输入只给警告、步骤照样绿**，等于 updater json 的开关根本没生效。
+          # 以后改这一行，先 `gh api repos/tauri-apps/tauri-action/contents/action.yml?ref=v0`。
+          includeUpdaterJson: true
+          # 跨仓库发布必须给 `releaseCommitish`：公开仓里**没有**我们私有仓的那个 commit，
+          # 不给这一项，GitHub 建 release 时会报
+          # `tag_name is not a valid tag / target_commitish`（v0.1.81 那次就死在这儿）。
+          # 指向公开仓已有的 main 即可 —— tag 只是下载容器的挂点，应用读的是 latest.json。
+          releaseCommitish: ${{ github.ref_type == 'tag' && 'main' || github.sha }}
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
           releaseName: FantasyHub ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
           releaseBody: |
