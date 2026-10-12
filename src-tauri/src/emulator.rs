@@ -418,6 +418,14 @@ const CATALOG: &[EmulatorDef] = &[
         // 见 `scan.rs::spawn_exe` 的 `current_dir`）。没有它时配置写到 `%APPDATA%\shadPS4`。
         portable: PortableMark::Dir("user"),
     },
+    /*
+     * ⚠️ TODO（用户 2026-10-12）：**这张卡不是用户想要的街机模拟器**，原话「我发现你这个街机模拟器
+     * 用的不对，这个模拟器不是我想要的那个模拟器，这个问题你记一下之后改吧」。
+     * 现在这张卡是 MAME（`mame.exe` + 7z 自解压包，能自动装、romset 要对 0.289）。
+     * 等用户说清他想要的是哪一个（FBNeo / RetroArch 的 FBNeo 核心 / 别的前端？）再换 ——
+     * 换的时候注意三处一起动：`Source`（新的下载源）、`PortableMark`（便携标记）、
+     * `rom_dir`（ROM 目录名，要和 `src/files/taskMeta.ts` 的对照表对齐）。
+     */
     EmulatorDef {
         id: "arcade",
         name: "街机",
