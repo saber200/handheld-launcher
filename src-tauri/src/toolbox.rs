@@ -1147,6 +1147,23 @@ fn walk_manifests(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// 「这个游戏装了 OptiScaler 吗」—— 给游戏卡片上那颗图标用（用户 2026-10-12 要求
+/// 「哪个游戏装了、哪个没装都没显示，你不如在游戏的卡片上加一个图标」）。
+///
+/// 判据必须是**我们自己的账本 / 旧版标记**，不能是「目录里有没有 `dxgi.dll`」：
+/// 那个文件名 DXVK、ReShade、游戏自带的代理 DLL 都在用，按文件名判会给一堆没装过的游戏
+/// 也标上图标 —— 标错比不标更糟（用户按图标去开 FSR，结果什么都没有）。
+///
+/// 三个落点都查：账本（新）、目标目录里的旧标记、游戏根目录里的旧标记（0.1.5x 那批）。
+/// 不查版本号 —— 卡片上只要一个「有 / 没有」。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn game_has_mod(launch_path: &str, install_path: &str) -> bool {
+    let Some(plan) = install_plan(launch_path, install_path) else {
+        return false;
+    };
+    read_installed(&plan).is_some() || marker_present(&plan.dir) || marker_present(&plan.root)
+}
+
 /// 列出装了 OptiScaler 的游戏：账本优先；只有旧版标记（没账本）的也列出来，
 /// 版本写空串 —— 「装了但不知道装的哪版」是真实状态，不编一个版本号。
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -2802,6 +2819,8 @@ mod tests {
             launch_path: String::new(),
             size_bytes: 0,
             playtime_minutes: 0,
+            // 扫描收尾才按账本覆盖；这里是测试夹具，测试自己会调 `installed_mods`。
+            has_mod: false,
         };
 
         // 新装的一批：账本在主程序旁，列表就该报主程序旁。

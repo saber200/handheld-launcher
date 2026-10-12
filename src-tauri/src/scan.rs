@@ -40,6 +40,9 @@ pub struct ScannedGame {
     /// 总时长（分钟）。0 = 不知道。只有 Steam 有：`userdata/<id>/config/localconfig.vdf` 里
     /// `apps → <appid> → Playtime`，Steam 自己也是拿这个显示「已玩 x 小时」的。
     pub playtime_minutes: u64,
+    /// 这个游戏装了启动器自己的 OptiScaler 吗（判据见 `toolbox::game_has_mod`）。
+    /// 卡片上据此决定画不画那颗图标 —— 没装就是 false，界面不画任何东西。
+    pub has_mod: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,7 +70,18 @@ pub async fn scan_games(app: tauri::AppHandle) -> Vec<ScannedGame> {
 fn scan_games_now(app: &tauri::AppHandle) -> Vec<ScannedGame> {
     #[cfg(windows)]
     {
-        return windows::scan_games(app);
+        let mut games = windows::scan_games(app);
+        /*
+         * 「装没装 OptiScaler」统一在这里补一遍，**不撒进各个扫描分支**（Steam / Epic / 手动 /
+         * 注册表…）：账本写在各游戏自己的目录里，判据只有一条（`toolbox::game_has_mod`），
+         * 撒进分支里迟早出现「手动添加的游戏没有这个标记」这类漏网。
+         * 代价是每个游戏多一两次 `metadata` —— 和这个扫描本来就在做的（找主程序、
+         * 读图标、量体积）比，可以忽略。
+         */
+        for game in &mut games {
+            game.has_mod = crate::toolbox::game_has_mod(&game.launch_path, &game.install_path);
+        }
+        return games;
     }
     #[cfg(not(windows))]
     {
@@ -1222,6 +1236,8 @@ mod windows {
                 launch_path,
                 size_bytes: parsed.size_on_disk,
                 playtime_minutes: playtimes.get(&parsed.appid).copied().unwrap_or(0),
+                // 先全填 false，扫描收尾时统一按账本覆盖（见 `scan_games_now`）。
+                has_mod: false,
             });
         }
     }
@@ -1288,6 +1304,7 @@ mod windows {
                 // Epic 侧没有公开可读的等价物 —— 保持 0（界面不画这一格）。
                 size_bytes: item.install_size,
                 playtime_minutes: 0,
+                has_mod: false,
             });
         }
     }
