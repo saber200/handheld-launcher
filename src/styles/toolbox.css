@@ -268,10 +268,18 @@
 }
 
 /* ── 运行库那三行（画板：左边一个 ✓、右边名称 + 说明，行高 30 上下） ── */
+/*
+ * 行距 4 + 行高 34 = 步进 38dp。
+ *
+ * 2026-10-12 用户真机反馈改的：原来是「行高 28 + 间距 2」，而每行尾巴那颗按钮正好 28dp 高 ——
+ * 于是三颗按钮之间只剩 2dp，看着像贴在一起（真机截图「按钮间没间距」）。
+ * 行高给到 34、间距给到 4 之后，按钮之间是 34 + 4 − 28 = 10dp，正文行也顺带松快了一点。
+ * 画板 K4 那三行本来没有行内按钮（只有底部一颗），所以这里没有「照画板」的数字可抄。
+ */
 .k4-rows {
   display: flex;
   flex-direction: column;
-  gap: calc(2 * var(--dp));
+  gap: calc(4 * var(--dp));
   margin-top: calc(10 * var(--dp));
 }
 
@@ -279,7 +287,8 @@
   display: flex;
   align-items: center;
   gap: var(--stack);
-  min-height: calc(28 * var(--dp));
+  min-height: calc(34 * var(--dp));
+  min-width: 0;
   font-size: var(--font-caption);
   color: var(--ink-2);
 }
@@ -299,7 +308,14 @@
   font-weight: 500;
 }
 
+/* 行尾那段小字（运行库说明 / 启动项那句 / 日志目录）：**必须可省略**。
+   日志那行在真机上是 `C:\Users\<用户名>\AppData\Roaming\handheld-launcher`，
+   用户名一长、卡片一窄就会顶出卡片边缘（flex 子项默认 min-width: auto，不会自己收）。 */
 .k4-row-item small {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--ink-4);
 }
 

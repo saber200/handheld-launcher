@@ -329,9 +329,16 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  /*
+   * 底部那 7dp 是 `bottom` 而不是 `padding-bottom` —— 2026-10-12 真机截图（长英文名）踩出来的坑：
+   * `-webkit-line-clamp` 只把**盒子高度**收到 N 行，多出来的行照样画在盒子里，靠 `overflow: hidden`
+   * 裁掉；而裁切线是**内边距盒**的边 —— 下内边距有多少，下一行就露出多少。7dp 的下内边距正好露出
+   * 半截字（「Mount & Blade:…」底下再挂半行 "Warband"，聚焦卡底下挂半行 "Complete Edition"）。
+   * 把这段距离交给 `bottom` 之后，裁切线正好落在最后一行下面，半截字没有了。
+   */
+  bottom: calc(7 * var(--dp));
   min-height: 0;
-  padding: calc(16 * var(--dp)) calc(8 * var(--dp)) calc(7 * var(--dp));
+  padding: calc(16 * var(--dp)) calc(8 * var(--dp)) 0;
   font-size: calc(11.5 * var(--dp));
   line-height: 1.25;
   color: var(--ink);
@@ -380,7 +387,8 @@
    连那一行都不该留位置。所以：有数据 → 名称抬高 20dp、第二行贴在底部；
    没数据 → 跟 M1 一模一样（名称贴底）。 */
 .k1-card.has-facts .library-name {
-  bottom: calc(24 * var(--dp));
+  /* 24（给第二行让位）+ 7（原来的下内边距，现在挂在 bottom 上）= 31dp，和改之前一个像素不差 */
+  bottom: calc(31 * var(--dp));
 }
 
 .k1-card-facts {

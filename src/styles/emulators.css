@@ -144,12 +144,14 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   /*
-   * 每一行里各卡**按自己的内容收**，不拉成等高。
-   * 为什么：六张卡的正文长度差得多（PS2 一行、Switch 三行），拉成等高之后短的那些卡
-   * 中间会空出一大块 —— 卡片高度看起来像是「没画满」，而那个空白不表示任何信息。
-   * 代价是同一行的按钮不在一条水平线上；卡与卡之间本来就有边框分隔，不靠对齐也能读。
+   * 整行等高（`stretch`，grid 的默认值，这里显式写出来）。
+   *
+   * 2026-10-12 用户真机反馈改的：原来是 `align-items: start`，各卡按自己的内容收 ——
+   * 六张卡的正文长度差得多（PS2 一行、Switch 五行），于是**同一行里卡片底边参差不齐、
+   * 按钮也不在一条线上**，看上去就是「这页没对齐」。等高之后短卡多出来的那块空白留在
+   * 按钮上方（见下面 `.emu-actions` 的 `margin-top: auto`），那是最不碍事的地方。
    */
-  align-items: start;
+  align-items: stretch;
   gap: var(--gutter);
   margin-top: var(--gutter);
   padding: 0 var(--safe) var(--safe);
@@ -348,7 +350,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--stack);
-  margin-top: var(--stack);
+  /* `auto` 而不是固定 8dp：整行等高之后，按钮要贴到卡片底部，同一行的按钮才会在同一条线上
+     （`--stack` 是它和上面正文之间的最小间距，短卡多出来的空白落在这一行之上）。 */
+  margin-top: auto;
+  padding-top: var(--stack);
 }
 
 .emu-btn {

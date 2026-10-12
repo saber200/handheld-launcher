@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useState, type Ref } from "react";
 import { displayGameName } from "../data/previewGames";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf, type CardOptions } from "../components/LibraryShelf";
@@ -158,6 +158,65 @@ export function GamesPage() {
   );
 }
 
+/**
+ * Steam appid：扫描出来的库里是 `steam:<id>`，预览数据里是裸数字。
+ * 只认得出这两种 —— 手动添加的游戏没有 appid，也就没有 CDN 上的图可退。
+ */
+function steamAppId(game: GameEntry): string {
+  if (game.id.startsWith("steam:")) return game.id.slice(6);
+  return /^\d+$/.test(game.id) ? game.id : "";
+}
+
+function steamAsset(appId: string, file: string): string {
+  return appId ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/${file}` : "";
+}
+
+/**
+ * 图片候选链 —— **卡片与 hero 共用这一份**（两处各写一份，迟早出现「大图有图、卡片空着」）。
+ *
+ * 为什么要 `library_hero.jpg` 这一档（2026-10-12 真机截图「封面没正确显示」的真根因）：
+ * 有的游戏 Steam 只给了宽图。实测《DYNASTY WARRIORS 3: Complete Edition Remastered》
+ * （appid 3841510）：`library_600x900.jpg`、`library_600x900_2x.jpg`、`library_capsule.jpg`、
+ * `header.jpg` 全是 404，**只有 `library_hero.jpg` 是 200** —— 而 hero 用的正是它。
+ * 没有这一档，卡片那张竖封面就永远是一块空渐变（`game-cover-fallback`），
+ * 而同一个游戏的顶部大图却好好的，看上去像「只有这张卡的封面坏了」。
+ *
+ * `header.jpg` 放最后：它是最老也最全的一张（460×215），糊一点，但比空着强。
+ */
+function coverChain(game: GameEntry): string[] {
+  const appId = steamAppId(game);
+  return [
+    game.cover,
+    game.coverRemote ?? "",
+    steamAsset(appId, "library_hero.jpg"),
+    steamAsset(appId, "header.jpg"),
+  ].filter((url, index, all) => !!url && all.indexOf(url) === index);
+}
+
+/**
+ * 卡片真正依次请求的 URL：候选链 + 「第一个候选加时间戳再试一次」。
+ * 为什么要那一次重试：WebView 的 asset:// 协议在换分组、一批卡片同时重挂载时会偶发失败
+ * （M1 起就在的老坑），加个 `?r=1` 就是个新 URL，能把它救回来。
+ */
+function coverAttempts(game: GameEntry): string[] {
+  const chain = coverChain(game);
+  const first = chain[0];
+  if (!first) return chain;
+  const retry = `${first}${first.includes("?") ? "&" : "?"}r=1`;
+  return [first, retry, ...chain.slice(1)];
+}
+
+/** hero 的候选链：宽图优先，其次才是竖封面 / 商店头图。 */
+function heroAttempts(game: GameEntry): string[] {
+  const appId = steamAppId(game);
+  return [
+    steamAsset(appId, "library_hero.jpg"),
+    game.cover,
+    game.coverRemote ?? "",
+    steamAsset(appId, "header.jpg"),
+  ].filter((url, index, all) => !!url && all.indexOf(url) === index);
+}
+
 function GameCard({
   game,
   cardRef,
@@ -186,19 +245,20 @@ function GameCard({
   focusedMeta?: boolean;
 }) {
   const shelf = variant === "shelf";
-  const [src, setSrc] = useState(game.cover);
+  // 依次尝试的候选（见 coverAttempts）；失败一次就往后走一步，走完才认输画占位。
+  const attempts = coverAttempts(game);
+  const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
-  const triesRef = useRef(0);
 
   useEffect(() => {
-    setSrc(game.cover);
+    setAttempt(0);
     setFailed(false);
-    triesRef.current = 0;
-  }, [game.cover, game.coverRemote]);
+  }, [game.cover, game.coverRemote, game.id]);
+  const src = attempts[attempt] ?? "";
 
   const title = name || displayGameName(game.id, game.name, currentLocale());
 
-  /** 封面回退链：本地 asset:// → 加时间戳重试（一次）→ 远端封面 → 程序化占位。 */
+  /** 封面回退链：候选链见 coverAttempts，全试完才画程序化占位。 */
   const cover =
     failed || !src ? (
       <span className={`${shelf ? "game-cover k1-cover " : "game-cover "}game-cover-fallback`} aria-hidden />
@@ -208,15 +268,8 @@ function GameCard({
         src={src}
         alt=""
         onError={() => {
-          triesRef.current += 1;
-          // WebView asset protocol can flake when many cards remount on group switch.
-          if (triesRef.current === 1 && game.cover && src === game.cover) {
-            const join = game.cover.includes("?") ? "&" : "?";
-            setSrc(`${game.cover}${join}r=${Date.now()}`);
-            return;
-          }
-          if (game.coverRemote && src !== game.coverRemote) {
-            setSrc(game.coverRemote);
+          if (attempt + 1 < attempts.length) {
+            setAttempt(attempt + 1);
             return;
           }
           setFailed(true);
@@ -318,14 +371,12 @@ function platformMark(game: GameEntry) {
  * 断网 / Epic / 手动添加的游戏直接走封面，不重试、不转圈。
  */
 function GameHero({ game }: { game: GameEntry }) {
-  const wide = (() => {
-    const appId = game.id.startsWith("steam:") ? game.id.slice(6) : /^\d+$/.test(game.id) ? game.id : "";
-    return appId ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_hero.jpg` : "";
-  })();
-  const [src, setSrc] = useState(wide || game.cover || "");
+  const attempts = heroAttempts(game);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    setSrc(wide || game.cover || "");
-  }, [wide, game.cover, game.id]);
+    setAttempt(0);
+  }, [game.id, game.cover, game.coverRemote]);
+  const src = attempts[attempt] ?? "";
   if (!src) return <span className="k1-hero-fallback" aria-hidden />;
   return (
     <img
@@ -334,8 +385,8 @@ function GameHero({ game }: { game: GameEntry }) {
       alt=""
       decoding="async"
       onError={() => {
-        // 宽图 404 / 断网 → 退回封面；封面也失败就交给占位（不再往下试，避免来回抖）。
-        setSrc((current) => (current && game.cover && current !== game.cover ? game.cover : ""));
+        // 宽图 404 / 断网 → 顺着候选链往下退；全退完就交给占位（不再来回抖）。
+        if (attempt + 1 < attempts.length) setAttempt(attempt + 1);
       }}
     />
   );

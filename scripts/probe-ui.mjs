@@ -144,6 +144,13 @@ async function connect({ width, height }) {
       if (!waiters.has(method)) waiters.set(method, []);
       waiters.get(method).push(res);
     });
+  /** 持续监听某个 CDP 事件（`once` 只收一次，拦截请求这种要收一串）。 */
+  const on = (method, handler) => {
+    ws.addEventListener("message", (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.method === method) handler(msg.params);
+    });
+  };
 
   await send("Page.enable");
   await send("Runtime.enable");
@@ -151,6 +158,7 @@ async function connect({ width, height }) {
 
   return {
     send,
+    on,
     async goto(url) {
       const loaded = once("Page.loadEventFired");
       await send("Page.navigate", { url });
@@ -687,6 +695,139 @@ const scanTabs = async () => {
         note(landed === "content", `${name}：点当前页签落进内容区（实测 ${landed}）`);
       }
 
+      /*
+       * 游戏库：**长英文名不许露半截字**（2026-10-12 用户真机截图）。
+       *
+       * 现场：真机上的名字是 "DYNASTY WARRIORS 3: Complete Edition Remastered"、"Mount & Blade: Warband"
+       * 这种长名字；`-webkit-line-clamp` 只把盒子高度收到 N 行，多出来的行仍然画在盒子里、由
+       * `overflow: hidden` 按**内边距盒**裁掉 —— 下内边距有多少，下一行就露出多少（实测正好露出 7dp，
+       * 就是半截字）。修法：名字块的下内边距归零，那 7dp 交给 `bottom`（见 games.css 的说明）。
+       *
+       * 这里把长名字打进 DOM 直接量：`露出的半截字 = min(内容高 − 框高, 下内边距)` 必须为 0，
+       * 且框高要正好等于「上内边距 + N 行」（N = 未聚焦 1 / 聚焦 2）。
+       */
+      if (name === "游戏库") {
+        const long = await page.eval(`
+          const names = ["DYNASTY WARRIORS 3: Complete Edition Remastered", "Mount & Blade: Warband", "Red Dead Redemption 2"];
+          const items = [...document.querySelectorAll('.k1-item')];
+          items.forEach((item, i) => {
+            const el = item.querySelector('.library-name');
+            if (el && names[i]) el.textContent = names[i];
+          });
+          await new Promise((r) => setTimeout(r, 300));
+          const out = [];
+          for (const item of items.slice(0, 3)) {
+            const el = item.querySelector('.library-name');
+            if (!el) continue;
+            const cs = getComputedStyle(el);
+            const lines = item.classList.contains('is-current') ? 2 : 1;
+            const lineH = parseFloat(cs.lineHeight);
+            const padTop = parseFloat(cs.paddingTop);
+            const padBottom = parseFloat(cs.paddingBottom);
+            const box = el.getBoundingClientRect();
+            out.push({
+              名字: (el.textContent || '').slice(0, 16),
+              下内边距: padBottom,
+              露出的半截字: Math.max(0, Math.min(el.scrollHeight - el.clientHeight, padBottom)),
+              框高差: +(box.height - (padTop + lines * lineH)).toFixed(2),
+            });
+          }
+          return out;
+        `);
+        const leak = long.reduce((max, row) => Math.max(max, row.露出的半截字), 0);
+        const pad = long.reduce((max, row) => Math.max(max, row.下内边距), 0);
+        const fit = long.reduce((max, row) => Math.max(max, Math.abs(row.框高差)), 0);
+        note(leak === 0 && pad === 0,
+          `K1 长名字不露半截字（下内边距 ${pad}，露出的半截字 ${leak}）`);
+        note(fit < 1.5, `K1 名字框高 = 上内边距 + N 行（最大偏差 ${fit.toFixed(2)}）`);
+      }
+
+      /*
+       * 工具箱：行内按钮之间要留间距（2026-10-12 用户真机截图「按钮间没间距」）。
+       *
+       * 真机上这两张卡才有数据（浏览器没有后端），所以这里照真机的结构与文案**手搭一份 DOM**，
+       * 量的还是真 CSS：行高 34 + 行距 4 − 按钮 28 = 按钮之间 10dp。
+       * 顺带钉住「行尾那段小字可省略」—— 日志那行是 `C:\\Users\\<用户名>\\AppData\\Roaming\\handheld-launcher`，
+       * 用户名一长就会顶出卡片边缘。
+       */
+      if (name === "工具箱") {
+        const k4 = await page.eval(`
+          const host = document.querySelector('.k4-pair');
+          if (!host) return null;
+          const keep = host.innerHTML;
+          const runtimeRow = (on, name, detail, action) =>
+            '<div class="k4-row-item"><span class="k4-tick' + (on ? ' is-on' : '') + '">✓</span>'
+            + '<strong>' + name + '</strong><small>' + detail + '</small>'
+            + '<button type="button" class="k4-card-action" data-focusable>' + action + '</button></div>';
+          host.innerHTML = '<section class="k4-card"><h3 class="k4-card-title">游戏运行库</h3>'
+            + '<div class="k4-rows">'
+            + runtimeRow(true, 'Visual C++ 2015-2022 (x64)', '多数新游戏依赖的官方运行库（64 位）。', '重装')
+            + runtimeRow(false, 'Visual C++ 2015-2022 (x86)', '部分老游戏 / 32 位组件需要。', '安装')
+            + runtimeRow(true, '.NET 桌面运行时 (x64)', '部分后端与工具依赖。', '重装')
+            + '</div></section>'
+            + '<section class="k4-card"><h3 class="k4-card-title">系统维护</h3><div class="k4-rows">'
+            + '<div class="k4-row-item"><span class="k4-tick is-on">✓</span><strong>日志 11 KB</strong>'
+            + '<small>C:\\Users\\一个很长很长的用户名\\AppData\\Roaming\\handheld-launcher</small></div>'
+            + '</div></section>';
+          await new Promise((r) => setTimeout(r, 250));
+          const buttons = [...document.querySelectorAll('.k4-rows .k4-card-action')].map((b) => b.getBoundingClientRect());
+          const gaps = buttons.slice(1).map((r, i) => +(r.top - buttons[i].bottom).toFixed(2));
+          const card = document.querySelectorAll('.k4-pair .k4-card')[1];
+          const small = document.querySelector('.k4-rows .k4-row-item small');
+          const box = card.getBoundingClientRect();
+          const sr = small.getBoundingClientRect();
+          const res = {
+            gaps,
+            buttonH: buttons[0] ? +buttons[0].height.toFixed(2) : 0,
+            小字在卡内: sr.right <= box.right - 8,
+            小字可省略: getComputedStyle(small).textOverflow === 'ellipsis',
+          };
+          host.innerHTML = keep;
+          return res;
+        `);
+        if (!k4) {
+          note(false, "工具箱：找不到 .k4-pair，量不了行内按钮间距");
+        } else {
+          note(k4.gaps.length === 2 && k4.gaps.every((g) => g >= 8),
+            `K4 行内按钮之间留了间距（${k4.gaps.join(" / ")}dp，按钮高 ${k4.buttonH}）`);
+          note(k4.小字在卡内 && k4.小字可省略,
+            `K4 行尾小字不会顶出卡片（在卡内=${k4.小字在卡内}，可省略=${k4.小字可省略}）`);
+        }
+      }
+
+      /*
+       * 模拟器：同一行里六张卡必须等高、按钮在同一条线上（2026-10-12 用户真机截图「不对齐」）。
+       * 原来是 align-items: start，各卡按内容收 —— 短卡与长卡底边差半张卡。
+       */
+      if (name === "模拟器") {
+        const emu = await page.eval(`
+          const round = (n) => +n.toFixed(1);
+          const rows = new Map();
+          for (const card of document.querySelectorAll('.emu-grid .emu-card')) {
+            const r = card.getBoundingClientRect();
+            const key = Math.round(r.top / 50);
+            if (!rows.has(key)) rows.set(key, []);
+            rows.get(key).push(card);
+          }
+          const out = [];
+          for (const [, cards] of rows) {
+            const bottoms = cards.map((c) => round(c.getBoundingClientRect().bottom));
+            const actions = cards.map((c) => {
+              const a = c.querySelector('.emu-actions');
+              return a ? round(a.getBoundingClientRect().bottom) : null;
+            });
+            out.push({
+              卡片数: cards.length,
+              底边齐: new Set(bottoms).size === 1,
+              按钮底齐: new Set(actions.filter((x) => x !== null)).size === 1,
+            });
+          }
+          return out;
+        `);
+        note(emu.length > 0 && emu.every((row) => row.底边齐 && row.按钮底齐),
+          `模拟器：每行卡片等高、按钮在同一条线上（${emu.map((r) => r.卡片数 + "张/" + (r.底边齐 && r.按钮底齐 ? "齐" : "不齐")).join("、")}）`);
+      }
+
       if (name === "文件") {
         await page.eval(`
           const row = document.querySelector('.k7-row');
@@ -843,6 +984,50 @@ const scanTabs = async () => {
         await page.shot(p);
       }
     }
+
+    /*
+     * 封面回退链：**竖封面 404 的游戏也要有图**（2026-10-12 用户真机截图「封面没正确显示」）。
+     *
+     * 真机现场：《DYNASTY WARRIORS 3: Complete Edition Remastered》（appid 3841510）——
+     * `library_600x900.jpg` / `library_600x900_2x.jpg` / `library_capsule.jpg` / `header.jpg`
+     * 全是 404，**只有 `library_hero.jpg` 是 200**（hero 用的就是它）。没有这一档，
+     * 卡片那张竖封面就是一块空渐变，而同一个游戏的大图却好好的，看着像「只有这张卡的封面坏了」。
+     *
+     * 怎么造现场：用 CDP 把那几个 URL 拦下来、**延迟**失败 —— 等价于真 404。
+     * （不能用 `Network.setBlockedURLs`：那是瞬间失败，错误事件可能早于 React 挂上 onError，
+     * 图片会一直停在破图状态，测试失真 —— 本机实测踩过。）
+     */
+    await page.send("Fetch.enable", {
+      patterns: [
+        { urlPattern: "*library_600x900*", requestStage: "Request" },
+        { urlPattern: "*library_capsule*", requestStage: "Request" },
+        { urlPattern: "*header.jpg", requestStage: "Request" },
+      ],
+    });
+    page.on("Fetch.requestPaused", ({ requestId }) => {
+      setTimeout(() => {
+        void page.send("Fetch.failRequest", { requestId, errorReason: "Failed" }).catch(() => {});
+      }, 200);
+    });
+    await page.goto(URL);
+    await page.wait(9000);
+    const covers = await page.eval(`
+      const items = [...document.querySelectorAll('.k1-item')];
+      return items.map((item) => {
+        const img = item.querySelector('img.k1-cover');
+        return {
+          有图: !!img && img.naturalWidth > 0,
+          宽图: !!img && img.src.includes('library_hero'),
+          占位: !!item.querySelector('.game-cover-fallback'),
+        };
+      });
+    `);
+    const withArt = covers.filter((c) => c.有图 && !c.占位).length;
+    note(
+      covers.length > 0 && withArt === covers.length && covers.every((c) => c.宽图),
+      `封面 404 时卡片退到宽图（${withArt}/${covers.length} 张有图，都来自 library_hero.jpg）`,
+    );
+    await page.send("Fetch.disable");
   } finally {
     await page.close();
   }

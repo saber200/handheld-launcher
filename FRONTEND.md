@@ -69,6 +69,33 @@
 > 「要用 winmm.dll + 游戏里图形 API 改成 DirectX 12」（文案在 Rust 侧，跟着那张表走）。用户仍然可以
 > 手动改注入名 —— 它只是默认值，不是锁。细则见 `STATUS.md` 的「未发布（0.1.67）」。
 
+## 未发布（0.1.73）：三个页面的样式问题（用户真机照片反馈）
+
+**一句话**：0.1.72 装上掌机之后用户发来三张照片（模拟器 / 工具箱 / 游戏库），四条问题全部定位并修掉 ——
+**这四条都只在真机上显形**（长英文游戏名、真实系统数据、1280×720 逻辑分辨率；浏览器预览是短中文名 +
+没有后端），所以之前逐页截图时一次都没看见。**教训**：样式验证不能只靠"用预览数据截一张图看着没问题"。
+
+- **卡片名字被切掉半行**（`games.css` 的 `.k1-card .library-name`）：`-webkit-line-clamp` 只把**盒子高度**
+  收到 N 行，多出来的行照样画在盒子里、由 `overflow: hidden` 按**内边距盒**裁 —— 下内边距留了 7dp，
+  下一行就正好露出半截（照片里 "WARRIORS 3:…" 底下那半行 "Complete Edition"）。
+  修法：这 7dp 从 `padding-bottom` 挪到 `bottom`（带 facts 那档 24 + 7 = 31dp），裁切线正好落在最后一行下面。
+  全项目 9 处 `line-clamp` 都扫过，只有这一处带下内边距。
+  试过没用的：`overflow: clip` + `overflow-clip-margin: content-box`（本机 Chrome 上照样露 7dp）。
+- **封面空着 ≠ 渲染坏了**：那个游戏 Steam **只给了宽图** —— 实测《DYNASTY WARRIORS 3: Complete Edition
+  Remastered》（appid 3841510）的 `library_600x900.jpg` / `_2x` / `library_capsule.jpg` / `header.jpg`
+  全 404，`library_hero.jpg` 是 200，而大图用的就是它。`GamesPage.tsx` 新增 `coverChain()` /
+  `coverAttempts()` / `heroAttempts()`：**卡片与 hero 共用一份候选链**（竖封面 → `?r=1` 重试 →
+  Steam 宽图 → 商店头图 → 占位），状态机改成候选链下标。
+- **工具箱行内按钮只隔 2dp**（`.k4-rows` 行高 28 = 按钮高 28）→ 行高 34 + 行距 4 → 隔 10dp；
+  同一张卡上 `.k4-row-item small` 补 `min-width: 0` + 省略号（日志那行是完整 Windows 路径，用户名一长会顶出卡片）。
+- **模拟器六张卡不等高**（`.emu-grid` 的 `align-items: start`）→ 整行等高 + `.emu-actions { margin-top: auto }`
+  把按钮压到卡底；短卡多出来的空白落在按钮上方。
+- **探针为这四条各加了一条断言**：K1「长名字不露半截字 / 框高 = 上内边距 + N 行」、
+  K4「行内按钮间距 ≥ 8dp（实测 10/10）、行尾小字不顶出卡片」、模拟器「每行等高、按钮同线」、
+  封面「竖封面 404 时退到宽图（12/12）」。最后一关用 `Fetch.enable` + **延迟** `Fetch.failRequest`
+  造真 404 —— `Network.setBlockedURLs` 是瞬间失败，错误事件会早于 React 挂上 `onError`，图片停在破图状态。
+  1280×720 与 1920×1080 全过；`npm run build` / `audit-ui` / `audit-acl` 全过。
+
 ## 未发布（0.1.72）：菜单从侧栏搬进顶栏页签条，**整条退出焦点系统**（用户真机反馈）
 
 **一句话**：分区菜单不再是「一个焦点域」，而是顶栏里的一排页签 —— **里面一个 `[data-focusable]`
