@@ -309,7 +309,9 @@ function GameCard({
         onClick={activate}
       >
         {cover}
-        <span className="library-name">{title}</span>
+        <span className="library-name">
+          <span className="library-name-text">{title}</span>
+        </span>
         {facts && <span className="k1-card-facts tnum">{facts}</span>}
         {running && <span className="k1-run-dot" aria-hidden />}
         <KeyCap label="A" className="k1-a" />
@@ -328,7 +330,9 @@ function GameCard({
     >
       {picked && <span className="pick-mark">✓</span>}
       {cover}
-      <span className="library-name">{title}</span>
+      <span className="library-name">
+        <span className="library-name-text">{title}</span>
+      </span>
     </button>
   );
 }

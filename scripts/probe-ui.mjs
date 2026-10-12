@@ -353,7 +353,9 @@ const run = async (width, height) => {
     const facts = await page.eval(`
       const card = document.querySelector('.k1-item.is-current .k1-card');
       const line = card?.querySelector('.k1-card-facts');
-      const name = card?.querySelector('.library-name');
+      // 量的是**文字那层**：外层 .library-name 现在是铺阴影的盒子（贴到卡片下沿），
+      // 拿它跟 facts 比会永远「压住」（2026-10-12 拆两层时顺手改的）。
+      const name = card?.querySelector('.library-name-text');
       if (!line || !name) return null;
       const c = card.getBoundingClientRect();
       const l = line.getBoundingClientRect();
@@ -696,50 +698,67 @@ const scanTabs = async () => {
       }
 
       /*
-       * 游戏库：**长英文名不许露半截字**（2026-10-12 用户真机截图）。
+       * 游戏库卡片名字：**长英文名不许露半截字**，而且**底下那层阴影要盖到卡片下沿**
+       * （2026-10-12 用户真机两轮截图，两条是同一个地方的合题）。
        *
-       * 现场：真机上的名字是 "DYNASTY WARRIORS 3: Complete Edition Remastered"、"Mount & Blade: Warband"
+       * 现场：名字是 "DYNASTY WARRIORS 3: Complete Edition Remastered"、"Mount & Blade: Warband"
        * 这种长名字；`-webkit-line-clamp` 只把盒子高度收到 N 行，多出来的行仍然画在盒子里、由
-       * `overflow: hidden` 按**内边距盒**裁掉 —— 下内边距有多少，下一行就露出多少（实测正好露出 7dp，
-       * 就是半截字）。修法：名字块的下内边距归零，那 7dp 交给 `bottom`（见 games.css 的说明）。
+       * `overflow: hidden` 按**内边距盒**裁掉 —— 裁的那层只要带下内边距，下一行就在那几 dp 里露出半截。
+       * 但把下内边距挪走又会让阴影跟着抬高，卡片底部露出一条没压暗的封面（第二张截图里那道硬边）。
        *
-       * 这里把长名字打进 DOM 直接量：`露出的半截字 = min(内容高 − 框高, 下内边距)` 必须为 0，
-       * 且框高要正好等于「上内边距 + N 行」（N = 未聚焦 1 / 聚焦 2）。
+       * 所以现在是两层：外层 `.library-name` 贴底（`bottom: 0`）铺渐变，带 facts 时用 padding-bottom
+       * 让位；里层 `.library-name-text` 下内边距为 0，专门限行。这里两条一起量。
        */
       if (name === "游戏库") {
         const long = await page.eval(`
           const names = ["DYNASTY WARRIORS 3: Complete Edition Remastered", "Mount & Blade: Warband", "Red Dead Redemption 2"];
           const items = [...document.querySelectorAll('.k1-item')];
           items.forEach((item, i) => {
-            const el = item.querySelector('.library-name');
+            const el = item.querySelector('.library-name-text');
             if (el && names[i]) el.textContent = names[i];
           });
           await new Promise((r) => setTimeout(r, 300));
           const out = [];
           for (const item of items.slice(0, 3)) {
-            const el = item.querySelector('.library-name');
-            if (!el) continue;
-            const cs = getComputedStyle(el);
+            const shade = item.querySelector('.library-name');
+            const text = item.querySelector('.library-name-text');
+            const card = item.querySelector('.k1-card');
+            if (!shade || !text || !card) continue;
+            const cs = getComputedStyle(text);
             const lines = item.classList.contains('is-current') ? 2 : 1;
             const lineH = parseFloat(cs.lineHeight);
-            const padTop = parseFloat(cs.paddingTop);
             const padBottom = parseFloat(cs.paddingBottom);
-            const box = el.getBoundingClientRect();
+            const textBox = text.getBoundingClientRect();
+            const shadeBox = shade.getBoundingClientRect();
+            const cardBox = card.getBoundingClientRect();
+            const facts = item.querySelector('.k1-card-facts');
             out.push({
-              名字: (el.textContent || '').slice(0, 16),
-              下内边距: padBottom,
-              露出的半截字: Math.max(0, Math.min(el.scrollHeight - el.clientHeight, padBottom)),
-              框高差: +(box.height - (padTop + lines * lineH)).toFixed(2),
+              名字: (text.textContent || '').slice(0, 16),
+              有facts: !!facts,
+              限行层下内边距: padBottom,
+              露出的半截字: Math.max(0, Math.min(text.scrollHeight - text.clientHeight, padBottom)),
+              框高差: +(textBox.height - lines * lineH).toFixed(2),
+              阴影贴底差: +(cardBox.bottom - shadeBox.bottom).toFixed(2),
+              facts不压字: facts ? +(facts.getBoundingClientRect().top - textBox.bottom).toFixed(2) : null,
             });
           }
           return out;
         `);
         const leak = long.reduce((max, row) => Math.max(max, row.露出的半截字), 0);
-        const pad = long.reduce((max, row) => Math.max(max, row.下内边距), 0);
+        const pad = long.reduce((max, row) => Math.max(max, row.限行层下内边距), 0);
         const fit = long.reduce((max, row) => Math.max(max, Math.abs(row.框高差)), 0);
+        const bottom = long.reduce((max, row) => Math.max(max, Math.abs(row.阴影贴底差)), 0);
+        const factsGap = long.reduce(
+          (min, row) => (row.facts不压字 === null ? min : Math.min(min, row.facts不压字)),
+          Infinity,
+        );
         note(leak === 0 && pad === 0,
-          `K1 长名字不露半截字（下内边距 ${pad}，露出的半截字 ${leak}）`);
-        note(fit < 1.5, `K1 名字框高 = 上内边距 + N 行（最大偏差 ${fit.toFixed(2)}）`);
+          `K1 长名字不露半截字（限行层下内边距 ${pad}，露出的半截字 ${leak}）`);
+        note(fit < 1.5, `K1 名字框高 = N 行（最大偏差 ${fit.toFixed(2)}）`);
+        note(bottom < 1,
+          `K1 名字的阴影盖到卡片下沿（最大差 ${bottom}dp；${long.filter((r) => r.有facts).length} 张带 facts）`);
+        note(factsGap === Infinity || factsGap > 2,
+          `K1「时长 · 体积」那一行没压住名字（最小间隙 ${factsGap === Infinity ? "-" : factsGap}）`);
       }
 
       /*
@@ -1010,8 +1029,13 @@ const scanTabs = async () => {
       }, 200);
     });
     await page.goto(URL);
-    await page.wait(9000);
-    const covers = await page.eval(`
+    await page.wait(4000);
+    /*
+     * 等图：这一步每张卡都要先失败两次（竖封面 + 重试）再去拉宽图，12 张卡一起走 ——
+     * CDN 慢的时候固定等 9 秒会抓到「还有 3 张在路上」的假红（本机真踩过：9/12）。
+     * 所以轮询到「全部有图」为止，最多 25 秒；到点还没齐就按实际数量报。
+     */
+    const readCovers = `
       const items = [...document.querySelectorAll('.k1-item')];
       return items.map((item) => {
         const img = item.querySelector('img.k1-cover');
@@ -1021,11 +1045,24 @@ const scanTabs = async () => {
           占位: !!item.querySelector('.game-cover-fallback'),
         };
       });
-    `);
-    const withArt = covers.filter((c) => c.有图 && !c.占位).length;
+    `;
+    let covers = await page.eval(readCovers);
+    for (let tries = 0; tries < 42 && covers.some((c) => !c.有图 && !c.占位); tries++) {
+      await page.wait(500);
+      covers = await page.eval(readCovers);
+    }
+    /*
+     * 断言的是**回退链走到了哪**，不是「12 张图都下载完了」：
+     * CDN 慢的时候（本机见过 6/12）最后那几张还在路上，那是网络不是逻辑，不该判红。
+     * 真正要钉住的是两条：① 每张卡的 `src` 都已经是宽图；② 一张都没掉到占位（掉占位说明链走完了还没图）。
+     * 真下不下来的情况这里也不会漏：宽图 404 → 下一档 header 也被挡住 → `failed` → 占位。
+     */
+    const withArt = covers.filter((c) => c.有图).length;
+    const onHero = covers.filter((c) => c.宽图).length;
+    const placeholder = covers.filter((c) => c.占位).length;
     note(
-      covers.length > 0 && withArt === covers.length && covers.every((c) => c.宽图),
-      `封面 404 时卡片退到宽图（${withArt}/${covers.length} 张有图，都来自 library_hero.jpg）`,
+      covers.length > 0 && onHero === covers.length && placeholder === 0,
+      `封面 404 时卡片退到宽图（${onHero}/${covers.length} 张的 src 是 library_hero.jpg，占位 ${placeholder} 张，其中 ${withArt} 张已下载完）`,
     );
     await page.send("Fetch.disable");
   } finally {

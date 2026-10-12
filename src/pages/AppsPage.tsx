@@ -236,7 +236,9 @@ function AppCard({
           {displayAppMark(app.id, app.mark, currentLocale())}
         </span>
       )}
-      <span className="library-name">{title}</span>
+      <span className="library-name">
+        <span className="library-name-text">{title}</span>
+      </span>
     </button>
   );
 }
