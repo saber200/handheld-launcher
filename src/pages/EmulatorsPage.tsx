@@ -18,6 +18,8 @@ import { FolderPicker } from "../files/FolderPicker";
 import { RefreshIcon } from "../components/NavIcons";
 import { text } from "../i18n";
 import { formatSize } from "../library/format";
+import { RomsPanel } from "../emulators/RomsPanel";
+import { taskCtx } from "../files/tasks/env";
 import {
   PREVIEW_EMULATORS,
   PREVIEW_EMULATOR_ROOT,
@@ -45,6 +47,8 @@ export type EmulatorStatus = {
   installed: boolean;
   version: string;
   dir: string;
+  /** ROM 根（`<非系统盘>:\Emulation\ROMs`）下这个平台的子目录名。 */
+  romDir: string;
   exe: string;
   bytes: number;
   /** macOS / 浏览器预览里为 false。 */
@@ -89,6 +93,15 @@ export function EmulatorsPage() {
   const [measuring, setMeasuring] = useState(false);
   /** `id` 非空 = 正在等二次确认的那张卡（卸载会连存档一起删，必须问一次）。 */
   const [confirming, setConfirming] = useState("");
+  /**
+   * 「游戏列表」面板开着的时候，这里是那张卡。
+   *
+   * ROM 根（`<非系统盘>:\Emulation\ROMs`）跟「导入 ROM」那个任务**读的是同一处**
+   * （`taskCtx().dirs.roms`，底下再拼平台子目录 `row.romDir`）—— 两处各算一遍迟早会出现
+   * 「导入到 A、列表看 B」。
+   */
+  const [romsFor, setRomsFor] = useState<EmulatorStatus | null>(null);
+  const [romRoot, setRomRoot] = useState("");
   const [picking, setPicking] = useState(false);
   const { id: installingId, progress } = useEmulatorProgress();
 
@@ -226,6 +239,16 @@ export function EmulatorsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  const openRoms = useCallback(async (row: EmulatorStatus) => {
+    try {
+      const ctx = await taskCtx();
+      setRomRoot(ctx.dirs.roms);
+    } catch {
+      setRomRoot("");
+    }
+    setRomsFor(row);
+  }, []);
 
   const openFolder = useCallback(
     async (row: EmulatorStatus) => {
@@ -477,6 +500,17 @@ export function EmulatorsPage() {
                     >
                       {row.installed ? t.reinstall : t.install}
                     </button>
+                    {/* 「游戏列表」：列的是这个平台的 ROM 目录，和模拟器装没装无关，
+                        所以不跟着 installed 走。在线来源接上之前，里面只有本机已有的文件。 */}
+                    <button
+                      type="button"
+                      className="emu-btn"
+                      data-focusable
+                      disabled={isBusy}
+                      onClick={() => void openRoms(row)}
+                    >
+                      {t.roms}
+                    </button>
                     {row.installed && (
                       <>
                         <button
@@ -555,6 +589,14 @@ export function EmulatorsPage() {
       </div>
 
       {!loaded && rows.length === 0 && <p className="emu-note-line">{t.phaseResolve}</p>}
+
+      {romsFor && (
+        <RomsPanel
+          title={romsFor.name}
+          dir={romRoot ? `${romRoot}\\${romsFor.romDir}` : ""}
+          onClose={() => setRomsFor(null)}
+        />
+      )}
 
       {picking && (
         <FolderPicker

@@ -836,6 +836,81 @@ const scanTabs = async () => {
         const sw = cards.find((c) => c.badge === "NS");
         note(!!sw && sw.emulator.includes("Eden"),
           `模拟器：Switch 卡用的是 Eden（实测「${sw ? sw.emulator : "-"}」）`);
+
+        /*
+         * 「游戏列表」那一页（2026-10-12 用户要求：ROM 下载先不做，「留下列表页面就可以」）。
+         *
+         * 两条：① 六张卡都有这颗按钮；② 点开之后面板里**有 ROM 目录路径 + 一句如实的「来源还没接」**，
+         * 而且**没有任何下载按钮**（这一版不摆按了没反应的假按钮）。
+         * 顺带钉住目录名的一致性：ps2 / switch / retro 三个与「导入 ROM」那张表重叠的平台，
+         * 两边的子目录名必须同一个字符串（导入到 A、列表看 B 是最难查的那种 bug）。
+         */
+        const roms = await page.eval(`
+          const cards = [...document.querySelectorAll('.emu-card')];
+          const buttons = cards.map((card) => {
+            const btn = [...card.querySelectorAll('.emu-actions .emu-btn')].find((b) =>
+              (b.textContent || '').includes('游戏列表'),
+            );
+            return btn ? (card.querySelector('.emu-badge')?.textContent || '').trim() : null;
+          });
+          const first = cards[1]?.querySelector('.emu-actions .emu-btn:not(.is-primary)');
+          // 点开第一张卡（PS2）的「游戏列表」
+          [...cards[1].querySelectorAll('.emu-btn')]
+            .find((b) => (b.textContent || '').includes('游戏列表'))
+            ?.click();
+          await new Promise((r) => setTimeout(r, 600));
+          const panel = document.querySelector('.roms-panel');
+          const rows = panel ? [...panel.querySelectorAll('.k4-row-item')].length : -1;
+          const downloadish = panel
+            ? [...panel.querySelectorAll('button')].filter((b) =>
+                /下载|Download/i.test(b.textContent || ''),
+              ).length
+            : -1;
+          return {
+            withButton: buttons.filter(Boolean),
+            panelOpen: !!panel,
+            text: panel ? (panel.textContent || '') : '',
+            rows,
+            downloadish,
+          };
+        `);
+        note(roms.withButton.length === 6,
+          `模拟器：6 张卡都有「游戏列表」（实测 ${roms.withButton.length} 张：${roms.withButton.join("、")}）`);
+        note(roms.panelOpen && roms.text.includes("ROM") && /来源还没接|No online source/.test(roms.text),
+          `模拟器：游戏列表面板能打开、有 ROM 目录与「来源还没接」说明（行数 ${roms.rows}）`);
+        note(roms.downloadish === 0,
+          `模拟器：游戏列表里没有下载按钮（这一版不摆假按钮，实测 ${roms.downloadish} 个）`);
+        if (SHOTS) {
+          const box = await page.eval(`
+            const panel = document.querySelector('.roms-panel');
+            if (!panel) return null;
+            const r = panel.getBoundingClientRect();
+            return { x: r.x, y: r.y, width: r.width, height: r.height, scale: 2 };
+          `);
+          if (box) await page.shot(join(SHOTS, "roms-panel.png"), box);
+        }
+
+        // 目录名一致性：模拟器卡上的 `romDir` 与「导入 ROM」那张表的 `folder`
+        // 必须是同一个字符串（重叠的是 ps2 / switch / retro）—— 导入到 A、列表看 B
+        // 是最难查的那种 bug，所以拿真表比一遍。
+        const dirs = await page.eval(`
+          const preview = await import('/src/data/previewEmulators.ts');
+          const meta = await import('/src/files/taskMeta.ts');
+          const table = new Map(meta.ROM_PLATFORMS.map((row) => [row.key, row.folder]));
+          return preview.PREVIEW_EMULATORS.map((row) => ({
+            id: row.id,
+            romDir: row.romDir,
+            table: table.get(row.id) ?? null,
+          }));
+        `);
+        const overlap = dirs.filter((d) => d.table !== null);
+        const mismatched = overlap.filter((d) => d.romDir !== d.table);
+        note(
+          overlap.length === 3 && mismatched.length === 0,
+          `模拟器：ROM 目录名与「导入 ROM」表一致（重叠 ${overlap.length} 个：${overlap
+            .map((d) => d.id)
+            .join("、")}${mismatched.length ? "；不一致：" + mismatched.map((d) => d.id).join("、") : ""}）`,
+        );
       }
 
       /*

@@ -770,6 +770,16 @@ export type Catalog = {
     uninstallConfirm: string;
     uninstallYes: string;
     uninstallNo: string;
+    /** 「游戏列表」面板（这一版只有列表，下载源还没接）。 */
+    roms: string;
+    romsTitle: (platform: string) => string;
+    romsDir: (dir: string) => string;
+    romsNoDrive: string;
+    romsOpenDir: string;
+    romsLoading: string;
+    romsEmpty: string;
+    /** 来源那一行：如实说还没接，别摆假按钮。 */
+    romsSourcePending: string;
     /** 手动项（RPCS3 / Switch）：打不开官网时至少给个地址。 */
     openSite: string;
     manualTag: string;
@@ -1527,6 +1537,15 @@ export const zh: Catalog = {
     uninstallConfirm: "卸载会连同这个模拟器目录里的存档一起删掉，确定？",
     uninstallYes: "确认卸载",
     uninstallNo: "再想想",
+    roms: "游戏列表",
+    romsTitle: (platform) => `${platform} · 游戏列表`,
+    romsDir: (dir) => `ROM 目录：${dir}`,
+    romsNoDrive: "这台机器上还没定位到放 ROM 的盘（要一块非系统盘）。",
+    romsOpenDir: "打开 ROM 目录",
+    romsLoading: "正在读目录…",
+    romsEmpty: "这个目录里还没有文件。把 ROM 放进去，或者等在线来源接上。",
+    romsSourcePending:
+      "在线来源还没接（正在找可用的源）。这一版只列本机已有的文件 —— 接上之后这里每一行会多一颗下载按钮。",
     openSite: "打开官网",
     manualTag: "手动安装",
     stateInstalled: (version, size) => `已安装${version ? ` · ${version}` : ""}${size ? ` · ${size}` : ""}`,
@@ -2274,6 +2293,15 @@ export const en: Catalog = {
     uninstallConfirm: "Uninstalling deletes the saves inside that emulator folder too. Sure?",
     uninstallYes: "Uninstall",
     uninstallNo: "Keep it",
+    roms: "Game list",
+    romsTitle: (platform) => `${platform} · game list`,
+    romsDir: (dir) => `ROM folder: ${dir}`,
+    romsNoDrive: "No non-system drive to hold ROMs was found on this machine.",
+    romsOpenDir: "Open ROM folder",
+    romsLoading: "Reading the folder…",
+    romsEmpty: "Nothing in this folder yet — drop ROMs in, or wait for an online source.",
+    romsSourcePending:
+      "No online source yet (still hunting for a usable one). This build only lists what's already on disk — once a source is wired up, every row gets a download button.",
     openSite: "Open website",
     manualTag: "Manual install",
     stateInstalled: (version, size) => `Installed${version ? ` · ${version}` : ""}${size ? ` · ${size}` : ""}`,

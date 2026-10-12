@@ -165,6 +165,13 @@ struct EmulatorDef {
     desc: (&'static str, &'static str),
     /// 安装根目录下的子目录名。
     dir: &'static str,
+    /// ROM 落在 `<非系统盘>:\Emulation\ROMs\<rom_dir>` 下。
+    ///
+    /// 为什么放在这张表里：这是「这个模拟器吃哪个目录的 ROM」的**唯一事实来源** ——
+    /// 前端那张「导入 ROM」的分组表（`src/files/taskMeta.ts` 的 `ROM_PLATFORMS`）也用同一套
+    /// 目录名，三处（导入 / 预览标签 / 本页的游戏列表）必须是同一个字符串。
+    /// 探针里有一条断言盯着：重叠的三种（ps2 / switch / retro）两边必须一致。
+    rom_dir: &'static str,
     /// 主程序 exe 的文件名（**核验用**：解压完必须能找到它，找不到就当这次失败）。
     exe: &'static str,
     /// 主程序相对安装目录的路径（`exe` 在子目录里时用，如 shadPS4 的 `shadPS4.exe` 就在根）。
@@ -297,6 +304,7 @@ const CATALOG: &[EmulatorDef] = &[
             "The most compatible PS2 emulator. Official Windows build.",
         ),
         dir: "PCSX2",
+        rom_dir: "ps2",
         exe: "pcsx2-qt.exe",
         exe_rel: "pcsx2-qt.exe",
         note: None,
@@ -321,6 +329,7 @@ const CATALOG: &[EmulatorDef] = &[
             "PS3 emulator. No stable builds — you get the newest official rolling build.",
         ),
         dir: "RPCS3",
+        rom_dir: "ps3",
         exe: "rpcs3.exe",
         exe_rel: "rpcs3.exe",
         note: None,
@@ -353,6 +362,7 @@ const CATALOG: &[EmulatorDef] = &[
             "Switch emulator — Eden, after Ryujinx was taken down.",
         ),
         dir: "Eden",
+        rom_dir: "switch",
         exe: "eden.exe",
         exe_rel: "eden.exe",
         note: Some((
@@ -393,6 +403,7 @@ const CATALOG: &[EmulatorDef] = &[
             "PS4 emulator. Still early — only a handful of commercial games boot.",
         ),
         dir: "shadPS4",
+        rom_dir: "ps4",
         exe: "shadPS4.exe",
         exe_rel: "shadPS4.exe",
         note: None,
@@ -418,6 +429,7 @@ const CATALOG: &[EmulatorDef] = &[
             "Arcade emulator. Official self-extracting Windows package.",
         ),
         dir: "MAME",
+        rom_dir: "arcade",
         exe: "mame.exe",
         exe_rel: "mame.exe",
         note: None,
@@ -457,6 +469,7 @@ const CATALOG: &[EmulatorDef] = &[
             "One frontend with many cores — NES through PSP. Cores are a separate download.",
         ),
         dir: "RetroArch",
+        rom_dir: "retro",
         exe: "retroarch.exe",
         exe_rel: "retroarch.exe",
         note: None,
@@ -1044,6 +1057,8 @@ pub struct EmulatorStatus {
     pub installed: bool,
     pub version: String,
     pub dir: String,
+    /// ROM 根下这个平台的子目录名（见 `EmulatorDef::rom_dir`）。
+    pub rom_dir: String,
     pub exe: String,
     /// 已占用的字节数（没装 = 0）。按需量，见 `with_size`。
     pub bytes: u64,
@@ -1112,6 +1127,7 @@ fn status_for(
             String::new()
         },
         dir: dir.to_string_lossy().to_string(),
+        rom_dir: def.rom_dir.to_string(),
         exe: exe.to_string_lossy().to_string(),
         bytes: if installed {
             entry.map(|entry| entry.bytes).unwrap_or(0)
