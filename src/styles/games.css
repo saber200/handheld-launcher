@@ -342,6 +342,17 @@
   height: calc(13 * var(--dp));
 }
 
+/*
+ * 装 Mod 那个面板（`.group-dialog-panel.group-create-panel`）：**再短也不许顶到屏幕上下边**。
+ *
+ * 用户 2026-10-12 的真机照片里，它内容太长、要滚动，滚到下面时顶上一行是**被切掉半行**的
+ * （看着像"面板超出了屏幕"）。内容侧已经大幅收短（术语折进「显示详情」、版本只留首选那一版），
+ * 这里再留一道硬闸：最大高度按窗口减掉两倍安全距 —— 宁可内部滚动，也不要贴边。
+ */
+.group-dialog-panel.group-create-panel {
+  max-height: calc(100vh - 96 * var(--dp));
+}
+
 .k1-run-dot {
   position: absolute;
   top: calc(8 * var(--dp));

@@ -279,6 +279,11 @@ export type Catalog = {
     modsArch: (name: string) => string;
     modsRunning: string;
     modsWarn: string;
+    /** Mod 面板：技术说明折叠开关 + 版本折叠（用户要求"就一个选择、一个安装"）。 */
+    modsShowDetails: string;
+    modsHideDetails: string;
+    modsMoreVersions: (count: number) => string;
+    modsFewerVersions: string;
     modsInstall: string;
     modsReinstall: string;
     modsUninstall: string;
@@ -1069,6 +1074,10 @@ export const zh: Catalog = {
     modsArch: (name) => `${name} 是 32 位程序，OptiScaler 只有 64 位版，装进去游戏会起不来。`,
     modsRunning: "游戏正在运行，先退出再装。",
     modsWarn: "联机游戏（带反作弊）不要装：可能被判违规。装完如果游戏打不开，用「卸载并还原」退回。",
+    modsShowDetails: "显示详情",
+    modsHideDetails: "收起详情",
+    modsMoreVersions: (count) => `其他版本（${count}）`,
+    modsFewerVersions: "收起版本",
     modsInstall: "安装",
     modsReinstall: "重新安装 / 更新",
     modsUninstall: "卸载并还原",
@@ -1819,6 +1828,10 @@ export const en: Catalog = {
     modsArch: (name) => `${name} is 32-bit. OptiScaler is x64-only and would stop the game from starting.`,
     modsRunning: "The game is running. Quit it first.",
     modsWarn: "Don't install into online games with anti-cheat: you may be flagged. If the game stops launching, use \"Uninstall and restore\".",
+    modsShowDetails: "Show details",
+    modsHideDetails: "Hide details",
+    modsMoreVersions: (count) => `Other versions (${count})`,
+    modsFewerVersions: "Fewer versions",
     modsInstall: "Install",
     modsReinstall: "Reinstall / update",
     modsUninstall: "Uninstall and restore",

@@ -195,6 +195,14 @@ export function LibraryShelf<T extends Item>({
   const [modLoading, setModLoading] = useState(false);
   const [modHook, setModHook] = useState(DEFAULT_MOD_HOOK);
   const [modVersions, setModVersions] = useState<ModVersion[]>([]);
+  /*
+   * 默认**不给用户看术语**（用户 2026-10-12 真机照片：「其实你这些主程序啥的一对说明有什么用呢？
+   * 用户又看不懂，你就一个选择一个安装不就好了吗？」）。
+   * 技术细节（装到哪个目录、主程序是谁、注入名候选、已经有个 dxgi.dll…）全部折到「显示详情」后面：
+   * 它们对排查有用，但对"我只想装上"的人是噪音 —— 而且面板太长会在掌机上一屏放不下、两头被切。
+   */
+  const [modDetails, setModDetails] = useState(false);
+  const [modMoreVersions, setModMoreVersions] = useState(false);
   // null = 装最新（默认）。选老版本时才带上 tag。
   const [modTag, setModTag] = useState<string | null>(null);
   const [modBusy, setModBusy] = useState(false);
@@ -819,28 +827,32 @@ export function LibraryShelf<T extends Item>({
             {modLoading && <p className="group-empty">{text().library.modsLoading}</p>}
             {!modLoading && (
               <>
-                <p className="group-empty">
-                  {modState?.dir ? text().library.modsDir(modState.dir) : text().library.modsNoDir}
-                </p>
-                {modState?.dir && (
+                {modDetails && (
+                  <p className="group-empty">
+                    {modState?.dir ? text().library.modsDir(modState.dir) : text().library.modsNoDir}
+                  </p>
+                )}
+                {modDetails && modState?.dir && (
                   <p className="group-empty">
                     {modState.exe
                       ? text().library.modsExe(modState.exe)
                       : text().library.modsNoExe}
                   </p>
                 )}
-                <p className="group-empty">
-                  {modState?.installed
-                    ? modState.version
-                      ? text().library.modsInstalled(modState.version, modState.hook ?? modHook)
-                      : text().library.modsInstalledLegacy
-                    : text().library.modsHookHint}
-                </p>
+                {modDetails && (
+                  <p className="group-empty">
+                    {modState?.installed
+                      ? modState.version
+                        ? text().library.modsInstalled(modState.version, modState.hook ?? modHook)
+                        : text().library.modsInstalledLegacy
+                      : text().library.modsHookHint}
+                  </p>
+                )}
                 {/*
                   这个游戏会加载哪些名字：读它自己的导入表算出来的（不是按游戏名打表），
                   所以「换一个游戏就要改一次代码」这件事不再发生 —— 用户看到的默认值就是对的。
                 */}
-                {!modState?.installed && (modState?.hookCandidates?.length ?? 0) > 0 && (
+                {modDetails && !modState?.installed && (modState?.hookCandidates?.length ?? 0) > 0 && (
                   <p className="group-empty">
                     {text().library.modsCandidates((modState?.hookCandidates ?? []).join(" / "))}
                   </p>
@@ -865,7 +877,7 @@ export function LibraryShelf<T extends Item>({
                   注入名按钮：没装时是「选哪个装」，装了但没加载上时是「换一个再试」——
                   后者才是关键：用户不用等我们改代码，自己点一下就换下一个名字。
                 */}
-                {(!modState?.installed || !modState.logSeen) && (
+                {modDetails && (!modState?.installed || !modState.logSeen) && (
                   <div className="library-tools">
                     {(() => {
                       // 会加载的名字排前面（它们才可能生效），其余按官方顺序跟在后面。
@@ -930,12 +942,12 @@ export function LibraryShelf<T extends Item>({
                       </button>
                     </div>
                   )}
-                {modState?.triedHooks && modState.triedHooks.length > 0 && (
+                {modDetails && modState?.triedHooks && modState.triedHooks.length > 0 && (
                   <p className="group-empty">
                     {text().library.modsTried(modState.triedHooks.join(" → "))}
                   </p>
                 )}
-                {modState?.arch && (
+                {modDetails && modState?.arch && (
                   <p className="group-empty">{text().library.modsArch(modState.arch)}</p>
                 )}
                 {modState?.running && <p className="group-empty">{text().library.modsRunning}</p>}
@@ -948,7 +960,19 @@ export function LibraryShelf<T extends Item>({
                       // 默认选中的是**首选那一版**：没点过（modTag = null）时有自带版就是它，
                       // 没有才是官方最新；点过哪一版之后就按点的那一版走。
                       const hasBundled = modVersions.some((entry) => entry.bundled);
-                      return modVersions.map((entry) => {
+                      // 默认**只画首选那一版 + 一颗「其他版本」**（用户 2026-10-12：「你就一个选择
+                      // 一个安装不就好了吗」）：五个版本号并排摆着，对"我只想装上"的人就是决策负担。
+                      const preferred = modVersions.find((entry) =>
+                        modTag === null
+                          ? entry.bundled || (!hasBundled && entry.latest)
+                          : modTag === entry.tag,
+                      );
+                      const shown = modMoreVersions
+                        ? modVersions
+                        : preferred
+                          ? [preferred]
+                          : modVersions.slice(0, 1);
+                      return shown.map((entry) => {
                         const current =
                           modTag === null
                             ? entry.bundled || (!hasBundled && entry.latest)
@@ -970,8 +994,19 @@ export function LibraryShelf<T extends Item>({
                         );
                       });
                     })()}
+                    <button
+                      type="button"
+                      className="library-tool"
+                      data-focusable
+                      onClick={() => setModMoreVersions((open) => !open)}
+                    >
+                      {modMoreVersions
+                        ? text().library.modsFewerVersions
+                        : text().library.modsMoreVersions(modVersions.length - 1)}
+                    </button>
                   </div>
                 )}
+                {/* 联机游戏那一条警告**留着**（它是安全提醒，不是术语）。 */}
                 <p className="group-empty">{text().library.modsWarn}</p>
               </>
             )}
@@ -987,6 +1022,15 @@ export function LibraryShelf<T extends Item>({
               </p>
             )}
             <div className="library-tools">
+              {/* 详情开关：默认收起。这一行是日常动作区，它是"排查时才看"，所以放这儿但不抢眼。 */}
+              <button
+                type="button"
+                className="library-tool"
+                data-focusable
+                onClick={() => setModDetails((open) => !open)}
+              >
+                {modDetails ? text().library.modsHideDetails : text().library.modsShowDetails}
+              </button>
               <button type="button" className="library-tool" data-focusable onClick={closeModPanel}>
                 {text().library.modsClose}
               </button>

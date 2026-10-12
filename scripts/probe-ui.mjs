@@ -875,6 +875,64 @@ const scanTabs = async () => {
           const restored = !!document.querySelector(sel + ' .library-mod-badge');
           return { before, after, restored };
         `);
+        /*
+         * 装 Mod 面板：**默认只有"一个版本 + 安装"**（用户 2026-10-12 真机照片：「其实你这些
+         * 主程序啥的一对说明有什么用呢？用户又看不懂，你就一个选择一个安装不就好了吗？」），
+         * 而且面板盒子必须**整个在屏幕里**（照片里它长到顶上一行被切掉半行）。
+         */
+        const modPanel = await page.eval(`
+          // 打开卡片菜单 → 点「安装 Mod / 工具」
+          document.querySelector('.k1-actions .k1-btn.is-icon')?.click();
+          await new Promise((r) => setTimeout(r, 400));
+          const entry = [...document.querySelectorAll('.card-menu button')].find((b) =>
+            /安装 Mod|Install Mod/.test(b.textContent || ''),
+          );
+          entry?.click();
+          await new Promise((r) => setTimeout(r, 600));
+          const panel = document.querySelector('.group-create-panel');
+          if (!panel) return null;
+          const r = panel.getBoundingClientRect();
+          const dllButtons = [...panel.querySelectorAll('button')].filter((b) =>
+            /\.dll/.test(b.textContent || ''),
+          ).length;
+          const versionish = [...panel.querySelectorAll('button')].filter((b) =>
+            /^(v\d|自带版|Bundled)/.test((b.textContent || '').trim()),
+          ).length;
+          return {
+            fits: r.top >= 0 && r.bottom <= window.innerHeight && r.left >= 0 && r.right <= window.innerWidth,
+            top: +r.top.toFixed(1),
+            bottom: +r.bottom.toFixed(1),
+            viewportH: window.innerHeight,
+            dllButtons,
+            versionish,
+            hasDetails: [...panel.querySelectorAll('button')].some((b) =>
+              /显示详情|Show details/.test(b.textContent || ''),
+            ),
+          };
+        `);
+        // 量完**把面板关掉** —— 留着它会挡住后面"按 B 呼出卡片菜单"那条断言（本机实测踩到：
+        // 面板还开着时，菜单按钮点下去什么都不发生，那条断言就假红）。
+        await page.eval(`
+          const panel = document.querySelector('.group-create-panel');
+          const closeBtn = [...(panel?.querySelectorAll('button') ?? [])].find((b) =>
+            /^(关闭|Close)$/.test((b.textContent || '').trim()),
+          );
+          closeBtn?.click();
+          await new Promise((r) => setTimeout(r, 300));
+          return true;
+        `);
+        note(
+          !!modPanel && modPanel.fits,
+          modPanel
+            ? `装 Mod 面板整个在屏幕里（顶 ${modPanel.top} / 底 ${modPanel.bottom} / 视口高 ${modPanel.viewportH}）`
+            : "装 Mod 面板没打开（量不到 .group-create-panel）",
+        );
+        note(
+          !!modPanel && modPanel.dllButtons === 0 && modPanel.versionish <= 1 && modPanel.hasDetails,
+          modPanel
+            ? `装 Mod 面板默认不给术语（.dll 按钮 ${modPanel.dllButtons} 个、版本按钮 ${modPanel.versionish} 个 ≤1、有「显示详情」=${modPanel.hasDetails}）`
+            : "装 Mod 面板没打开，量不到默认视图",
+        );
         note(
           !!live && live.before && !live.after && live.restored,
           live
