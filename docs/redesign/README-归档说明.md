@@ -13,7 +13,7 @@
 
 | 材料 | 落点 |
 | --- | --- |
-| 规格书 §1 导航 / §2 圆角间距 / §12 令牌 / §13 焦点 | `src/styles/tokens.css`、`src/styles/shell.css`、`src/types.ts`、`src/App.tsx`（M0 已完成） |
+| 规格书 §1 导航 / §2 圆角间距 / §12 令牌 / §13 焦点 | `src/styles/tokens.css`、`src/styles/shell.css`、`src/types.ts`、`src/App.tsx`（M0 已完成）。**§1 的「左侧竖排侧栏」在 2026-10-12 被用户改回顶部页签条**（换页只有 LB/RB 与 Q/E、整条不可聚焦）——规格书原样归档不改，改动理由与取舍记在 `FRONTEND.md` 的「未发布（0.1.72）」 |
 | §11 缩放 | `src/styles/scale.ts`（**没有照抄表里的物理 px**，理由见该文件顶部注释） |
 | §3 游戏库 K1 | M1，落点 `src/components/LibraryShelf.tsx` + `src/pages/GamesPage.tsx` |
 | §4 软件库 K2 | M2（「预置可安装」需要新数据源，先只做已装来源） |

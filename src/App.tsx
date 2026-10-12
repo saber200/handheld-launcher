@@ -10,18 +10,23 @@ import { ToolboxPage } from "./pages/ToolboxPage";
 import { SettingsPage, closePowerMenu } from "./pages/SettingsPage";
 import { BootSplash } from "./components/BootSplash";
 import { GamepadKeyboard } from "./components/GamepadKeyboard";
-import { closeGamepadKeyboard, focusContentLanding, focusRail, gamepadKeyboardOpen, moveDirectionalFocus, steerFocus, useGamepadNav } from "./hooks/useGamepadNav";
+import {
+  closeGamepadKeyboard,
+  focusContentLanding,
+  gamepadKeyboardOpen,
+  moveDirectionalFocus,
+  SHELL_NAV_ZONE,
+  steerFocus,
+  useGamepadNav,
+} from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
 import { useFileJobs } from "./files/useFileJobs";
 import { libraryActions } from "./library/actions";
 import { NAV, NAV_ROUTES, type TabId } from "./types";
 import {
   BatteryIcon,
-  FolderOpenIcon,
-  GamepadIcon,
   LockIcon,
   NavIcon,
-  SearchIcon,
 } from "./components/NavIcons";
 import { KeyCap } from "./components/KeyCap";
 import { text, useI18n } from "./i18n";
@@ -36,14 +41,15 @@ import { driveTotal, useDriveSpace } from "./system/drives";
  * 任务模型。这一版**只放入口和一句实话**：摆一排假卡片、按下去没反应，比明说"排期中"更糟。
  */
 /**
- * 侧栏「文件」入口上的进度环（改造包 §4.2）。
+ * 「文件」页签上的进度环（改造包 §4.2）。
  *
- * 为什么只改侧栏这一处：用户切去游戏库看一眼的时候，恰恰是最需要知道「还在搬」的时刻 ——
- * 而这一版的任务进度只画在文件页里，切走就看不见。侧栏是**每一页都在**的那块地方。
+ * 为什么只改这一处：用户切去游戏库看一眼的时候，恰恰是最需要知道「还在搬」的时刻 ——
+ * 而这一版的任务进度只画在文件页里，切走就看不见。页签条是**每一页都在**的那块地方
+ * （0.1.71 之前这句话说的是侧栏，2026-10-11 菜单搬去顶栏，落点跟着搬）。
  *
  * 多任务时显示的是总体进度（字节加权；算不出字节就按条数），和任务中心一个口径。
  */
-function RailProgress() {
+function TabProgress() {
   const jobs = useFileJobs().filter((job) => job.phase === "scan" || job.phase === "run");
   if (jobs.length === 0) return null;
   const totalBytes = jobs.reduce((sum, job) => sum + Math.max(job.totalBytes, 0), 0);
@@ -123,7 +129,7 @@ export default function App() {
   const dateText = now.toLocaleDateString(clockLocale, { weekday: "short", month: "numeric", day: "numeric" });
 
   /**
-   * 刚从侧栏（或 LB/RB）换了页：等新页渲染出来，把焦点落进它的内容区。
+   * 换页（LB/RB、点页签）之后把焦点落进新页的内容区。
    *
    * 为什么不能立刻落：页面是按 tab 重新挂载的，`setTab` 那一刻 DOM 里还是旧页。
    */
@@ -133,7 +139,8 @@ export default function App() {
     let tries = 0;
     const attempt = () => {
       tries += 1;
-      // 内容区可能还没渲染完（数据没到），试几次；试不到就作罢（焦点留在菜单上，再按 A 还能进）。
+      // 内容区可能还没渲染完（数据没到），试几次；试不到就作罢 —— 下一次按方向键会走
+      // `moveDirectionalFocus` 里「焦点不在池子里」那条兜底，它落的也是同一处落地页。
       if (focusContentLanding() || tries >= 10) return;
       window.setTimeout(attempt, 60);
     };
@@ -146,10 +153,22 @@ export default function App() {
     landInContent();
   }, [tab, landInContent]);
 
+  /**
+   * 开场动画放完（手柄导航正是这一刻启用）→ 把焦点送进内容区。
+   *
+   * 菜单退出焦点系统之后，启动器**没有「默认停在菜单上」这个状态了**：不主动落一次，
+   * 开机后第一次按方向键走的就是「焦点不在池子里」那条兜底。落点与换页同一条规矩
+   * （当前那张卡 → 当前选中项 → 内容区第一项），用户看到的第一个焦点环就在正中间那张卡上。
+   */
+  useEffect(() => {
+    if (intro !== "done") return;
+    landInContent();
+  }, [intro, landInContent]);
+
   const shiftTab = useCallback((dir: -1 | 1) => {
     if (fileActions().blocksTabs?.()) return;
-    // 换页之后焦点也落进新页：不然焦点留在被卸载的旧页上，下一次方向键会从「第一个
-    // 可聚焦项」（那是侧栏）重新开始，和「方向键只在域内走」这条规矩打架。
+    // 换页之后焦点也落进新页：不然焦点留在被卸载的旧页上，下一次方向键会从「池子里第一个
+    // 可聚焦项」（现在是这一页的第一颗按钮，而不是当前那张卡）重新开始。
     landNext.current = true;
     setTab((current) => {
       // 只在可进入的分区里循环：商店 / 社区是锁定项，LB/RB 必须跳过（改造包 §1.1）。
@@ -209,10 +228,11 @@ export default function App() {
   }, []);
 
   /**
-   * Back（手柄 B / 键盘 B）按一下做的事，按优先级来：先关弹层，最后才是「回菜单」。
+   * Back（手柄 B / 键盘 B）按一下做的事：按优先级关掉最上面那一层。
    *
-   * 为什么最后那一步必须有：菜单和列表已经拆成两个焦点域，方向键**过不去**
-   * （用户 2026-10-11 要求），没有这条回路菜单就再也进不去了。
+   * 0.1.71 之前最后还有一步「回菜单」（`focusRail()`）。2026-10-11 菜单改成顶部页签条、
+   * 整条退出焦点系统之后，这一步没有落点了 —— 菜单里一个可聚焦元素都没有，焦点也没有
+   * 「回菜单」这个状态。所以 B 现在只管关弹层；没弹层可关时什么都不做。
    */
   const backOnce = useCallback(() => {
     if (closePowerMenu()) return;
@@ -223,7 +243,6 @@ export default function App() {
       closeSettings();
       return;
     }
-    focusRail();
   }, [closeSettings, settingsOpen]);
 
   useEffect(() => {
@@ -390,7 +409,60 @@ export default function App() {
       <header className="top-bar">
         <span className="top-clock tnum">{clock}</span>
         <span className="top-date">{dateText}</span>
-        <h1 className="top-title">{m.tabs[tab]}</h1>
+        {/*
+         * 分区页签条 —— 原来的左侧栏菜单（用户 2026-10-11：「直接把 menu 改成顶部的切换…
+         * 直接使用 RB 和 LB 来切换，不允许聚焦就可以了」）。
+         *
+         * **这一条是规矩，别往回调**：里面一个 `data-focusable` 都不许有 —— 只要页签能聚焦，
+         * 它就又成了一个焦点域，方向键迟早会从落地页跑回菜单（0.1.71 那版侧栏实测两条路：
+         * 焦点掉出池子时落到池子第一项、而池子按 DOM 排序第一项永远是菜单；页面元素没包
+         * 焦点域时上下跨域的候选里也含着菜单）。换页只有两条路：手柄 LB/RB、键盘 Q/E。
+         * 探针（scripts/probe-ui.mjs）逐页盯着「页签条里 0 个可聚焦元素」。
+         */}
+        <nav className="nav-items" data-focus-zone={SHELL_NAV_ZONE} aria-label={m.tabs.menu} role="tablist">
+          {NAV.map((item) => {
+            const label = m.tabs[item.id];
+            const current = tab === item.id;
+            const locked = item.locked === true;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={current}
+                // 锁定项（商店 / 社区）：读屏播报「不可用」，但**不进 [data-focusable]**、
+                // 不进 Tab 顺序、点了不弹任何提示 —— 禁用入口不该有任何可交互反馈。
+                aria-label={locked ? m.shell.lockedAria(label) : undefined}
+                tabIndex={-1}
+                className={`nav-item${current ? " is-current" : ""}${locked ? " is-locked" : ""}`}
+                // 触摸屏点一下要能换页，但**不许把 DOM 焦点留在页签上** —— 焦点一离开内容区，
+                // 下一次方向键就得重新找落点（那正是这一版要根治的东西）。
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  if (locked) return;
+                  if (item.id === tab) {
+                    // 点当前这一页：把焦点送回内容区（原来「在菜单上按 A」就是这个意思）。
+                    landInContent();
+                    return;
+                  }
+                  playSfx("tab");
+                  landNext.current = true;
+                  setTab(item.id);
+                }}
+              >
+                <NavIcon id={item.id} />
+                <span className="nav-label">{label}</span>
+                {/* 页签条唯一为任务层加的东西：文件入口上的进度环（改造包 §4.2）。 */}
+                {item.id === "files" && <TabProgress />}
+                {locked && (
+                  <span className="nav-lock" aria-hidden>
+                    <LockIcon />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
         <div className="top-bar-right">
           {/* 电量只有真读到才显示：WebView2 没有电池接口时这一格整块不出现 */}
           {battery !== null && (
@@ -402,91 +474,6 @@ export default function App() {
         </div>
       </header>
       <div className="shell-body">
-        <nav className="nav-rail" data-focus-zone="shell-rail" aria-label={m.tabs.menu}>
-          <div className="rail-brand">
-            <span className="rail-brand-mark" aria-hidden>
-              <GamepadIcon />
-            </span>
-            <span className="rail-brand-text">
-              <strong>{m.productName}</strong>
-              <small>{m.shell.brandTagline}</small>
-            </span>
-          </div>
-          {/* 全局搜索还没接真能力（要跨游戏库/软件库/文件聚合），先只做视觉占位：
-              aria-hidden 且不 focusable —— 不做按了没反应的假按钮。 */}
-          <div className="rail-search" aria-hidden>
-            <SearchIcon />
-            <span>{m.shell.searchPlaceholder}</span>
-          </div>
-          <div className="rail-items" role="tablist" aria-label={m.tabs.menu}>
-            {NAV.map((item) => {
-              const label = m.tabs[item.id];
-              const current = tab === item.id;
-              const locked = item.locked === true;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={current}
-                  // 锁定项（商店 / 社区）：读屏播报「不可用」，但**不进 [data-focusable]**、
-                  // 不进 Tab 顺序、点了不弹任何提示 —— 禁用入口不该有任何可交互反馈。
-                  aria-label={locked ? m.shell.lockedAria(label) : undefined}
-                  data-focusable={locked ? undefined : true}
-                  tabIndex={locked ? -1 : undefined}
-                  className={`nav-item${current ? " is-current" : ""}${locked ? " is-locked" : ""}`}
-                  onClick={() => {
-                    if (locked) return;
-                    // A 在这一行上的含义就是「落进右边那一页」，所以同一页也要落
-                    //（用户要求：方向键不过去，只有按下去才到右侧的落地页）。
-                    if (item.id === tab) {
-                      landInContent();
-                      return;
-                    }
-                    playSfx("tab");
-                    landNext.current = true;
-                    setTab(item.id);
-                  }}
-                >
-                  <NavIcon id={item.id} />
-                  <span className="nav-label">{label}</span>
-                  {/* 侧栏唯一为任务层加的东西：文件入口上的进度环（改造包 §4.2）。 */}
-                  {item.id === "files" && <RailProgress />}
-                  {locked && (
-                    <span className="nav-lock" aria-hidden>
-                      <LockIcon />
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <div className="storage-card">
-            <div className="storage-head">
-              <span>{m.shell.storageTitle}</span>
-              <strong className="tnum">{storageHead}</strong>
-            </div>
-            <div className="storage-track" aria-hidden>
-              <span className="storage-fill" style={{ width: `${storagePercent}%` }} />
-            </div>
-            <div className="storage-meta">
-              <span>{storageMeta}</span>
-            </div>
-            <button
-              type="button"
-              className="storage-action"
-              data-focusable
-              onClick={() => {
-                playSfx("tab");
-                landNext.current = true;
-                setTab("files");
-              }}
-            >
-              <FolderOpenIcon />
-              {m.shell.storageAction}
-            </button>
-          </div>
-        </nav>
         <div className="tab-panel" role="tabpanel">
           <div key={tab} className="tab-panel-view">
             {tab === "home" && (
@@ -503,12 +490,33 @@ export default function App() {
         <GamepadKeyboard />
       </div>
       <footer key={tab} className="shell-hint">
-        {m.hintPairs[hintPage].map(([key, label]) => (
-          <span key={key} className="hint-pair">
-            <KeyCap label={key} className="hint-key" />
-            {label}
+        {/*
+         * 存储读数（原来是侧栏底部那张卡）：**只读**，用户 2026-10-11 明确去掉那颗
+         * 「打开文件」按钮 —— 文件页本来就能从页签进，多一个入口只会多一个焦点。
+         * 放在底部状态条左边：这一格每一页都在，切走也看得见还剩多少。
+         * 读屏读不到 title，整块给一句 aria-label（盘符那句来自 storageVolumes：
+         * 多块盘时必须写明数字是合计）。
+         */}
+        <span
+          className="storage-inline"
+          role="status"
+          title={storageMeta}
+          aria-label={`${m.shell.storageTitle} ${storageHead}，${storageMeta}`}
+        >
+          <span>{m.shell.storageTitle}</span>
+          <span className="storage-track" aria-hidden>
+            <span className="storage-fill" style={{ width: `${storagePercent}%` }} />
           </span>
-        ))}
+          <strong className="tnum">{storageHead}</strong>
+        </span>
+        <div className="shell-hints">
+          {m.hintPairs[hintPage].map(([key, label]) => (
+            <span key={key} className="hint-pair">
+              <KeyCap label={key} className="hint-key" />
+              {label}
+            </span>
+          ))}
+        </div>
       </footer>
     </div>
     <div

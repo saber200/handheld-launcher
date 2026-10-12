@@ -202,13 +202,32 @@ const GEOMETRY = `
              bottom: +(r.y + r.height).toFixed(2), centerX: +(r.x + r.width / 2).toFixed(2) };
   };
   const strip = document.querySelector('.k1-strip');
+  // 分区页签条（2026-10-11 从左侧栏搬进顶栏，见 shell.css 顶部说明）
+  const nav = document.querySelector('.nav-items');
+  const navBox = nav ? nav.getBoundingClientRect() : null;
+  const tabs = [...document.querySelectorAll('.nav-item')];
+  const gapOf = (a, b) => +(b.getBoundingClientRect().left - a.getBoundingClientRect().right).toFixed(2);
   return {
     dp: +(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1),
     viewport: [innerWidth, innerHeight],
     scroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
     hero: box('.k1-hero'), strip: box('.k1-strip'), card: box('.k1-item.is-current'),
-    panel: box('.k1-panel'), chip: box('.group-chip'), navFirst: box('.nav-item'),
+    panel: box('.k1-panel'), chip: box('.group-chip'),
     stripCenter: strip ? +(strip.getBoundingClientRect().x + strip.clientWidth / 2).toFixed(2) : null,
+    nav: box('.nav-items'),
+    navFocusables: nav ? nav.querySelectorAll('[data-focusable]').length : -1,
+    navTabs: tabs.length,
+    navClipped: tabs.filter((t) => t.scrollWidth > t.clientWidth + 2).length,
+    navMinGap: tabs.length > 1 ? Math.min(...tabs.slice(1).map((t, i) => gapOf(tabs[i], t))) : null,
+    // 页签必须都待在条盒里（条是 flex:1 + justify-content:center，装不下会溢出到时钟/电量上）
+    navInside: navBox
+      ? tabs.every((t) => {
+          const r = t.getBoundingClientRect();
+          return r.left >= navBox.left - 0.5 && r.right <= navBox.right + 0.5;
+        })
+      : false,
+    clock: box('.top-clock'), date: box('.top-date'), battery: box('.top-chip'),
+    hintBar: box('.shell-hint'), storage: box('.storage-inline'), hints: box('.shell-hints'),
   };
 `;
 
@@ -287,21 +306,30 @@ const run = async (width, height) => {
     note(Math.abs(g.card.w - 158 * dp) < 2 && Math.abs(g.card.h - 190 * dp) < 2, `聚焦卡 158×190dp（实测 ${g.card.w}×${g.card.h}）`);
     note(Math.abs(g.panel.y - 494 * dp) < 3, `信息面板顶边 494dp=${494 * dp}（实测 ${g.panel.y}）`);
     note(Math.abs(g.chip.y - 174 * dp) < 3, `分组 chip 顶边 174dp=${174 * dp}（实测 ${g.chip.y}）`);
-    note(Math.abs(g.navFirst.y - 166 * dp) < 3, `侧栏首行 166dp=${166 * dp}（实测 ${g.navFirst.y}）`);
 
-    // 侧栏相邻两行之间必须容得下焦点环（4dp 外扩 + 3dp 描边 = 7dp）：否则当前页那一行和
-    // 焦点停的那一行同时高亮时会连成一坨、环还会压到下一行背景上（用户 2026-10-04 截图）
-    const rail = await page.eval(`
-      const rows = [...document.querySelectorAll('.rail-items .nav-item')];
-      const cur = rows.findIndex((r) => r.classList.contains('is-current'));
-      if (cur < 0 || !rows[cur + 1]) return null;
-      const a = rows[cur].getBoundingClientRect();
-      const b = rows[cur + 1].getBoundingClientRect();
-      return { gap: +(b.top - a.bottom).toFixed(2), rowH: +a.height.toFixed(2) };
-    `);
+    /*
+     * 分区页签条（2026-10-11：菜单从左侧栏搬进顶栏，并且**整个退出焦点系统**）。
+     * 四条断言对应「换页只有 LB/RB 与 Q/E」这唯一一条规矩：
+     *   ① 里面一个 [data-focusable] 都没有（有的话它又成了焦点域，方向键迟早跑回去）；
+     *   ② 9 个页签都在条盒里、字没被截（中英双语都要成立，英文在 englishPass 里再走一遍）；
+     *   ③ 页签之间留了间距（相邻盒子不许贴在一起）；
+     *   ④ 焦点掉出池子（下面单独测）也落回内容区。
+     */
+    note(g.navFocusables === 0, `页签条里 0 个可聚焦元素（实测 ${g.navFocusables}）`);
+    note(g.navTabs === 9, `页签条 9 项（7 个可进 + 商店 / 社区两个锁定项，实测 ${g.navTabs}）`);
+    note(g.navInside && g.navClipped === 0, `页签都在条盒里、字没被截（越界=${!g.navInside} 截断=${g.navClipped}）`);
+    note(g.navMinGap !== null && g.navMinGap >= 2 * dp, `页签之间有间距（最小 ${g.navMinGap} ≥ ${(2 * dp).toFixed(2)}）`);
     note(
-      rail !== null && rail.gap >= 7 * dp,
-      `侧栏行间距容得下焦点环（间距 ${rail ? rail.gap : "-"} ≥ 环 ${(7 * dp).toFixed(2)}）`,
+      g.nav.x >= g.date.x + g.date.w - 0.5 && g.nav.x + g.nav.w <= (g.battery ? g.battery.x : g.viewport[0] - 24 * dp) + 0.5,
+      `页签条夹在日期与电量之间（条 ${g.nav.x}..${(g.nav.x + g.nav.w).toFixed(1)}，日期右缘 ${(g.date.x + g.date.w).toFixed(1)}，电量左缘 ${g.battery ? g.battery.x : "-"}）`,
+    );
+    note(
+      Math.abs(g.hintBar.y + g.hintBar.h - g.viewport[1]) < 1.5,
+      `底部状态条贴住屏幕下沿（底 ${(g.hintBar.y + g.hintBar.h).toFixed(1)} / 视口高 ${g.viewport[1]}）`,
+    );
+    note(
+      g.storage.x >= 24 * dp - 0.5 && g.hints.x > g.storage.x + g.storage.w,
+      `状态条左边是存储读数、中间是按键提示（存储 ${g.storage.x}..${(g.storage.x + g.storage.w).toFixed(1)}，提示起于 ${g.hints.x}）`,
     );
 
     // 聚焦项居中：前几张卡因为条的内容从那儿起、滚不过去，所以往右挪 5 张再看
@@ -398,9 +426,14 @@ const run = async (width, height) => {
       return !document.querySelector('.drawer-root.open');
     `);
 
-    // 焦点域进出：**菜单与列表是两个部分**（用户 2026-10-11 改的规矩）——
-    // 方向键只在各自域内走，进内容区靠 A（点侧栏那一行）、回菜单靠 B。
-    // 旧规矩（「最左卡按左进侧栏 / 侧栏按右回内容区」）已被用户否掉，别再改回去。
+    /*
+     * 焦点规矩（用户 2026-10-11 真机反馈的最终版）：**菜单是顶栏里的页签条，整条不可聚焦** ——
+     * 换页只有手柄 LB/RB、键盘 Q/E 两条路，触摸屏点一下也换页但**不许把 DOM 焦点留在页签上**。
+     * 方向键永远只在内容区里走；焦点掉了（按钮变灰 / 被卸载 / 手指点了空白处）也只许落回内容区。
+     *
+     * 这一段的四条断言就是这几句话，别再改回「按 B 回菜单 / 侧栏按右出内容区」那套
+     * —— 那套是 0.1.71 的，已经连同可聚焦的侧栏一起被用户否掉。
+     */
     for (let i = 0; i < 15; i++) {
       const atFirst = await page.eval(`
         const first = document.querySelector('.k1-strip [data-focusable]');
@@ -412,38 +445,63 @@ const run = async (width, height) => {
     await page.wait(300);
     await arrow(page, "ArrowLeft");
     const left = await focused(page);
-    note(!left.startsWith("shell-rail"), `列表最左边按左**留在内容区**（落在 ${left}）`);
+    note(!left.startsWith("shell-tabs"), `列表最左边按左**留在内容区**（落在 ${left}）`);
 
-    // A（点侧栏当前那一行）→ 焦点落进右侧内容区
+    // 点当前页签（手柄上这一下是 LB/RB 之外的补充：触摸屏）→ 焦点落进内容区
     const landed = await page.eval(`
-      const rail = document.querySelector('.nav-item.is-current');
-      if (!rail) return '-';
-      rail.focus();
-      rail.click();
+      const tab = document.querySelector('.nav-item[aria-selected="true"]');
+      if (!tab) return '-';
+      tab.click();
       await new Promise((r) => setTimeout(r, 1000));
       const a = document.activeElement;
       const z = a.closest('[data-focus-zone]');
       return (z ? z.getAttribute('data-focus-zone') : '-') + ' | ' + (a.className || '').split(' ')[0];
     `);
-    note(!landed.startsWith("shell-rail") && landed !== "-", `侧栏那一行按 A 落进内容区（落在 ${landed}）`);
+    note(!landed.startsWith("shell-tabs") && landed !== "-", `点当前页签落进内容区（落在 ${landed}）`);
 
-    // 侧栏里按右：必须留在侧栏
-    await page.eval(`document.querySelector('.nav-item.is-current')?.focus()`);
-    await page.wait(250);
-    await arrow(page, "ArrowRight");
-    const railRight = await focused(page);
-    note(railRight.startsWith("shell-rail"), `侧栏按右留在侧栏（落在 ${railRight}）`);
-
-    // B：内容区里没别的事可做时回菜单（方向键回不去，这是唯一的回路）
-    const backToRail = await page.eval(`
-      document.querySelector('.library-tools .library-tool')?.focus();
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
-      await new Promise((r) => setTimeout(r, 700));
-      const a = document.activeElement;
-      const z = a.closest('[data-focus-zone]');
-      return (z ? z.getAttribute('data-focus-zone') : '-') + ' | ' + (a.className || '').split(' ')[0];
+    // 真鼠标点页签（走 CDP 的真事件，合成事件没有默认行为）：换页 + 焦点**不留在页签上**
+    // —— 页签的 onPointerDown 里 preventDefault 就是为了这个（触摸屏点一下要能换页，
+    // 但焦点一旦被页签拿走，下一次方向键就得重新找落点）。
+    const tabBox = await page.eval(`
+      const tabs = [...document.querySelectorAll('.nav-item')];
+      const tab = tabs.find((t) => t.getAttribute('aria-selected') !== 'true' && !t.classList.contains('is-locked'));
+      if (!tab) return null;
+      const r = tab.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2, label: (tab.textContent || '').trim() };
     `);
-    note(backToRail.startsWith("shell-rail"), `内容区按 B 回菜单（落在 ${backToRail}）`);
+    if (!tabBox) {
+      note(false, "页签条里找不到「当前页之外的可进入页签」");
+    } else {
+      await page.send("Input.dispatchMouseEvent", { type: "mousePressed", x: tabBox.x, y: tabBox.y, button: "left", clickCount: 1 });
+      await page.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: tabBox.x, y: tabBox.y, button: "left", clickCount: 1 });
+      await page.wait(900);
+      const clicked = await page.eval(`
+        const a = document.activeElement;
+        const z = a.closest?.('[data-focus-zone]');
+        return { onTab: !!a.closest?.('.nav-items'), where: (z ? z.getAttribute('data-focus-zone') : '-') + ' | ' + (a.className || '').split(' ')[0] };
+      `);
+      note(!clicked.onTab, `鼠标点页签「${tabBox.label}」之后焦点不在页签条上（落在 ${clicked.where}）`);
+    }
+
+    // 焦点掉出池子（模拟：按钮按下去就变灰 / 宿主元素被卸载 / 手指点了空白处）→ 方向键把焦点
+    // 送回**内容区**。这里以前是「落到池子第一项」，而池子按 DOM 排序、第一项永远是侧栏 ——
+    // 用户原话「从落地页通过方向键移动到 menu 上」说的就是它（真机 + 调用栈都验过）。
+    const recovered = await page.eval(`
+      const mod = await import('/src/hooks/useGamepadNav.ts');
+      const out = [];
+      for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        document.activeElement?.blur?.();
+        mod.moveDirectionalFocus(dx, dy);
+        const a = document.activeElement;
+        const where = a === document.body ? 'BODY' : (a.closest('.nav-items') ? '页签条' : (a.closest('.tab-panel') ? '内容区' : '外壳'));
+        out.push(where);
+      }
+      return out;
+    `);
+    note(
+      recovered.every((w) => w === "内容区"),
+      `焦点掉了以后按四个方向都落回内容区（实测 ${recovered.join(" / ")}）`,
+    );
 
     const clipped = await page.eval(RING_CLIP);
     const fresh = clipped.filter((c) => !KNOWN_RING_CLIP.some((k) => c.被谁裁.includes(k)));
@@ -470,7 +528,7 @@ const scanTabs = async () => {
   try {
     await page.goto(URL);
     await page.wait(6000);
-    for (const name of ["首页", "游戏库", "软件库", "下载", "文件", "工具箱"]) {
+    for (const name of ["首页", "游戏库", "软件库", "下载", "文件", "工具箱", "模拟器"]) {
       const ok = await page.eval(`
         const hit = [...document.querySelectorAll('.nav-item')].find((b) => (b.textContent || '').includes(${JSON.stringify(name)}));
         if (!hit) return false;
@@ -528,8 +586,14 @@ const scanTabs = async () => {
         if (!k2) {
           note(false, "软件库是 K2（6 列卡片网格）：找不到 .k2-grid / .k2-card");
         } else {
+          // 卡片宽不再是固定的 152.7dp：2026-10-11 侧栏下线之后内容区从 1020dp 变成 1232dp，
+          // 而 K2 是「6 列摊满」（`repeat(6, minmax(0, 1fr))`）—— 列数、间隙、卡高、卡片内部
+          // 四段的位置全部照旧，只有宽度跟着内容区走。所以这条断言改成按内容区宽度**算**：
+          // (1232 - 5×16) / 6 = 192dp。哪天真的把卡片改回定宽，这条会红，是故意的。
+          const expectedW = ((1280 - 2 * 24 - 5 * 16) / 6) * d;
           note(k2.cols === 6, `K2 网格 6 列（实测 ${k2.cols} 列）`);
-          note(Math.abs(k2.cardW - 152.7 * d) < 3, `K2 卡片宽 152.7dp=${(152.7 * d).toFixed(1)}（实测 ${k2.cardW}）`);
+          note(Math.abs(k2.cardW - expectedW) < 3,
+            `K2 卡片宽 = 内容区 6 等分 = ${expectedW.toFixed(1)}（实测 ${k2.cardW}）`);
           note(Math.abs(k2.cardH - 176 * d) < 3, `K2 卡片高 176dp=${(176 * d).toFixed(1)}（实测 ${k2.cardH}）`);
           note(Math.abs(k2.cardY - 134 * d) < 5, `K2 第一行顶 134dp=${(134 * d).toFixed(1)}（实测 ${k2.cardY}）`);
           note(Math.abs(k2.colGap - 16 * d) < 2 && Math.abs((k2.rowGap ?? 0) - 16 * d) < 2,
@@ -545,15 +609,15 @@ const scanTabs = async () => {
           note(k2.title.length > 0, `K2 头部有标题（${k2.title}）`);
         }
       }
-      // ── 菜单与列表是**两个焦点域**（用户 2026-10-11 改的规矩）：
-      //    内容区里一直按左/上/下都**不许进侧栏**；侧栏每一行一直按方向键也**不许出到内容区**；
-      //    进内容区只有 A（点侧栏当前那一行）、回菜单只有 B（`backOnce` 的最后一步）。
-      //    旧规矩（「内容区按左必须能进侧栏 / 侧栏按右必须能出到内容区」）已被用户否掉 ——
-      //    别再改回去：那是「菜单和列表糊成一坨」的根源。
+      // ── 焦点规矩（2026-10-11 最终版）：菜单是顶栏里的页签条，**整条不可聚焦**。
+      //    内容区里一直按方向键（含 30 步长按）不许跑进页签条；页签条本身一个 [data-focusable]
+      //    都没有；焦点掉了只许落回内容区。
+      //    0.1.71 那套「内容区按左进侧栏 / 侧栏按右出内容区 / 按 B 回菜单」已经连同可聚焦的
+      //    侧栏一起被用户否掉 —— 别再改回去，那是「方向键把焦点送回菜单」的根源。
       const navAll = await page.eval(`
         const mod = await import('/src/hooks/useGamepadNav.ts');
         const zoneOf = (el) => el.closest('[data-focus-zone]')?.getAttribute('data-focus-zone') ?? '-';
-        const isRail = (el) => !!el.closest('.nav-rail');
+        const isNav = (el) => !!el.closest('.nav-items') || zoneOf(el) === mod.SHELL_NAV_ZONE;
         const vis = () => [...document.querySelectorAll('[data-focusable]')].filter((el) => el.offsetParent !== null);
         // 一直按某个方向（30 步），落进「不该去的那一边」就返回步数，否则 0。
         const leaks = (dx, dy, want) => {
@@ -567,40 +631,60 @@ const scanTabs = async () => {
         const leaked = [];
         let n = 0;
         for (const el of vis()) {
-          if (isRail(el) || el.closest('.drawer-root')) continue;
+          if (isNav(el) || el.closest('.drawer-root')) continue;
           n++;
           el.focus();
           if (document.activeElement !== el) continue;
-          if (leaks(-1, 0, isRail) || leaks(0, -1, isRail) || leaks(0, 1, isRail)) {
+          if (leaks(-1, 0, isNav) || leaks(0, -1, isNav) || leaks(0, 1, isNav) || leaks(1, 0, isNav)) {
             leaked.push(zoneOf(el) + ':' + (el.className || '').split(' ')[0] + '|' + (el.textContent || '').trim().slice(0, 6));
           }
         }
-        const railLeaked = [];
-        for (const item of [...document.querySelectorAll('.nav-item')]) {
-          if (!item.offsetParent) continue;
-          item.focus();
-          if (leaks(1, 0, (el) => !isRail(el)) || leaks(0, -1, (el) => !isRail(el)) || leaks(0, 1, (el) => !isRail(el))) {
-            railLeaked.push((item.textContent || '').trim().slice(0, 4));
-          }
+        // 页签条本身：不许有任何可聚焦元素；就算有人程序化把焦点放到页签上（Tab / 代码），
+        // 按一下方向键也必须落回内容区 —— 不许滞留在页签上，也不许掉到 body。
+        const tabs = [...document.querySelectorAll('.nav-item')];
+        const navFocusables = document.querySelectorAll('.nav-items [data-focusable]').length;
+        const stray = (() => {
+          const tab = tabs.find((t) => t.getAttribute('aria-selected') !== 'true' && !t.classList.contains('is-locked')) ?? tabs[0];
+          tab?.focus();
+          const took = document.activeElement === tab;
+          mod.moveDirectionalFocus(1, 0);
+          const a = document.activeElement;
+          const where = a === document.body ? 'BODY' : a.closest('.nav-items') ? '页签条' : a.closest('.tab-panel') ? '内容区' : '外壳';
+          return { took, where };
+        })();
+        // 焦点掉出池子（按钮变灰 / 被卸载 / 手指点了空白处）之后按方向键 → 只许落回内容区。
+        const lost = [];
+        for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+          document.activeElement?.blur?.();
+          mod.moveDirectionalFocus(dx, dy);
+          const a = document.activeElement;
+          lost.push(a === document.body ? 'BODY' : isNav(a) || a.closest('.nav-items') ? '页签条' : a.closest('.tab-panel') ? '内容区' : '外壳');
         }
-        return { n, leaked, railLeaked };
+        return { n, leaked, navFocusables, stray, lost, tabs: tabs.length };
       `);
       note(navAll.leaked.length === 0,
-        `${name}：内容区 ${navAll.n} 个可聚焦元素按方向键都不会跑进侧栏${navAll.leaked.length ? "（漏的：" + navAll.leaked.slice(0, 4).join("、") + "）" : ""}`);
-      // 首页 / 下载是占位页，内容区没有可聚焦元素 —— 那两条不适用（没有可落的地方）。
+        `${name}：内容区 ${navAll.n} 个可聚焦元素按方向键都不会跑进页签条${navAll.leaked.length ? "（漏的：" + navAll.leaked.slice(0, 4).join("、") + "）" : ""}`);
+      note(navAll.navFocusables === 0 && navAll.tabs === 9,
+        `${name}：页签条 9 项、0 个可聚焦元素（实测 ${navAll.tabs} / ${navAll.navFocusables}）`);
+      note(navAll.stray.where === "内容区",
+        `${name}：焦点被放到页签上之后按方向键落回内容区（实测 took=${navAll.stray.took} → ${navAll.stray.where}）`);
+      note(navAll.lost.every((w) => w === "内容区"),
+        `${name}：焦点掉了以后按方向键落回内容区（实测 ${navAll.lost.join(" / ")}）`);
+      // 首页 / 下载是占位页，内容区没有可聚焦元素 —— 这一条不适用（没有可落的地方）。
       if (navAll.n > 0) {
-        note(navAll.railLeaked.length === 0,
-          `${name}：侧栏每一行按方向键都不会跑进内容区${navAll.railLeaked.length ? "（漏的：" + navAll.railLeaked.join("、") + "）" : ""}`);
-        // A：点侧栏当前那一行 → 焦点落进这一页的内容区（页面重挂载后要等一下）
+        // 点当前页签（手柄上换页是 LB/RB，触摸屏就是点这一下）→ 焦点落进这一页的内容区。
+        // 页面按 tab 重挂载，所以等一会儿再看。
         const landed = await page.eval(`
-          const rail = [...document.querySelectorAll('.nav-item')].find((b) => b.getAttribute('aria-selected') === 'true');
-          if (!rail) return 'no-rail';
-          rail.focus();
-          rail.click();
+          const tab = [...document.querySelectorAll('.nav-item')].find((b) => b.getAttribute('aria-selected') === 'true');
+          if (!tab) return 'no-tab';
+          tab.click();
           await new Promise((r) => setTimeout(r, 1000));
-          return document.activeElement?.closest('.nav-rail') ? 'rail' : 'content';
+          const a = document.activeElement;
+          if (a === document.body) return 'body';
+          if (a.closest('.nav-items')) return 'nav';
+          return a.closest('.tab-panel') ? 'content' : 'shell';
         `);
-        note(landed === "content", `${name}：侧栏那一行按 A 落进内容区（实测 ${landed}）`);
+        note(landed === "content", `${name}：点当前页签落进内容区（实测 ${landed}）`);
       }
 
       if (name === "文件") {
@@ -642,38 +726,51 @@ const scanTabs = async () => {
           };
         `);
         const d = k7 ? k7.dp : 1;
+        /*
+         * 文件栏左缘（单栏）= 安全边 24 + 位置栏 200 + 间隙 16 = 240dp。
+         * 0.1.71 之前侧栏占掉左边 236dp，所以那时是 476 —— 2026-10-11 菜单搬去顶栏之后
+         * 整页左移 236dp、宽了 236dp。下面这些 x 一律写成**相对文件栏左缘的偏移**
+         * （画板 K7 的原始标注就是「名称 +16 / 大小 +396 / 修改时间 +506」，
+         * 表头 16dp 内边距也算在里面）—— 以后再动外壳，偏移不用重算。
+         */
+        const col = 240 * d;
         if (!k7 || !k7.row || !k7.bar) {
           note(false, "文件页是 K7：找不到 .k7-row / .k7-bar");
         } else {
           note(Math.abs(k7.crumb.y - 52 * d) < 2.5 && Math.abs(k7.crumb.h - 30 * d) < 1.5,
             `K7 面包屑 chip：顶边 52dp、高 30dp（实测 ${k7.crumb.y} / ${k7.crumb.h}）`);
           note(k7.crumbs >= 2, `K7 面包屑有分隔的层级（${k7.crumbs} 片）`);
-          note(Math.abs(k7.places.x - 260 * d) < 1.5 && Math.abs(k7.places.w - 200 * d) < 1.5 && Math.abs(k7.places.y - 98 * d) < 2.5,
-            `K7 位置栏 200dp 起于 260 / 98（实测 ${k7.places.x} / ${k7.places.y} / 宽 ${k7.places.w}）`);
+          note(Math.abs(k7.places.x - 24 * d) < 1.5 && Math.abs(k7.places.w - 200 * d) < 1.5 && Math.abs(k7.places.y - 98 * d) < 2.5,
+            `K7 位置栏 200dp 起于内容区左缘 24 / 98（实测 ${k7.places.x} / ${k7.places.y} / 宽 ${k7.places.w}）`);
           note(k7.placeStep !== null && Math.abs(k7.placeStep - 32 * d) < 1.5,
             `K7 位置行步进 32dp（实测 ${k7.placeStep}）`);
           note(Math.abs(k7.head.y - 98 * d) < 2.5 && Math.abs(k7.head.h - 34 * d) < 2,
             `K7 表头顶边 98dp、高 34dp（实测 ${k7.head.y} / ${k7.head.h}）`);
-          note(k7.headX.length === 3 && Math.abs(k7.headX[1] - 872 * d) < 4 && Math.abs(k7.headX[2] - 982 * d) < 4,
-            `K7 表头三列落在 492 / 872 / 982dp（实测 ${k7.headX.map((v) => Math.round(v)).join(" / ")}）`);
+          note(
+            k7.headX.length === 3 &&
+              Math.abs(k7.headX[0] - (col + 16 * d)) < 4 &&
+              Math.abs(k7.headX[1] - (col + 396 * d)) < 4 &&
+              Math.abs(k7.headX[2] - (col + 506 * d)) < 4,
+            `K7 表头三列落在文件栏 +16 / +396 / +506（实测 ${k7.headX.map((v) => Math.round(v - col)).join(" / ")}）`,
+          );
           note(Math.abs(k7.row.y - 146 * d) < 3 && Math.abs(k7.row.h - 39 * d) < 2,
             `K7 首行顶边 146dp、行盒 39dp（实测 ${k7.row.y} / ${k7.row.h}）`);
           note(k7.rowStep !== null && Math.abs(k7.rowStep - 46 * d) < 1.5,
             `K7 行步进 46dp（实测 ${k7.rowStep}）`);
-          note(Math.abs(k7.row.x - 476 * d) < 1.5 && Math.abs(k7.row.right - 1256 * d) < 1.5,
-            `K7 行盒横跨 476..1256（实测 ${k7.row.x}..${k7.row.right}）`);
-          note(Math.abs(k7.iconX - 489 * d) < 3 && Math.abs(k7.nameX - 521.5 * d) < 3.5,
-            `K7 行图标 489dp / 名称 521.5dp（实测 ${k7.iconX} / ${k7.nameX}）`);
-          note(Math.abs(k7.sizeX - 872 * d) < 4 && Math.abs(k7.timeX - 982 * d) < 4,
-            `K7 行内大小 872dp / 时间 982dp（实测 ${k7.sizeX} / ${k7.timeX}）`);
+          note(Math.abs(k7.row.x - col) < 1.5 && Math.abs(k7.row.right - 1256 * d) < 1.5,
+            `K7 行盒横跨 ${col}..1256（实测 ${k7.row.x}..${k7.row.right}）`);
+          note(Math.abs(k7.iconX - (col + 14 * d)) < 3 && Math.abs(k7.nameX - (col + 46 * d)) < 3.5,
+            `K7 行图标 / 名称落在文件栏 +14 / +46（实测 ${k7.iconX - col} / ${k7.nameX - col}）`);
+          note(Math.abs(k7.sizeX - (col + 397 * d)) < 4 && Math.abs(k7.timeX - (col + 507 * d)) < 4,
+            `K7 行内大小 / 时间落在文件栏 +397 / +507（实测 ${k7.sizeX - col} / ${k7.timeX - col}）`);
           // 容差 4 而不是 3：两个尺寸实测都是 608dp（画板值 610，差的 2dp 是亚像素取整），
           // 720p 上量到 608 → 差 2 稳稳过；1080p 上 ×1.5 之后是 912 对 915 —— **正好卡在 3 的边界上**，
           // 于是这条断言在 1080p 永远红（2026-10-11 实测：把本次改动全部还原，红法一模一样）。
           // 一条永远红的断言比没有断言更糟：真出问题时反而看不见。
           note(Math.abs(k7.bar.y - 610 * d) < 4 && Math.abs(k7.bar.h - 46 * d) < 1.5,
             `K7 底部操作条顶边 610dp、高 46dp（实测 ${k7.bar.y} / ${k7.bar.h}）`);
-          note(Math.abs(k7.bar.x - 476 * d) < 1.5 && Math.abs(k7.bar.right - 1256 * d) < 1.5,
-            `K7 操作条宽度跟着文件栏走 476..1256（实测 ${k7.bar.x}..${k7.bar.right}）`);
+          note(Math.abs(k7.bar.x - col) < 1.5 && Math.abs(k7.bar.right - 1256 * d) < 1.5,
+            `K7 操作条宽度跟着文件栏走 ${col}..1256（实测 ${k7.bar.x}..${k7.bar.right}）`);
           note(k7.chip && Math.abs(k7.chip.h - 28 * d) < 1.5, `K7 操作 chip 高 28dp（实测 ${k7.chip ? k7.chip.h : "-"}）`);
           note(Math.abs(k7.search.w - 104 * d) < 2 && Math.abs(k7.sort.w - 96 * d) < 2,
             `K7 搜索 104dp / 排序 96dp（实测 ${k7.search.w} / ${k7.sort.w}）`);
@@ -736,7 +833,7 @@ const scanTabs = async () => {
         } else {
           note(Math.abs(k4.self.h - 32 * d) < 2 && Math.abs(k4.self.right - 1256 * d) < 2,
             `K4 自检按钮高 32dp、贴右安全边（实测 ${k4.self.h} / ${k4.self.right}）`);
-          note(k4.cards.length > 0 && k4.cards.every((c) => c.right <= 1256 * d + 2 && c.x >= 236 * d - 2),
+          note(k4.cards.length > 0 && k4.cards.every((c) => c.right <= 1256 * d + 2 && c.x >= 24 * d - 2),
             `K4 卡片都在内容区安全边内（${k4.cards.length} 张，最右 ${Math.max(...k4.cards.map((c) => c.right))}）`);
         }
       }
@@ -753,9 +850,11 @@ const scanTabs = async () => {
 
 /**
  * 英文一遍（改造包 §16 的验收项「中英双语切换后无截断、无溢出」）：
- * 把 localStorage 里的语言设成 en、刷新，再把六个页签走一遍 —— 查两件事：
+ * 把 localStorage 里的语言设成 en、刷新，再把七个页签走一遍 —— 查三件事：
  *   ① 整页没有横向溢出（scrollWidth > 视口宽）；
- *   ② 交互控件上的字没被截（scrollWidth > clientWidth，容 2px 的亚像素零头）。
+ *   ② 交互控件上的字没被截（scrollWidth > clientWidth，容 2px 的亚像素零头）；
+ *   ③ **顶栏那 9 个页签在英文下也全须全尾**：都待在条盒里（Community / Downloads 最长，
+ *      页签条装不下时会溢到时钟和电量上 —— 这条是 2026-10-11 菜单搬上顶栏时新加的）。
  * 只查控件，不查正文：文件名那一列本来就该省略号收尾，那是设计不是 bug。
  */
 const englishPass = async () => {
@@ -770,8 +869,8 @@ const englishPass = async () => {
       `);
       await page.goto(URL);
       await page.wait(5000);
-      for (const [index, name] of ["首页", "游戏库", "软件库", "下载", "文件", "工具箱"].entries()) {
-        // 英文界面上侧栏文字是 Home / Library…，所以按**位置**点（顺序固定）而不是按文字找
+      for (const [index, name] of ["首页", "游戏库", "软件库", "下载", "文件", "工具箱", "模拟器"].entries()) {
+        // 英文界面上页签文字是 Home / Library…，所以按**位置**点（顺序固定）而不是按文字找
         const ok = await page.eval(`
           const items = [...document.querySelectorAll('.nav-item')];
           const hit = items[${index}];
@@ -784,15 +883,27 @@ const englishPass = async () => {
         const en = await page.eval(`
           const width = innerWidth;
           const overflow = document.documentElement.scrollWidth > width + 1;
+          // 顶栏页签：英文标签最长（Downloads / Emulators / Community），装不下会从条盒里溢到
+          // 时钟或电量上 —— 所以这里逐项量盒子，而不是只看整页 scrollWidth（外壳 overflow 是 hidden，
+          // 溢出不会变成页面滚动条，只看 scrollWidth 永远发现不了）。
+          const nav = document.querySelector('.nav-items');
+          const navBox = nav.getBoundingClientRect();
+          const tabs = [...document.querySelectorAll('.nav-item')];
+          const navOutside = tabs.filter((t) => {
+            const r = t.getBoundingClientRect();
+            return r.left < navBox.left - 0.5 || r.right > navBox.right + 0.5;
+          }).length;
           const sel = '.nav-item, .k7-tool, .k7-search, .k7-sort, .k7-chip, .k7-crumb, .k7-place, .k2-btn, .k1-btn, .hint-pair, .k4-selfcheck, .k4-card-action, .k4-primary, .k4-row-item, .library-tool';
           const clipped = [...document.querySelectorAll(sel)]
             .filter((el) => el.offsetParent !== null && el.scrollWidth > el.clientWidth + 2)
             .map((el) => (el.className || '').split(' ')[0] + '|' + (el.textContent || '').trim().slice(0, 16));
-          return { overflow, clipped: clipped.slice(0, 5), n: clipped.length, lang: document.documentElement.lang };
+          return { overflow, navOutside, tabs: tabs.length, clipped: clipped.slice(0, 5), n: clipped.length, lang: document.documentElement.lang };
         `);
         const label = `${name}（英文 lang=${en.lang}）`;
         note(!en.overflow, `${label}：整页没有横向溢出`);
         note(en.n === 0, `${label}：控件上的字都没被截${en.n ? "（" + en.clipped.join("、") + "）" : ""}`);
+        note(en.navOutside === 0 && en.tabs === 9,
+          `${label}：顶栏 9 个页签都在条盒里（越界 ${en.navOutside} 个 / 共 ${en.tabs} 个）`);
         if (SHOTS) {
           const p = join(SHOTS, `en-${name}-${width}x${height}.png`);
           await page.shot(p);
@@ -809,7 +920,7 @@ const englishPass = async () => {
 };
 
 for (const [w, h] of SIZES) await run(w, h);
-console.log("\n=== 六个页签的焦点环巡检 ===");
+console.log("\n=== 七个页签的焦点环 / 焦点规矩巡检 ===");
 await scanTabs();
 await englishPass();
 

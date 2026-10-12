@@ -140,16 +140,24 @@ function focusZone(el: HTMLElement): string | null {
 }
 
 /**
- * 侧栏（菜单）那一域的域名。**方向键只在域内走**：菜单 ⇄ 列表之间只能用 A / B 进出
- * （用户 2026-10-11 要求：菜单和列表是两个部分，别一按左右就互相串）。
+ * 外壳菜单（顶栏里的分区页签条）那一域的域名 —— 0.1.71 之前它是左侧栏。
+ *
+ * **2026-10-11 起菜单整个退出了焦点系统**（用户真机反馈：「直接把 menu 改成顶部的切换…
+ * 直接使用 RB 和 LB 来切换，不允许聚焦就可以了」）：页签条里一个 `[data-focusable]` 都没有，
+ * 换页只有手柄 LB/RB 与键盘 Q/E 两条路，所以下面这些「把菜单从候选里剔出去」的过滤
+ * 现在**拦不到任何东西**。
+ *
+ * 留着它们是因为它们写的不是「侧栏」而是**规矩**：方向键永远不进出菜单。哪天有人给页签
+ * 加了 `data-focusable`（比如为了 Tab 键），规矩照旧成立。探针逐页盯着「页签条里 0 个
+ * 可聚焦元素」，这一条要是破了会先红在探针上。
  */
-export const RAIL_ZONE = "shell-rail";
+export const SHELL_NAV_ZONE = "shell-tabs";
 
-function inRail(el: HTMLElement | null): boolean {
-  return el !== null && focusZone(el) === RAIL_ZONE;
+function inShellNav(el: HTMLElement | null): boolean {
+  return el !== null && focusZone(el) === SHELL_NAV_ZONE;
 }
 
-/** 「当前选中」的那一项：卡片条正在显示的那张卡、当前分组 chip、侧栏当前页那一行。 */
+/** 「当前选中」的那一项：卡片条正在显示的那张卡、当前分组 chip、页签条当前那一项。 */
 function currentMarked(nodes: HTMLElement[]): HTMLElement | null {
   const marked = (el: HTMLElement) =>
     el.matches('.is-current, [aria-current]:not([aria-current="false"]), [aria-selected="true"]') ||
@@ -294,9 +302,11 @@ export function leaveTextEntry(): boolean {
 }
 
 /**
- * 「每个焦点域里上次停在那一项」—— 只在**候选已经被筛过一层**之后用来二次挑选：
- * 从侧栏按右回内容区时，chip 行与卡片条都算「当前选中项」，几何上 chip 更近，
- * 但用户想回去的是刚才那张卡。见 nearestSideways。
+ * 「每个焦点域里上次停在那一项」—— 只在**候选已经被筛过一层**之后用来二次挑选。
+ *
+ * 为什么需要它：内容区里好几个子域都算「当前选中」那一类（卡片条正在显示的那张卡、
+ * 当前分组 chip、页签条当前那一项），跨子域横着走时几何上最近的往往不是用户想回的那个
+ * —— 用户想回的是刚才停过的那一项。见 nearestSideways。
  *
  * 只记真在某个域里的元素。换页把页面卸载掉后这些节点还留在 Map 里，但它们已经不在
  * visibleFocusables() 里（offsetParent 为 null），选候选时根本不会出现；用前再查一次 isConnected。
@@ -325,7 +335,7 @@ function overlapsVertically(a: DOMRect, b: DOMRect) {
   return a.bottom > b.top + 1 && a.top < b.bottom - 1;
 }
 
-/** 这个池子是不是「单列」（所有项横向基本重合，比如侧栏）。 */
+/** 这个池子是不是「单列」（所有项横向基本重合，比如文件页左边那栏「位置」）。 */
 function isSingleColumn(pool: HTMLElement[], current: DOMRect) {
   return pool.every((el) => {
     const r = el.getBoundingClientRect();
@@ -334,13 +344,16 @@ function isSingleColumn(pool: HTMLElement[], current: DOMRect) {
 }
 
 /**
- * 横向跨域用的候选挑选（侧栏 ←→ 内容区）。
+ * 横向跨域用的候选挑选（内容区的各个子域之间：卡片条 ⇄ 分组 chip ⇄ 工具栏 ⇄ 操作条）。
+ *
+ * 0.1.71 时它还是「侧栏 ←→ 内容区」的通道；菜单搬进顶栏并退出焦点系统之后，跨的只剩
+ * 内容区内部的子域，但这套挑法原样有用。
  *
  * 只在 dx 那一侧找，逐级收窄：
  *   1. 先只留「当前选中项」（`.is-current` / `[aria-selected]`）—— 卡片条正在显示的那张卡、
- *      侧栏当前页那一行、当前的分组 chip；一个都没有就退回全部候选。
- *   2. 其中「本域里上次停过的那一项」优先 —— 从侧栏按右回内容区，落回刚才那张卡，
- *      而不是几何上更近的 chip 行（那样一按右，hero 与信息面板就换成了别的游戏）。
+ *      当前的分组 chip；一个都没有就退回全部候选。
+ *   2. 其中「本域里上次停过的那一项」优先 —— 用户在卡片条上按上到了 chip 行、再按下来时，
+ *      想回的是刚才那张卡，而不是几何上更近的另一张（那样一按，hero 与信息面板就换成了别的游戏）。
  *   3. 再按几何：同一行（垂直有重叠）取横向最近的；一行都没有就取垂直中心最近的。
  */
 function nearestSideways(
@@ -365,7 +378,7 @@ function nearestSideways(
   const chosen = side.filter(marked);
   const candidates = chosen.length > 0 ? chosen : side;
 
-  // ① 候选里「上次停过的那一项」优先（用户在侧栏按右，想回去的是刚才那张卡，不是最近的 chip）
+  // ① 候选里「上次停过的那一项」优先（用户想回去的是刚才那张卡，不是几何上最近的那个 chip）
   const back = candidates.find((el) => {
     const zone = focusZone(el);
     return zone ? lastInZone.get(zone) === el : false;
@@ -397,31 +410,18 @@ function nearestSideways(
 }
 
 /**
- * 把焦点落进内容区（侧栏那一行按 A 之后调它）。
+ * 把焦点落进内容区 —— 换页（LB/RB、点页签）、开场动画结束、以及「焦点掉出池子」时的落点。
  *
  * 优先「当前那张卡」（游戏库切回来要落在正显示的那张卡上，而不是工具栏第一颗按钮），
- * 再退到「当前选中项」，最后才是内容区第一个可聚焦项。侧栏自己永远不是候选。
+ * 再退到「当前选中项」，最后才是内容区第一个可聚焦项。菜单自己永远不是候选。
  */
 export function focusContentLanding(): boolean {
-  const nodes = visibleFocusables().filter((el) => !inRail(el));
+  const nodes = visibleFocusables().filter((el) => !inShellNav(el));
   if (nodes.length === 0) return false;
   const card = nodes.find(
     (el) => el.closest("[data-card-id]") !== null && el.closest(".is-current") !== null,
   );
   focusWithSfx(card ?? currentMarked(nodes) ?? nodes[0]);
-  return true;
-}
-
-/**
- * 把焦点还给侧栏当前那一项 —— 内容区按 B（没别的事可做时）走这条路。
- *
- * 为什么必须有这一条：方向键现在是「域内走」，从列表按左/上**永远回不到**菜单（用户要求），
- * 没有这个回路的话菜单就再也进不去了。
- */
-export function focusRail(): boolean {
-  const nodes = visibleFocusables().filter((el) => inRail(el));
-  if (nodes.length === 0) return false;
-  focusWithSfx(currentMarked(nodes) ?? nodes[0]);
   return true;
 }
 
@@ -432,21 +432,41 @@ export function moveDirectionalFocus(dx: number, dy: number) {
   const active = document.activeElement as HTMLElement | null;
   const index = nodes.findIndex((node) => node === active);
   if (index < 0) {
-    focusWithSfx(nodes[0]);
+    /*
+     * 焦点不在池子里 —— 它掉了：按下去就把自己变灰的按钮（工具箱的自检、模拟器的安装）、
+     * 点一下会整块重挂载的控件（文件页的「位置」栏）、手指点了空白处（掌机有触摸屏）…
+     * 都会让 `document.activeElement` 回到 body。
+     *
+     * 这里**绝不能用 `nodes[0]`**：池子按 DOM 排序，0.1.71 那版里第一项永远是侧栏第一行，
+     * 于是「从落地页按一下方向键」等于「回菜单」（用户 2026-10-11 真机反馈的原话）。
+     * 现在菜单移出焦点系统之后 `nodes[0]` 是内容区第一个元素 —— 但仍然不是用户想回的地方，
+     * 所以统一走**同一套落地规矩**（当前那张卡 → 当前选中项 → 第一项），和换页落点一致。
+     */
+    focusContentLanding();
     return;
   }
 
   const trapped = document.querySelector(".focus-trap.open") !== null;
   const here = focusZone(nodes[index]);
-  const pool = here ? nodes.filter((node) => focusZone(node) === here) : nodes;
+  /*
+   * 候选池：焦点在某个域里就只留同域的那些；不在域里（首页 / 下载 / 工具箱 / 模拟器那几颗
+   * 没包 data-focus-zone 的按钮）就用整个内容区 —— 但**菜单那一域永远不在候选里**。
+   *
+   * 2026-10-11 之前这里是 `here ? … : nodes`，`nodes` 里含着侧栏：页面元素没包域时，上下键
+   * 在「同一列」的候选里就能挑中侧栏某一行（宽按钮和侧栏算得成同一列），于是上下键会把焦点
+   * 送进菜单 —— 用户原话「尤其是有的时候可以通过上下方向键移动过去」说的就是它（实测调用栈
+   * 落在 sameZone 那条分支上）。
+   */
+  const pool = here
+    ? nodes.filter((node) => focusZone(node) === here)
+    : nodes.filter((node) => !inShellNav(node));
   const local = pool.indexOf(nodes[index]);
 
   if (dx !== 0) {
     // 不在任何域里（焦点落在没包域的东西上，比如首页那几颗按钮、工具箱的自检）：
-    // 保持「按 DOM 顺序在池里走」，但**侧栏要排除在外** —— 侧栏在 DOM 里排最前面，
-    // 不排除的话从内容区按左会绕回侧栏，和「方向键只在域内走」这条规矩打架。
+    // 保持「按 DOM 顺序在池里走」。
     if (!here) {
-      const loose = inRail(nodes[index]) ? pool : pool.filter((node) => !inRail(node));
+      const loose = pool;
       if (loose.length === 0) return;
       const at = loose.indexOf(nodes[index]);
       const next = at + dx;
@@ -458,9 +478,9 @@ export function moveDirectionalFocus(dx: number, dy: number) {
       return;
     }
 
-    // 侧栏（菜单）：**左右什么都不做**。进内容区只有一条路 —— 在当前那一行按 A 落进去
-    //（见 `focusContentLanding`）。以前按右会「跳到内容区」，菜单和列表糊成一坨（用户要求拆开）。
-    if (here === RAIL_ZONE) return;
+    // 菜单那一域：**左右什么都不做**（它现在整个不可聚焦，这一条是给「哪天又有人把它变成
+    // 焦点域」留的闸）。进内容区只有一条路 —— 在当前那一项上按 A 落进去（见 `focusContentLanding`）。
+    if (here === SHELL_NAV_ZONE) return;
 
     const current = nodes[index].getBoundingClientRect();
     const inside = pool[local + dx];
@@ -472,10 +492,10 @@ export function moveDirectionalFocus(dx: number, dy: number) {
       return;
     }
     // ② 这一行到头了 → 跨域：内容区的各个子域之间（卡片条 ⇄ chip 行 ⇄ 操作条）照样能横向走，
-    //    但**候选里排除侧栏** —— 在列表里按左也不许进菜单（用户要求）。回菜单只有 B 一条路。
+    //    候选里照旧排除菜单。
     if (!trapped) {
       const sideways = nearestSideways(
-        nodes.filter((node) => focusZone(node) !== RAIL_ZONE),
+        nodes.filter((node) => focusZone(node) !== SHELL_NAV_ZONE),
         nodes[index],
         current,
         dx,
@@ -485,7 +505,7 @@ export function moveDirectionalFocus(dx: number, dy: number) {
         return;
       }
     }
-    // ③ 兜底：多列域（文件网格）保住原来的池顺序行为；单列域（侧栏）按左右就什么都不做 ——
+    // ③ 兜底：多列域（文件网格）保住原来的池顺序行为；单列域按左右就什么都不做 ——
     //    宁可不动，也不要「按右往下跳一行」。
     if (inside && !isSingleColumn(pool, current)) {
       focusWithSfx(inside);
@@ -528,12 +548,11 @@ export function moveDirectionalFocus(dx: number, dy: number) {
   }
 
   if (here) {
-    // 侧栏到自己那一行的头/尾就**停住**：上下只在菜单里换行，不往内容区跳（用户要求）。
-    if (here === RAIL_ZONE) return;
-    // 内容区的子域之间照旧能上下走（卡片条 → 操作条 → 网格…），但跨域候选里**排除侧栏**：
-    // 在列表里往上按也不许把焦点送回菜单（用户要求「方向键只在右侧走」）。
+    // 菜单那一域到自己那一行的头/尾就**停住**（同 dx：给「又变成焦点域」留的闸）。
+    if (here === SHELL_NAV_ZONE) return;
+    // 内容区的子域之间照旧能上下走（卡片条 → 操作条 → 网格…），跨域候选里排除菜单。
     const others = nodes.filter(
-      (node) => focusZone(node) !== here && focusZone(node) !== RAIL_ZONE,
+      (node) => focusZone(node) !== here && focusZone(node) !== SHELL_NAV_ZONE,
     );
     if (others.length === 0) return;
     // 跨域优先看「横向有没有压着」：只看上下距离的话，内容区底部的操作区往上一按会跳到
@@ -549,8 +568,8 @@ export function moveDirectionalFocus(dx: number, dy: number) {
   }
 
   if (!trapped) {
-    // 同上：没包域时上下也在内容区里绕，不进侧栏。
-    const loose = inRail(nodes[index]) ? nodes : nodes.filter((node) => !inRail(node));
+    // 同上：没包域时上下也在内容区里绕，不进菜单。
+    const loose = pool;
     if (loose.length === 0) return;
     const at = loose.indexOf(nodes[index]);
     const next = at + dy;

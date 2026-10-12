@@ -64,21 +64,18 @@
 
   /* ── 外壳几何 ── */
   --h-topbar: calc(44 * var(--dp));
-  --w-rail: calc(236 * var(--dp));
   --h-hintbar: calc(48 * var(--dp));
-  --rail-pad: calc(16 * var(--dp));
-  --rail-row-w: calc(204 * var(--dp));
-  /* 侧栏行高 34 + 行间距 8 = 步进 42（步进没动，和画板一致）。
-     为什么不照画板的「高 40 / 步进 42」：那 2dp 的行间距放不下焦点环（4dp 外扩 + 3dp 描边
-     = 7dp），相邻两行只要同时高亮（当前页那一行 + 焦点停的那一行）就连成一坨、环还压到
-     下一行的背景上（用户 2026-10-04 截图：「紧紧贴在一起甚至产生了覆盖」）。
-     为什么不直接加大行间距（40 + 8 = 步进 48）：720dp 高的窗口里侧栏只剩 344dp 给 8 行，
-     40×8 + 8×7 = 376dp 会顶出滚动。所以从行高里让出这 6dp，步进保持 42。 */
-  --h-rail-row: calc(34 * var(--dp));
-  --step-rail-row: calc(42 * var(--dp));
-  --h-rail-badge: calc(18 * var(--dp));
-  --h-rail-search: calc(32 * var(--dp));
-  --h-storage-card: calc(132 * var(--dp));
+  --safe: calc(24 * var(--dp));
+
+  /*
+   * 分区页签条（2026-10-11：菜单从左侧栏搬进顶栏，见 shell.css 顶部说明）。
+   *
+   * 页签高 30dp，在 44dp 的顶栏里上下各余 7dp；当前页签底下那根 3dp 横条正好画在
+   * 顶栏下沿（-7dp），所以这个「余量」必须是一个令牌：改页签高度时横条要跟着走，
+   * 否则它会浮在顶栏中间或者掉出去。
+   */
+  --h-tab: calc(30 * var(--dp));
+  --tab-underline-gap: calc(7 * var(--dp));
 
   /* ── 字阶（正文下限 11dp；数字一律 tabular-nums，见 shell.css 的 .tnum） ── */
   --font-h1: calc(23 * var(--dp));

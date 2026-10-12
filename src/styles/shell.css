@@ -1,9 +1,19 @@
 /*
- * 新外壳：顶栏(44dp) + 左侧栏(236dp) + 内容区 + 底部提示条(48dp)。
+ * 新外壳：顶栏(44dp，含分区页签条) + 内容区 + 底部状态条(48dp)。
+ *
+ * 2026-10-11（用户真机反馈）：**菜单从左侧栏改成顶栏里的页签条，并且彻底退出焦点系统。**
+ * 为什么改结构而不是继续修焦点：侧栏是「一个焦点域」，只要它可聚焦，方向键就有机会从落地页
+ * 跑回菜单（实测两条路都真的走通过：焦点一掉出池子就落到池子第一项、而池子按 DOM 排序、
+ * 第一项永远是侧栏；页面元素没包焦点域时上下跨域的候选里还含着侧栏）。把菜单移出焦点系统，
+ * 这类问题从「靠规则挡住」变成「结构上不可能」。用户原话：「直接使用 RB 和 LB 来切换，
+ * 不允许聚焦就可以了，其他位置的交互什么的不变」。
+ *
+ * 所以这一条是**规矩**，不是实现细节：页签条里**不许出现 [data-focusable]**、
+ * 不许进 Tab 顺序（tabIndex=-1）、鼠标/触摸点一下也不许把 DOM 焦点留在上面
+ * （onPointerDown 里 preventDefault）。手柄换页只有 LB/RB，键盘换页只有 Q/E。
  *
  * 这一层是"骨架"，各页内部仍按老写法（旧页面按里程碑逐页迁到令牌），所以这里**只用令牌**，
- * 不写手感数字 —— 见 tokens.css 顶部说明。旧的顶部胶囊标签条（.tab-bar / .tab-list / .tab）
- * 已在 global.css 里删掉：设计稿里它被侧栏取代了。
+ * 不写手感数字 —— 见 tokens.css 顶部说明。
  */
 
 /* 数字（时间/体积/速度/版本）必须等宽，否则会跟着数字跳动左右抖 */
@@ -41,17 +51,10 @@
   color: var(--ink-4);
 }
 
-.top-title {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  font-size: calc(13 * var(--dp));
-  font-weight: 600;
-  color: var(--ink-3);
-  pointer-events: none;
-}
-
+/*
+ * 原来这里有一颗居中的页面标题（.top-title）。页签条上来之后它成了重复信息 ——
+ * 每一页自己都有标题（K1 的「游戏库」、K7 的表头…），而当前在哪个分区由页签高亮回答。
+ */
 .top-bar-right {
   margin-left: auto;
   display: flex;
@@ -77,7 +80,7 @@
   height: calc(15 * var(--dp));
 }
 
-/* ── 侧栏骨架 ── */
+/* ── 内容区（外壳里唯一会长大的那一块） ── */
 .shell-body {
   position: relative;
   z-index: 1;
@@ -86,119 +89,37 @@
   display: flex;
 }
 
-.nav-rail {
-  flex: none;
-  width: var(--w-rail);
-  display: flex;
-  flex-direction: column;
-  padding: var(--rail-pad);
-  gap: var(--gutter);
-  min-height: 0;
-}
-
-.rail-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--stack-lg);
-}
-
-.rail-brand-mark {
-  width: calc(40 * var(--dp));
-  height: calc(40 * var(--dp));
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-btn);
-  background: var(--accent-deep);
-  color: var(--accent-hi);
-}
-
-.rail-brand-mark .icon {
-  width: calc(22 * var(--dp));
-  height: calc(22 * var(--dp));
-}
-
-.rail-brand-text {
-  display: flex;
-  flex-direction: column;
-  gap: calc(2 * var(--dp));
+/* ── 顶栏里的分区页签条（原来的侧栏菜单） ── */
+.nav-items {
+  /* 夹在「时间/日期」和「电量」之间，自己占满中间那段并居中：两边宽度不对称时
+     （比如没读到电量），页签条也不会跟着偏。 */
+  flex: 1;
   min-width: 0;
-}
-
-.rail-brand-text strong {
-  font-size: calc(19 * var(--dp));
-  font-weight: 700;
-  color: var(--ink);
-  white-space: nowrap;
-}
-
-.rail-brand-text small {
-  font-size: calc(10 * var(--dp));
-  color: var(--ink-4);
-}
-
-/* 全局搜索框：本版只是"看得见、按不动"的占位 —— 全局搜索要跨库/跨文件聚合，
-   等对应里程碑接上真能力再给它 data-focusable（不做按了没反应的假按钮）。 */
-.rail-search {
   display: flex;
   align-items: center;
-  gap: calc(8 * var(--dp));
-  height: var(--h-rail-search);
-  padding: 0 var(--row-pad-x);
-  border-radius: var(--radius-chip);
-  border: 1px solid var(--line-soft);
-  background: var(--sunken);
-  color: var(--ink-4);
-  font-size: calc(11.5 * var(--dp));
-}
-
-.rail-search .icon {
-  width: calc(15 * var(--dp));
-  height: calc(15 * var(--dp));
-}
-
-.rail-items {
-  display: flex;
-  flex-direction: column;
-  /* 行间距要容得下焦点环：4dp 外扩 + 3dp 描边 = 7dp，留 1dp 余量（见 tokens.css 的
-     --h-rail-row，行高从 40 让到 34 就是给这 8dp 让的位）。 */
-  gap: calc(8 * var(--dp));
-  overflow-y: auto;
-  min-height: 0;
-  /* 焦点环画在行的盒子外面（4dp 间隔 + 3dp 环 = 7dp），而 overflow 容器按内边距盒裁切 ——
-     滚动的只是这一列，内边距是 0 的话环的左右和首尾行的上下都会被切掉
-     （用户 2026-10-04 截图反馈）。这里补 12dp 内边距给环留位，再用同样大的负外边距
-     把它收回去：行的位置、宽度、这一列与上下邻居的间距全都一个像素不变。
-     为什么给 12dp 而不是刚好的 7dp：多出来的那点是给 14dp 发光留的，切在发光快没的地方看不出来。 */
-  padding: calc(12 * var(--dp));
-  margin: calc(-12 * var(--dp));
+  justify-content: center;
+  gap: calc(4 * var(--dp));
 }
 
 .nav-item {
   position: relative;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: calc(8 * var(--dp));
-  height: var(--h-rail-row);
-  /* 徽标右缘再往里 12dp —— 上一版徽标贴着行右缘，看着像溢出（改造包 §1.2 的坑） */
-  padding: 0 calc(12 * var(--dp)) 0 var(--rail-pad);
+  gap: calc(6 * var(--dp));
+  height: var(--h-tab);
+  padding: 0 calc(10 * var(--dp));
   border-radius: var(--radius-chip);
   border: 1px solid transparent;
   color: var(--ink-2);
-  font-size: calc(13 * var(--dp));
-  text-align: left;
+  font-size: calc(12.5 * var(--dp));
+  white-space: nowrap;
 }
 
 .nav-item .icon {
+  width: calc(15 * var(--dp));
+  height: calc(15 * var(--dp));
   color: var(--ink-3);
-}
-
-.nav-item:focus {
-  outline: var(--focus-stroke) solid var(--accent);
-  outline-offset: var(--focus-offset);
-  border-color: transparent;
-  background: var(--panel-2);
-  box-shadow: 0 0 var(--focus-glow) var(--focus-glow-color);
 }
 
 .nav-item.is-current {
@@ -211,15 +132,16 @@
   color: var(--accent);
 }
 
-/* 选中行左侧 3dp × 24dp 竖条（矩形圆角，不是胶囊） */
-.nav-item.is-current::before {
+/* 当前页签底下 18dp × 3dp 的横条（矩形圆角，不是胶囊）—— 顶栏版的那根
+   「选中竖条」，和侧栏时代的 .nav-item.is-current::before 是同一个记号 */
+.nav-item.is-current::after {
   content: "";
   position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: calc(3 * var(--dp));
-  height: calc(24 * var(--dp));
+  left: 50%;
+  bottom: calc(-1 * var(--tab-underline-gap));
+  transform: translateX(-50%);
+  width: calc(18 * var(--dp));
+  height: calc(3 * var(--dp));
   border-radius: calc(2 * var(--dp));
   background: var(--accent);
 }
@@ -231,124 +153,48 @@
   text-overflow: ellipsis;
 }
 
-.nav-badge {
-  margin-left: auto;
-  height: var(--h-rail-badge);
-  display: flex;
-  align-items: center;
-  padding: 0 var(--stack);
-  border-radius: var(--radius-tag);
-  background: var(--panel-3);
-  color: var(--ink-2);
-  font-size: calc(10.5 * var(--dp));
-  font-weight: 600;
-}
-
-.nav-item.is-current .nav-badge {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
 /* 锁定态（商店 / 社区）：一律 ink-4、右侧小锁、不可聚焦、LB/RB 跳过。
    注意 CSS 里**不要**给 .is-locked 加 hover / active 反馈 —— 禁用入口不该有任何可交互感。 */
 .nav-item.is-locked,
-.nav-item.is-locked .icon,
-.nav-item.is-locked:focus,
-.nav-item.is-locked:focus .icon {
+.nav-item.is-locked .icon {
   color: var(--ink-4);
   cursor: default;
 }
 
-
-/* ── 侧栏底部存储卡 ── */
-.storage-card {
-  margin-top: auto;
-  flex: none;
-  min-height: var(--h-storage-card);
+.nav-lock {
+  margin-left: calc(-1 * var(--dp));
   display: flex;
-  flex-direction: column;
-  gap: var(--stack);
-  padding: var(--pad-card);
-  border-radius: var(--radius-panel);
-  border: 1px solid var(--line-soft);
-  background: var(--panel);
 }
 
-.storage-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--stack);
-  font-size: var(--font-body);
-  color: var(--ink-2);
+.nav-lock .icon {
+  width: calc(12 * var(--dp));
+  height: calc(12 * var(--dp));
 }
 
-.storage-head strong {
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.storage-track {
-  height: calc(6 * var(--dp));
-  border-radius: calc(6 * var(--dp));
-  background: var(--panel-3);
-  overflow: hidden;
-}
-
-.storage-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
-}
-
-.storage-meta {
-  display: flex;
-  flex-direction: column;
-  gap: calc(2 * var(--dp));
-  font-size: calc(10.5 * var(--dp));
-  color: var(--ink-4);
-}
-
-.storage-action {
-  margin: auto 0 0 calc(-6 * var(--dp));
-  display: flex;
-  align-items: center;
-  gap: calc(6 * var(--dp));
-  padding: calc(4 * var(--dp)) calc(6 * var(--dp));
-  border-radius: var(--radius-sm);
-  color: var(--accent-hi);
-  font-size: calc(10.5 * var(--dp));
-  font-weight: 600;
-}
-
-.storage-action:focus {
-  outline: calc(2 * var(--dp)) solid var(--accent);
-  outline-offset: calc(2 * var(--dp));
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-}
-
-.storage-action .icon {
-  width: calc(15 * var(--dp));
-  height: calc(15 * var(--dp));
-}
-
-/* ── 底部提示条（整宽，跨到侧栏下方） ── */
+/* ── 底部状态条：左边存储只读读数，中间按键提示 ── */
 .shell-hint {
   position: relative;
   z-index: 1;
   flex: none;
   height: var(--h-hintbar);
+  /* 1fr auto 1fr：中间那列是「按键提示」，两边的 1fr 一样宽 —— 提示因此是**真的居中**，
+     而不是「减去左边那块之后剩下的地方居中」。 */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--gutter);
+  padding: 0 var(--safe);
+  border-top: 1px solid var(--line-soft);
+  animation: fade-in var(--dur-ui) var(--ease-soft) both;
+}
+
+.shell-hints {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
   gap: calc(18 * var(--dp));
-  padding: 0 var(--safe);
-  border-top: 1px solid var(--line-soft);
-  animation: fade-in var(--dur-ui) var(--ease-soft) both;
+  min-width: 0;
 }
 
 .hint-pair {
@@ -395,8 +241,46 @@
   height: var(--focus-badge);
 }
 
-/* ── 排期中的页面（首页 / 下载） ── */
-.scheduled-page {
+/*
+ * 存储读数（原来是侧栏底部那张卡）。**只读**：用户 2026-10-11 明确要去掉那颗「打开文件」
+ * 按钮 —— 文件页本来就能从页签进，多一个入口只会多一个焦点。
+ * 用量条 + 数字放在底部状态条左边：这一格每一页都在，切走也能看见还剩多少。
+ */
+/* 读屏用户读不到 title，整块给一句 aria-label（见 App.tsx；盘符那句来自 i18n 的
+   storageVolumes —— 多块盘必须写明是合计）。 */
+.storage-inline {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: var(--stack);
+  min-width: 0;
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.storage-inline strong {
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.storage-track {
+  flex: none;
+  width: calc(72 * var(--dp));
+  height: calc(6 * var(--dp));
+  border-radius: calc(6 * var(--dp));
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.storage-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+/* ── 排期中的页面（首页 / 下载） ── */.scheduled-page {
   gap: var(--gutter);
 }
 
@@ -411,20 +295,4 @@
 .scheduled-panel p {
   font-size: var(--font-body);
   color: var(--ink-3);
-}
-
-.nav-item.is-locked:focus {
-  outline: none;
-  background: none;
-  box-shadow: none;
-}
-
-.nav-lock {
-  margin-left: auto;
-  display: flex;
-}
-
-.nav-lock .icon {
-  width: calc(12 * var(--dp));
-  height: calc(12 * var(--dp));
 }

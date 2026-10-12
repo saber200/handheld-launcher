@@ -182,7 +182,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   /* 焦点环画在卡片盒子外面（4dp 外扩 + 3dp 描边 = 7dp），滚动容器按内边距盒裁切 ——
-     和 .rail-items / .group-strip-scroll 一个套路：补一圈 7dp 内边距再用负外边距收回去，
+     和 .k7-places-list / .group-strip-scroll 一个套路：补一圈 7dp 内边距再用负外边距收回去，
      卡片的位置一个像素不变，环却装得进去（探针的「环被裁」检查盯着这条）。 */
   padding: calc(7 * var(--dp));
 }

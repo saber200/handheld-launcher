@@ -36,20 +36,18 @@ export type Catalog = {
     store: string;
     community: string;
   };
-  /** 外壳（顶栏 / 侧栏 / 存储卡）固定文案。 */
+  /** 外壳（顶栏 / 页签条 / 底部状态条）固定文案。 */
   shell: {
-    brandTagline: string;
-    searchPlaceholder: string;
     storageTitle: string;
     /** 存储容量还没有数据源（要新的系统信息命令），如实说明，不摆假数字。 */
     storagePending: string;
     /**
-     * 存储卡底部那行小字：列出**参与相加的盘符**（`mounts` 形如 `["C:", "D:"]`，
+     * 存储读数右边那行小字：列出**参与相加的盘符**（`mounts` 形如 `["C:", "D:"]`，
      * `label` 只在单块盘时非空）。多块盘时必须写明「合计」—— 数字是相加的、标签却像
      * 只有一块盘的话，用户会觉得这个数不对（2026-10-05 就是这么反馈的）。
+     * 2026-10-11 起它不再画在界面上（存储卡改成状态条里的一行读数，只留 aria-label 与 title）。
      */
     storageVolumes: (mounts: string[], label: string) => string;
-    storageAction: string;
     /** 锁定项给读屏的播报：「商店，即将开放，不可用」。 */
     lockedAria: (name: string) => string;
   };
@@ -845,8 +843,6 @@ export const zh: Catalog = {
     confirm: "A / Enter 启动或确认",
   },
   shell: {
-    brandTagline: "掌机前端",
-    searchPlaceholder: "搜索游戏 / 软件 / 文件",
     storageTitle: "存储空间",
     storagePending: "容量读取待接入",
     // 单块盘：还是「盘符 + 卷标」；多块盘：把盘符列出来再说一句「合计」——
@@ -858,7 +854,6 @@ export const zh: Catalog = {
       const more = mounts.length > 3 ? ` 等 ${mounts.length} 块` : "";
       return `${head}${more} · 合计`;
     },
-    storageAction: "打开管理器",
     lockedAria: (name) => `${name}，即将开放，不可用`,
   },
   // 提示条只写**真的绑上了**的按键 —— 设计稿里的 X 收藏 / Y 打开目录 / 快速菜单还没做，
@@ -1596,8 +1591,6 @@ export const en: Catalog = {
     confirm: "A / Enter launch or confirm",
   },
   shell: {
-    brandTagline: "Handheld shell",
-    searchPlaceholder: "Search games / apps / files",
     storageTitle: "Storage",
     storagePending: "Capacity readout pending",
     // Single volume keeps the old "letter + label"; several volumes list the letters and say
@@ -1609,7 +1602,6 @@ export const en: Catalog = {
       const more = mounts.length > 3 ? ` +${mounts.length - 3} more` : "";
       return `${head}${more} · combined`;
     },
-    storageAction: "Open manager",
     lockedAria: (name) => `${name}, coming soon, unavailable`,
   },
   // Only bindings that actually work are listed: the design's X favourite / Y open folder /
