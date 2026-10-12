@@ -16,6 +16,7 @@
  */
 import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { PREVIEW_DRIVES } from "../data/previewDrives";
 
 export type DriveSpace = {
   mount: string;
@@ -64,9 +65,20 @@ function scheduleRetry() {
 }
 
 function startLoad() {
-  // 已经有补读在排队就不必再起一次请求：那一次回来时照样会通知所有人。
-  if (!inTauri() || loaded || inFlight || retryTimer !== null) return;
-  inFlight = invoke<DriveSpace[]>("system_storage")
+  /*
+   * 已经有补读在排队就不必再起一次请求：那一次回来时照样会通知所有人。
+   *
+   * ⚠️ 这里**不能**再写 `!inTauri() → return`（原来有）：浏览器预览走下面那条假盘表的分支，
+   * 提前 return 的话预览里永远是「容量读取待接入」—— 「按盘符显示」在预览与探针里就成了
+   * 看不见的功能（0.1.79 加逐盘显示时踩到的就是这个）。
+   */
+  if (loaded || inFlight || retryTimer !== null) return;
+  // 浏览器预览：没有后端可问，用一份形状一致的假盘表，好让状态条（以及探针）看得到
+  // 「按盘符分别显示」这件事在真机上长什么样。
+  inFlight = (inTauri()
+    ? invoke<DriveSpace[]>("system_storage")
+    : Promise.resolve(PREVIEW_DRIVES)
+  )
     .then((rows) => {
       current = Array.isArray(rows) ? rows : [];
     })
@@ -121,10 +133,21 @@ export function useDriveSpace(): DriveSpace[] {
  *
  * 一盘都没读到（`[]`）返回 null，界面写「—」/「待接入」，绝不编数字。
  */
+/**
+ * 参与合计的那几块盘（**只此一处**：状态条上的「逐盘容量」和总量都读它）。
+ *
+ * 两处各筛一遍的话，迟早出现「合计写 3 块盘、下面只列了 2 块」这种自相矛盾 ——
+ * 用户 2026-10-12 要求「除了总容量也分盘符显示」（一目了然），那就更不能对不上。
+ */
+export function countedDrives(rows: DriveSpace[]): DriveSpace[] {
+  if (rows.length === 0) return [];
+  const fixed = rows.filter((row) => row.kind === "fixed");
+  return fixed.length > 0 ? fixed : rows;
+}
+
 export function driveTotal(rows: DriveSpace[]): DriveTotal | null {
   if (rows.length === 0) return null;
-  const fixed = rows.filter((row) => row.kind === "fixed");
-  const counted = fixed.length > 0 ? fixed : rows;
+  const counted = countedDrives(rows);
   let totalBytes = 0;
   let freeBytes = 0;
   for (const row of counted) {

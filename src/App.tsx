@@ -31,7 +31,7 @@ import {
 import { text, useI18n } from "./i18n";
 import { playSfx, playSwitch, preloadSfx } from "./audio/sfx";
 import { formatSize } from "./library/format";
-import { driveTotal, useDriveSpace } from "./system/drives";
+import { countedDrives, driveTotal, useDriveSpace } from "./system/drives";
 
 /**
  * 首页 / 下载：设计稿（K5 / K6）里画了，但要跑起来需要现在还不存在的数据源 ——
@@ -79,6 +79,25 @@ function TabProgress() {
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * 逐盘那一格的写法：「356 / 476 GB」——**单位只写一次**。
+ *
+ * 两个数分开格式化会变成「356.0 GB / 476.0 GB」，一眼扫过去全是重复的 GB；
+ * 掌机状态条就那么宽，重复的单位挤掉的是真正要看的数字。两个数不同单位（一个 GB 一个 MB）时
+ * 各写各的，绝不硬凑。
+ */
+function formatUsedOfTotal(used: number, total: number): string {
+  const a = formatSize(used);
+  const b = formatSize(total);
+  const unitA = a.slice(a.lastIndexOf(" ") + 1);
+  const unitB = b.slice(b.lastIndexOf(" ") + 1);
+  if (!a || !b) return b || a;
+  if (unitA && unitA === unitB) {
+    return `${a.slice(0, a.length - unitA.length).trim()} / ${b}`;
+  }
+  return `${a} / ${b}`;
 }
 
 export default function App() {
@@ -391,12 +410,22 @@ export default function App() {
     storage && storage.totalBytes > 0
       ? Math.round((storage.usedBytes / storage.totalBytes) * 100)
       : 0;
+  // 总量也用同一套写法（单位只写一次）：整行读起来一致，也省出给逐盘那几格的宽度。
   const storageHead = storage
-    ? `${formatSize(storage.usedBytes)} / ${formatSize(storage.totalBytes)}`
+    ? formatUsedOfTotal(storage.usedBytes, storage.totalBytes)
     : m.shell.storagePending;
   const storageMeta = storage
     ? m.shell.storageVolumes(storage.mounts, storage.label)
     : m.shell.storagePending;
+  /*
+   * 逐盘容量（用户 2026-10-12：「除了显示总容量，也分盘符显示下容量吧，这样比较一目了然」）。
+   *
+   * 只列**参与合计的那几块盘**（`countedDrives`，和总量同一个筛选）—— 两处各筛一遍迟早会出现
+   * 「合计说 3 块、下面只列 2 块」。用量 = 总量 − 可用（和总量那边一样兜底，不写负数）。
+   * 只有一块盘时不画：那时总量就是它自己，再列一遍是废话。
+   */
+  const storageDrives = countedDrives(drives);
+  const showDriveBreakdown = storage !== null && storageDrives.length > 1;
 
   return (
     <>
@@ -504,6 +533,25 @@ export default function App() {
             <span className="storage-fill" style={{ width: `${storagePercent}%` }} />
           </span>
           <strong className="tnum">{storageHead}</strong>
+          {showDriveBreakdown && (
+            <span className="storage-drives">
+              {storageDrives.map((row) => {
+                const used = Math.max(0, row.totalBytes - row.freeBytes);
+                const title = m.shell.storageDriveTitle(
+                  row.mount,
+                  row.label,
+                  formatSize(used),
+                  formatSize(row.totalBytes),
+                );
+                return (
+                  <span key={row.mount} className="storage-drive" title={title}>
+                    <b>{row.mount}</b>
+                    <span className="tnum">{formatUsedOfTotal(used, row.totalBytes)}</span>
+                  </span>
+                );
+              })}
+            </span>
+          )}
         </span>
         {/*
          * 这里原来是那条按键提示（A 启动/安装 · B 卡片菜单 · LT/RT 切分组 · LB/RB 切分区 ·

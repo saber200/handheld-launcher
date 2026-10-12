@@ -36,6 +36,8 @@ export type Catalog = {
      * 2026-10-11 起它不再画在界面上（存储卡改成状态条里的一行读数，只留 aria-label 与 title）。
      */
     storageVolumes: (mounts: string[], label: string) => string;
+    /** 逐盘那一格的读屏/悬停说明：「C: 已用 356 GB，共 476 GB」。 */
+    storageDriveTitle: (mount: string, label: string, used: string, total: string) => string;
     /** 锁定项给读屏的播报：「商店，即将开放，不可用」。 */
     lockedAria: (name: string) => string;
   };
@@ -851,6 +853,9 @@ export const zh: Catalog = {
       const more = mounts.length > 3 ? ` 等 ${mounts.length} 块` : "";
       return `${head}${more} · 合计`;
     },
+    // 逐盘那格的说明：读屏与鼠标悬停都读这一句（「一目了然」也要照顾看不到颜色的情况）。
+    storageDriveTitle: (mount, label, used, total) =>
+      `${mount}${label ? ` ${label}` : ""} 已用 ${used}，共 ${total}`,
     lockedAria: (name) => `${name}，即将开放，不可用`,
   },
   // 提示条只写**真的绑上了**的按键 —— 设计稿里的 X 收藏 / Y 打开目录 / 快速菜单还没做，
@@ -1598,6 +1603,8 @@ export const en: Catalog = {
       const more = mounts.length > 3 ? ` +${mounts.length - 3} more` : "";
       return `${head}${more} · combined`;
     },
+    storageDriveTitle: (mount, label, used, total) =>
+      `${mount}${label ? ` ${label}` : ""}: ${used} used of ${total}`,
     lockedAria: (name) => `${name}, coming soon, unavailable`,
   },
   // Only bindings that actually work are listed: the design's X favourite / Y open folder /

@@ -345,6 +345,58 @@ const run = async (width, height) => {
       `状态条只剩存储读数、按键提示已去掉（存储起于 ${g.storage ? g.storage.x : "-"}，提示块 ${g.hints ? "还在" : "已去掉"}）`,
     );
 
+    /*
+     * 逐盘容量（用户 2026-10-12：「除了显示总容量，也分盘符显示下容量吧，这样比较一目了然」）。
+     *
+     * 数字来自 `src/data/previewDrives.ts`（浏览器预览的假盘表，形状与后端 `DriveSpace` 一致：
+     * C: 476 GB 用了 356、D: 954 GB 用了 640）。这里量三件事：
+     *   ① 有几格就等于「参与合计的盘」有几块（合计与逐盘不能对不上）；
+     *   ② 每格盘符形如 `C:`，而且数字确实是那一块盘的（拿假盘表的值对一遍）；
+     *   ③ 整条状态条**不溢出屏幕**（掌机 1280 宽时最容易顶出去）。
+     */
+    const brk = await page.eval(`
+      const box = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: +r.x.toFixed(2), y: +r.y.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2) };
+      };
+      const preview = await import('/src/data/previewDrives.ts');
+      const rows = [...document.querySelectorAll('.storage-drive')].map((el) => ({
+        mount: (el.querySelector('b')?.textContent || '').trim(),
+        text: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+        title: el.getAttribute('title') || '',
+      }));
+      return {
+        rows,
+        fixed: preview.PREVIEW_DRIVES.filter((d) => d.kind === 'fixed').map((d) => ({
+          mount: d.mount,
+          usedGb: Math.round((d.totalBytes - d.freeBytes) / 1024 ** 3),
+          totalGb: Math.round(d.totalBytes / 1024 ** 3),
+        })),
+        bar: box(document.querySelector('.shell-hint')),
+        inline: box(document.querySelector('.storage-inline')),
+        viewport: [window.innerWidth, window.innerHeight],
+      };
+    `);
+    note(
+      brk.rows.length === brk.fixed.length && brk.rows.length > 1,
+      `状态条：逐盘容量 ${brk.rows.length} 格 = 参与合计的盘 ${brk.fixed.length} 块（${brk.rows.map((r) => r.mount).join("、")}）`,
+    );
+    const driveOk = brk.fixed.every((want) => {
+      const got = brk.rows.find((row) => row.mount === want.mount);
+      if (!got) return false;
+      // 数字可能写成「356 GB」或「356.0 GB」，这里只认数字本身。
+      return got.text.includes(String(want.usedGb)) && got.text.includes(String(want.totalGb));
+    });
+    note(
+      driveOk && brk.rows.every((row) => /^[A-Z]:$/.test(row.mount) && row.title.length > 0),
+      `状态条：每格写的是那块盘自己的数字与盘符（${brk.rows.map((r) => r.text).join(" ｜ ")}）`,
+    );
+    note(
+      brk.bar !== null && brk.inline !== null && brk.inline.x + brk.inline.w <= brk.viewport[0],
+      `状态条不溢出屏幕（存储读数右缘 ${brk.inline ? (brk.inline.x + brk.inline.w).toFixed(1) : "-"} ≤ 视口宽 ${brk.viewport[0]}）`,
+    );
+
     // 聚焦项居中：前几张卡因为条的内容从那儿起、滚不过去，所以往右挪 5 张再看
     for (let i = 0; i < 5; i++) await arrow(page, "ArrowRight");
     await page.wait(600);
@@ -896,6 +948,59 @@ const scanTabs = async () => {
         });
         await page.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
         await sleep(250);
+      }
+
+      /*
+       * 0.1.79：工具箱下面那两张卡（运行库 / 系统维护）**要跟着内容长高**。
+       *
+       * 用户 2026-10-12 真机照片：「这里的两个地方都没显示全，你就不能把他俩增高嘛？反正又没有
+       * 其它内容，空间不是不够用啊」—— 原来是 `height: 157dp + overflow: hidden`（照画板抄的），
+       * 真机上三行/两行就把最后一行切了半截。
+       *
+       * 浏览器预览里那两张卡是空的（真机数据来自后端），所以这里**自己塞几行进去**再量：
+       * 卡片高度必须超过写死时的 157dp，而且最后一行得**整个在卡片里**。
+       */
+      if (name === "工具箱") {
+        const tb = await page.eval(`
+          const dp = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1;
+          const cards = [...document.querySelectorAll('.k4-pair > .k4-card')];
+          if (cards.length === 0) return null;
+          cards.forEach((card, i) => {
+            const host = card.querySelector('.k4-rows') || card;
+            for (let n = 0; n < 5; n++) {
+              const row = document.createElement('div');
+              row.className = 'k4-row-item';
+              row.innerHTML =
+                '<span class="k4-tick is-on" aria-hidden>✓</span><span>探测行 ' + i + '-' + n + '</span>';
+              host.appendChild(row);
+            }
+          });
+          return {
+            dp,
+            cards: cards.map((card) => {
+              const r = card.getBoundingClientRect();
+              const rows = [...card.querySelectorAll('.k4-row-item')];
+              const last = rows.length ? rows[rows.length - 1].getBoundingClientRect() : null;
+              return {
+                h: +r.height.toFixed(2),
+                rows: rows.length,
+                clipped: last ? +(last.bottom - r.bottom).toFixed(2) : null,
+              };
+            }),
+          };
+        `);
+        note(
+          !!tb && tb.cards.every((c) => c.rows >= 5 && c.clipped !== null && c.clipped <= 1),
+          tb
+            ? `工具箱：下面两张卡跟着内容长高（高 ${tb.cards.map((c) => c.h).join(" / ")}px，最后一行越界 ${tb.cards.map((c) => c.clipped).join(" / ")}px）`
+            : "工具箱：找不到 .k4-pair > .k4-card（两张并列的卡）",
+        );
+        note(
+          !!tb && tb.cards.every((c) => c.h > 157 * tb.dp),
+          tb
+            ? `工具箱：卡高确实超过了写死的 157dp=${(157 * tb.dp).toFixed(1)}（实测 ${tb.cards.map((c) => c.h).join(" / ")}）`
+            : "工具箱：量不到卡高",
+        );
       }
 
       if (name === "工具箱") {

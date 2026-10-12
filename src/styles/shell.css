@@ -258,6 +258,39 @@
   color: var(--ink-4);
 }
 
+/*
+ * 逐盘容量（用户 2026-10-12 要求）：跟在总量后面，一块盘一小格。
+ * 掌机上盘符最多两三块，所以这一行**不换行**：真放不下时靠 flex 收缩 + 省略号，
+ * 宁可少显示也不要顶出屏幕（探针里有一条断言盯着「不溢出」）。
+ */
+.storage-drives {
+  display: flex;
+  align-items: center;
+  gap: calc(10 * var(--dp));
+  min-width: 0;
+  overflow: hidden;
+}
+
+.storage-drive {
+  display: flex;
+  align-items: center;
+  gap: calc(4 * var(--dp));
+  min-width: 0;
+  white-space: nowrap;
+  font-size: var(--font-caption);
+  color: var(--ink-4);
+}
+
+.storage-drive b {
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.storage-drive span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .storage-inline strong {
   font-weight: 600;
   color: var(--ink-2);
