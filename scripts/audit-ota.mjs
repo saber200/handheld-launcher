@@ -113,6 +113,41 @@ check(
   "CI：GITHUB_TOKEN 按构建类型切（tag → RELEASE_TOKEN，开发构建 → github.token）",
 );
 
+/* ── ④ 最坏的一种事故：签名私钥被提交进仓库 ───────────────────────────── */
+/*
+ * 私钥泄了 = 别人能签出**你的机器愿意装**的包（那等于把掌机交出去）。它本该只存在两个地方：
+ * CI 的 secret、以及你自己的密码管理器；仓库里只该有公钥。
+ * 这里只扫 git 跟踪的文件（毫秒级，不碰 node_modules / target）—— 真出事的场景就是"有人把它加进了提交"。
+ */
+import { execFileSync } from "node:child_process";
+let tracked = [];
+try {
+  tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+} catch {
+  notes.push("（不在 git 仓库里，跳过私钥扫描）");
+}
+const KEY_HEAD = "untrusted comment: rsign encrypted secret key";
+const leaked = [];
+for (const rel of tracked) {
+  // 只读小文本文件：私钥本体是 300 多字节的一行，别把大文件读进内存。
+  if (/\.(png|jpg|jpeg|webp|ico|gif|exe|dll|zip|7z|bin|lock)$/i.test(rel)) continue;
+  let text = "";
+  try {
+    text = read(rel).slice(0, 4096);
+  } catch {
+    continue;
+  }
+  if (text.includes(KEY_HEAD)) leaked.push(rel);
+}
+check(
+  leaked.length === 0,
+  leaked.length === 0
+    ? "仓库里没有任何更新包私钥（只该有公钥）"
+    : `⚠️ 仓库里发现了更新包私钥：${leaked.join("、")} —— 立刻删掉、**换一对新钥匙**，并让所有机器手动装一次新版`,
+);
+
 /* ── 结果 ─────────────────────────────────────────────────────────────── */
 for (const line of notes) console.log(`  ✅ ${line}`);
 if (problems.length > 0) {
