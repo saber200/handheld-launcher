@@ -467,6 +467,30 @@ const run = async (width, height) => {
         `K3 关闭按钮 34×34（实测 ${k3.close.w}×${k3.close.h}）`);
     }
 
+    /*
+     * OTA 那一行（用户 2026-10-12：「能不能做 ota 升级，每次都要重新下载，好麻烦」）。
+     * 预览里查不了（不联网、也没有 updater 后端），所以这里只钉两件事：
+     * ① 抽屉里确实有「版本与更新」这一行，而且那颗按钮**可聚焦**（手柄走得到）；
+     * ② 按钮文案与状态对得上 —— 预览里是「检查更新」，点一下会得到一句实话而不是假装在查。
+     */
+    const ota = await page.eval(`
+      const rows = [...document.querySelectorAll('.k3-list .k3-row')];
+      const row = rows.find((r) => /版本与更新|Version & updates/.test(r.textContent || ''));
+      if (!row) return null;
+      const btn = row.querySelector('button');
+      return {
+        hint: (row.querySelector('small')?.textContent || '').trim(),
+        label: (btn?.textContent || '').trim(),
+        focusable: btn?.hasAttribute('data-focusable') ?? false,
+      };
+    `);
+    note(
+      !!ota && ota.focusable && /检查更新|Check for updates/.test(ota.label),
+      ota
+        ? `设置抽屉：有「版本与更新」一行，按钮可聚焦（「${ota.label}」，说明「${ota.hint}」）`
+        : "设置抽屉：找不到「版本与更新」那一行",
+    );
+
     // 呼出设置抽屉：双击 View（和真机同一套手势，viewGesture="double"）。拉出来截一张，
     // 然后点遮罩关掉 —— 不然下面那些「焦点跨域」检查会跑在抽屉这个焦点陷阱里。
     const drawerOpen = await page.eval(`

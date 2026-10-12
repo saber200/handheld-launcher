@@ -10,6 +10,7 @@ import {
   usePrefs,
 } from "../settings/prefs";
 import { autoUiScale } from "../styles/scale";
+import { useManualUpdate, useUpdater } from "../system/updater";
 
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -37,11 +38,23 @@ export function SettingsPage({ active, onClose }: Props) {
   const sleepRef = useRef<HTMLButtonElement>(null);
   /** 界面缩放 + 手柄死区（纯前端偏好，localStorage）。 */
   const prefsNow = usePrefs();
+  /*
+   * OTA（用户 2026-10-12：「能不能做 ota 升级，每次都要重新下载，好麻烦」）：
+   * `useUpdater(active)` 在抽屉可见/引导走完之后**静默查一次**；下面那一行显示状态，
+   * 有新版本时那颗按钮就是「更新并重启」（下载 + 校验签名 + 静默安装 + 重启全在插件里）。
+   */
+  const updateState = useUpdater(active);
+  const [, recheckUpdate, installUpdate] = useManualUpdate();
+  const [appVersion, setAppVersion] = useState("");
 
   useEffect(() => {
     const tauri = inTauri();
     setIsTauri(tauri);
     if (!tauri) return;
+    // 当前版本：OTA 那一行要写「当前版本 0.1.80」，别让用户去别处找。
+    void getVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion(""));
     void invoke<boolean>("autostart_enabled")
       .then(setAutostart)
       .catch(() => setMessage(text().settings.autostartReadFailed));
@@ -305,6 +318,46 @@ export function SettingsPage({ active, onClose }: Props) {
 
         {/* ── 功能 14 第 5 条补的两行（画板 K3 上就是这两行） ──
             界面缩放 / 手柄死区，都是纯前端偏好（localStorage）。 */}
+
+        {/* ── OTA：版本与更新 ──
+            状态与按钮一一对应，**不摆按了没反应的按钮**：有新版本时按钮是「更新并重启」，
+            其余时候是「检查更新」；预览里点它只会得到一句实话（不联网）。 */}
+        <div className="k3-row">
+          <span className="k3-text">
+            <strong>{m.updateTitle}</strong>
+            <small>
+              {updateState.kind === "checking"
+                ? m.updateChecking
+                : updateState.kind === "current"
+                  ? m.updateCurrent(updateState.version)
+                  : updateState.kind === "available"
+                    ? m.updateAvailable(updateState.version)
+                    : updateState.kind === "installing"
+                      ? m.updateInstalling(updateState.percent)
+                      : updateState.kind === "failed"
+                        ? m.updateFailed(updateState.reason)
+                        : m.updateHint(appVersion || "—")}
+            </small>
+          </span>
+          <span className="k3-control">
+            <button
+              type="button"
+              className="k3-seg-item"
+              data-focusable
+              disabled={updateState.kind === "checking" || updateState.kind === "installing"}
+              onClick={() => {
+                if (!inTauri()) {
+                  setMessage(m.updatePreview);
+                  return;
+                }
+                if (updateState.kind === "available") installUpdate();
+                else recheckUpdate();
+              }}
+            >
+              {updateState.kind === "available" ? m.updateInstall : m.updateCheck}
+            </button>
+          </span>
+        </div>
 
         <div className="k3-row">
           <span className="k3-text">

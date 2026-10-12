@@ -23,6 +23,11 @@ tauri-plugin-autostart = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri-plugin-single-instance = "2"
+# OTA 升级（用户 2026-10-12 要求）：updater 负责「查版本 / 下载 / 校验签名 / 调起安装」，
+# process 提供装完后 `relaunch`（重启到新版本）—— 两者是官方配套，别自己写。
+# 签名公钥在 `tauri.conf.json` 的 `plugins.updater.pubkey`，私钥只在 CI 的 secret 里。
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 # 共享内核（crates/fh-core）：日志、文案、进程匹配。
 fh-core = { path = "../crates/fh-core" }
 # 图片解码：封面缓存（src/media.rs）与文件页缩略图（files.rs 的 file_thumb）共用。

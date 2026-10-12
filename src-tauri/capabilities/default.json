@@ -46,6 +46,8 @@
     "allow-toolbox-maintenance-clean",
     "allow-quit-launcher",
     "allow-set-locale",
+    "updater:default",
+    "process:allow-restart",
     "allow-toolbox-runtimes",
     "allow-toolbox-install-runtime",
     "allow-toolbox-optiscaler-status",

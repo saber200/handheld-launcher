@@ -117,6 +117,32 @@
   （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
   （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
 
+## 未发布（0.1.81）：OTA 升级接好（用户 2026-10-12 要求）
+
+**为什么现在才做**：以前挡住 OTA 的是「独立前端进程 + Game Bar 小组件」两套东西要一起升级
+（0.1.62 / 0.1.65 已整个删掉），现在启动器是单进程单窗口，正好是 Tauri 官方 updater 支持的标准形态。
+
+- **发布物与代码分家**：应用更新要去一个**不登录就能读**的地址取 `latest.json`，而本仓是私有的；
+  把 token 塞进应用等于把仓库权限发出去。所以 tag 构建发到公开仓 `saber200/fantasyhub-releases`
+  （只有安装包 / `.sig` / `latest.json`，没有源码），非 tag 的开发构建仍发本仓。
+- **签名是必须的**：`tauri.conf.json` 的 `plugins.updater.pubkey` 里写死公钥，私钥只在 CI secret；
+  别人伪造一个更新包放上去，应用会因签名不符拒绝安装。`bundle.createUpdaterArtifacts: true`
+  让构建产出 `.sig`。
+- **插件**：`tauri-plugin-updater`（查 / 下载 / 校验 / 调起安装）+ `tauri-plugin-process`
+  （`relaunch` 重启到新版本）；capabilities 补 `updater:default` 与 `process:allow-restart`
+  （audit-acl 过）。
+- **界面**：设置抽屉里新增一行「版本与更新」（`src/system/updater.ts` + `SettingsPage`）：
+  显示当前版本 → 「检查更新」→ 有新版本时按钮变成「更新并重启」并显示下载百分比；启动后
+  **静默查一次**（失败不打扰用户 —— 掌机可能没联网）。浏览器预览里点它会得到一句实话
+  （「预览里不联网检查」），**不假装在查**。
+- **CI**：`tauri-action` 加 `owner/repo`（tag → 公开仓）、`includeUpdaterJson: true`、
+  `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)`；token 用 `RELEASE_TOKEN`（细粒度，只对公开仓有写权限）。
+
+探针新增一条：设置抽屉里那一行存在、按钮可聚焦、预览里文案如实。1280×720 全过。
+⚠️ 1920×1080 那次跑出一个**与本次改动无关的**既有断言失败：「封面 404 时卡片退到宽图」要求
+12 张卡全部退到 `library_hero.jpg`，实测只有 2~6 张（两次跑数字不同）—— 那条断言依赖 Steam CDN
+当时的可达性（宽图也拉不到时会继续退到下一档），属于网络抖动，不是这次改出来的。
+
 ## 未发布（0.1.80）：工具箱去掉 OptiScaler 那张卡；游戏卡片上标出「装了 OptiScaler」（2026-10-12，用户两条）
 
 1. **工具箱里第三张卡（游戏 Mod / 工具）整块删掉**。用户原话：「反正这个 optiscaler 已经在游戏的

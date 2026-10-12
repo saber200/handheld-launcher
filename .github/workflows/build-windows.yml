@@ -72,14 +72,29 @@ jobs:
         run: cargo check --workspace --locked
 
       # 启动器安装包：含 web 产物与 FSE 身份。
+      #
+      # OTA（2026-10-12）：**tag 构建发到公开仓 `saber200/fantasyhub-releases`**，
+      # 非 tag 的开发构建仍然发本仓。为什么要分开发：
+      #   - 应用更新时要去一个**不登录就能读**的地址取 `latest.json`，而本仓是私有的；
+      #     把 token 塞进应用里等于把仓库权限发出去，所以发布物单独放一个公开仓；
+      #   - `includeUpdaterJson` 让 tauri-action 顺手产出 `latest.json`（里面是版本号 + 下载地址
+      #     + 签名），应用就是读它来判断有没有新版本的；
+      #   - `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)` 是**更新包签名**用的私钥（不是代码签名证书）：
+      #     公钥写死在应用的 tauri.conf.json 里，只有这个私钥签过的包才会被装上。
       - name: Build launcher (Windows) + Release
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
           tauriScript: npm run tauri
           args: --bundles nsis
+          # tag 构建 → 公开仓；开发构建 → 本仓（用默认的 GITHUB_TOKEN 也能发，这里统一走上面的 token）
+          owner: ${{ github.ref_type == 'tag' && 'saber200' || github.repository_owner }}
+          repo: ${{ github.ref_type == 'tag' && 'fantasyhub-releases' || github.event.repository.name }}
+          includeUpdaterJson: true
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
           releaseName: FantasyHub ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_id) }}
           releaseBody: |

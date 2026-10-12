@@ -122,6 +122,17 @@ export type Catalog = {
     steamSilentPreview: string;
     steamSilentFailed: (detail: string) => string;
     /* ── 功能 14 第 5 条补的两行 ── */
+    /** OTA：设置抽屉里的「版本与更新」那一行。 */
+    updateTitle: string;
+    updateHint: (version: string) => string;
+    updateCheck: string;
+    updateChecking: string;
+    updateCurrent: (version: string) => string;
+    updateAvailable: (version: string) => string;
+    updateInstall: string;
+    updateInstalling: (percent: number | null) => string;
+    updateFailed: (reason: string) => string;
+    updatePreview: string;
     scaleTitle: string;
     scaleHint: string;
     /** 自动档的读数：参数是算出来的倍率（「1.13」）。 */
@@ -909,6 +920,16 @@ export const zh: Catalog = {
     steamSilentReadFailed: "无法读取这一项的状态（需在打包后的桌面端测试）",
     steamSilentPreview: "浏览器预览模式不支持这一项，请用 tauri:dev 或安装包验证",
     steamSilentFailed: (detail) => `Steam 设置失败：${detail}`,
+    updateTitle: "版本与更新",
+    updateHint: (version) => `当前版本 ${version} · 更新包会校验签名`,
+    updateCheck: "检查更新",
+    updateChecking: "正在检查…",
+    updateCurrent: (version) => `已是最新（${version}）`,
+    updateAvailable: (version) => `有新版本 ${version}`,
+    updateInstall: "更新并重启",
+    updateInstalling: (percent) => (percent === null ? "正在下载更新…" : `正在下载更新… ${percent}%`),
+    updateFailed: (reason) => `检查更新失败：${reason}`,
+    updatePreview: "浏览器预览里不联网检查更新；真机上开机后会自动查一次。",
     scaleTitle: "界面缩放",
     scaleHint: "按屏幕自动换算",
     scaleAuto: (value) => `自动 · ${value}×`,
@@ -1648,6 +1669,16 @@ export const en: Catalog = {
     steamSilentReadFailed: "Couldn't read this setting. Try the installed app.",
     steamSilentPreview: "Browser preview can't change this. Use the desktop app.",
     steamSilentFailed: (detail) => `Couldn't change the Steam setting: ${detail}`,
+    updateTitle: "Version & updates",
+    updateHint: (version) => `Current ${version} · update packages are signature-checked`,
+    updateCheck: "Check for updates",
+    updateChecking: "Checking…",
+    updateCurrent: (version) => `Up to date (${version})`,
+    updateAvailable: (version) => `Version ${version} is available`,
+    updateInstall: "Update and restart",
+    updateInstalling: (percent) => (percent === null ? "Downloading update…" : `Downloading update… ${percent}%`),
+    updateFailed: (reason) => `Update check failed: ${reason}`,
+    updatePreview: "The browser preview doesn't check for updates; the real app does on launch.",
     scaleTitle: "UI scale",
     scaleHint: "Fitted to the screen",
     scaleAuto: (value) => `Auto · ${value}×`,

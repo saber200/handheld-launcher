@@ -25,6 +25,30 @@
    一部分**；你直接放在正下方，很容易超出屏幕被遮挡，看着也很难看」。→ B 菜单改成**贴着当前卡片
    的右下角浮出、压住卡片一部分**（靠边卡片也不会被屏幕切掉）。
 
+## 0.1.81：OTA 升级（已接好，等你加两个 secret 就能出包）
+
+你 2026-10-12 要求「能不能做 ota 升级啊？每次都要重新下载，好麻烦」，方案是：**代码仓保持私有，
+发布物推到公开仓 `saber200/fantasyhub-releases`**（你已经建好了 ✓，里面只有安装包，没有源码）。
+
+**你还要做两件事（都在私有仓 `saber200/handheld-launcher` → Settings → Secrets and variables →
+Actions → New repository secret）：**
+
+1. `TAURI_SIGNING_PRIVATE_KEY` —— 把**这一整行**（含结尾的 `=`）粘进去：
+   （私钥内容在**仓库外**的 `/tmp/fantasyhub-updater.key` —— 我故意不写进仓库，避免哪天被提交上去。
+   用 `cat /tmp/fantasyhub-updater.key` 取，或者在聊天里找我要）
+2. `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` —— 密码值我单独发你。
+3. 另外还要一个 `RELEASE_TOKEN`：GitHub → Settings → Developer settings → **Fine-grained tokens** →
+   新建，`Repository access` 只勾 **`fantasyhub-releases`**，权限只给 **Contents: Read and write**，
+   生成后粘到私有仓的 Actions secret，名字叫 `RELEASE_TOKEN`。
+
+**之后每次发版全自动**：我推 tag → CI 编译 + 签名 → 推到公开仓（安装包 + `.sig` + `latest.json`）
+→ 掌机启动时静默查 `latest.json` → 设置抽屉那一行显示「有新版本 vX.Y.Z」→ 点一下「更新并重启」
+（下载 + 校验签名 + 静默安装 + 重启）。
+
+**注意**：① 这次（0.1.81）**仍然要手动装一遍**，从它开始以后才能一键；② 更新时可能弹一次 UAC
+（安装包没有微软代码签名证书，那要花钱买）；③ 私钥丢了就再也签不出能被旧版接受的更新包 ——
+`/tmp/fantasyhub-updater.key` 请自己备份到别处（比如密码管理器）。
+
 ## 0.1.80 已做完（2026-10-12 晚，用户两条）
 
 1. **工具箱里那个 OptiScaler 卡片去掉**（用户原话：「反正这个 optiscaler 已经在游戏的弹出按钮组里

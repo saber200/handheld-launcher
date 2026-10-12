@@ -124,6 +124,13 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
+        /*
+         * OTA 升级：`updater` 查版本 / 下载 / 校验签名并调起安装，`process` 提供装完后的
+         * `relaunch`（重启到新版本）。**签名校验是必须的** —— 公钥写死在 tauri.conf.json 里，
+         * 私钥只存在 CI 的 secret 中：别人伪造一个更新包，应用会因签名不符拒绝安装。
+         */
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             scan::scan_games,
             scan::scan_apps,
