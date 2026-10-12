@@ -880,6 +880,60 @@ const scanTabs = async () => {
          * 主程序啥的一对说明有什么用呢？用户又看不懂，你就一个选择一个安装不就好了吗？」），
          * 而且面板盒子必须**整个在屏幕里**（照片里它长到顶上一行被切掉半行）。
          */
+        /*
+         * 「全部」= **所有内容**，不管有没有被分到别的分组（用户 2026-10-12，
+         * 「游戏库和软件库同理」）。原行为是「全部 = 未分组」，所以东西一分组就从"全部"里消失。
+         *
+         * 怎么造现场：分组与归属都存在 localStorage（`handheld-launcher.groups.<kind>`）——
+         * 直接写一份"第一张卡属于探针分组"，重载页面，再看「全部」里它还在不在。
+         */
+        const firstCardId = await page.eval(`
+          return document.querySelector('[data-card-id]')?.getAttribute('data-card-id') ?? null;
+        `);
+        if (!firstCardId) {
+          note(false, "游戏库：找不到任何卡片，量不到「全部」的口径");
+        } else {
+          await page.eval(`
+            localStorage.setItem(
+              'handheld-launcher.groups.games',
+              JSON.stringify({
+                groups: [{ id: 'probe-group', name: '探针分组' }],
+                membership: { '${firstCardId}': 'probe-group' },
+                names: {},
+              }),
+            );
+            return true;
+          `);
+          await page.goto(URL);
+          await page.wait(1600);
+          const grouped = await page.eval(`
+            const chip = [...document.querySelectorAll('.group-chip')].find((c) =>
+              (c.textContent || '').includes('探针分组'),
+            );
+            const count = (chip?.querySelector('.k1-chip-count')?.textContent || '').trim();
+            const inAll = !!document.querySelector('[data-card-id="${firstCardId}"]');
+            const rendered = document.querySelectorAll('.k1-item').length;
+            const allChip = [...document.querySelectorAll('.group-chip')].find((c) =>
+              (c.textContent || '').trim().startsWith('全部') ||
+              (c.textContent || '').trim().startsWith('All'),
+            );
+            const allCount = (allChip?.querySelector('.k1-chip-count')?.textContent || '').trim();
+            return { count, inAll, rendered, allCount };
+          `);
+          note(
+            grouped.inAll && Number(grouped.allCount) === grouped.rendered,
+            `游戏库：「全部」里有所有内容（分到分组的卡仍在全部里=${grouped.inAll}；全部 chip 写「${grouped.allCount}」= 实际 ${grouped.rendered} 张）`,
+          );
+          note(
+            grouped.count === '1',
+            `游戏库：那个分组自己数出 1 张（实测「${grouped.count}」）`,
+          );
+          // 收拾现场：把探针分组删掉、重载回去，别影响后面的断言。
+          await page.eval(`localStorage.removeItem('handheld-launcher.groups.games'); return true;`);
+          await page.goto(URL);
+          await page.wait(1400);
+        }
+
         const modPanel = await page.eval(`
           // 打开卡片菜单 → 点「安装 Mod / 工具」
           document.querySelector('.k1-actions .k1-btn.is-icon')?.click();

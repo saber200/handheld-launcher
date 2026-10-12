@@ -230,9 +230,15 @@ export function LibraryShelf<T extends Item>({
   coverForRef.current = coverFor;
   modForRef.current = modFor;
 
+  /*
+   * 「全部」= **所有内容**，不管它有没有被分到别的分组（用户 2026-10-12 要求，
+   * 「游戏库和软件库同理」）。原来这里是 `!membership[id]`（= 只显示未分组的），
+   * 于是把游戏分进一个组之后它就**从"全部"里消失了** —— 用户找不到自己的东西。
+   * 分组只是"另开一个视图"，不是"从全集里搬走"。
+   */
   const visible =
     library.activeId === "all"
-      ? items.filter((item) => !library.membership[item.id])
+      ? items
       : items.filter((item) => library.membership[item.id] === library.activeId);
   /**
    * 关键词过滤（画板 K2 右上那颗搜索框）。
@@ -260,10 +266,11 @@ export function LibraryShelf<T extends Item>({
     .filter(Boolean)
     .join(" · ");
   // chip 上的数字是真的：全部 = 还没分组的（沿用旧语义，见 library.ungrouped），分组 = 组内张数。
+  // 「全部」那个数字是**总数**（和上面 visible 的口径必须一致，否则"全部 12"下面只列出 9 个）。
   const chipCount = (groupId: string) =>
-    items.filter((item) =>
-      groupId === "all" ? !library.membership[item.id] : library.membership[item.id] === groupId,
-    ).length;
+    groupId === "all"
+      ? items.length
+      : items.filter((item) => library.membership[item.id] === groupId).length;
   const cardStatus = status || hint || note;
   const modPercent =
     modProgress && modProgress.totalBytes > 0
