@@ -1,5 +1,6 @@
 import {
   IconApps,
+  IconBolt,
   IconArrowUp,
   IconBattery,
   IconBattery1,
@@ -97,6 +98,17 @@ export function GamepadIcon() {
 /** K1 操作区：开始游戏。 */
 export function PlayIcon() {
   return <IconPlayerPlayFilled {...solid} />;
+}
+
+/**
+ * 卡片角标：这个游戏装了启动器自己的 OptiScaler（FSR 放大器）。
+ *
+ * 为什么用闪电：这一格要表达的是「这个游戏已经带了加速/放大那一套」，而不是「有个设置」——
+ * 用户 2026-10-12 的要求原话是「哪个游戏装了 optiscaler 哪个没有都没显示，你不如在游戏的
+ * 卡片上加一个图标显示」。图标只是**提示**，真正判据在后端账本（`toolbox::game_has_mod`）。
+ */
+export function ModIcon() {
+  return <IconBolt {...solid} />;
 }
 
 /** 卡片菜单（三横）。 */

@@ -149,7 +149,6 @@ pub fn run() {
             toolbox::toolbox_uninstall_optiscaler,
             toolbox::toolbox_cancel_mod,
             // 游戏文件夹里装了哪些 mod（工具箱「已装 Mod」那一行）。
-            toolbox::toolbox_mod_list,
             maintain::toolbox_maintenance,
             maintain::toolbox_maintenance_clean,
             sysinfo::system_storage,

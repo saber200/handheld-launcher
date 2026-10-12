@@ -32,6 +32,12 @@ type RawGame = {
   launchPath: string;
   sizeBytes?: number;
   playtimeMinutes?: number;
+  /**
+   * 这个游戏装了启动器自己的 OptiScaler 吗（后端 `toolbox::game_has_mod`）。
+   * 判据是**我们自己的账本**，不是「目录里有没有 dxgi.dll」—— 卡片上据此决定画不画那颗图标，
+   * 标错比不标更糟（用户按图标去开 FSR 却什么都没有）。
+   */
+  hasMod?: boolean;
 };
 
 type RawApp = {
@@ -577,6 +583,8 @@ function mapGame(row: RawGame): GameEntry {
     // 老缓存里没有这两项（更新前扫的库）→ undefined = 不知道，界面不画那一格。
     sizeBytes: row.sizeBytes && row.sizeBytes > 0 ? row.sizeBytes : undefined,
     playtimeMinutes: row.playtimeMinutes && row.playtimeMinutes > 0 ? row.playtimeMinutes : undefined,
+    // 老缓存里没有这一项（更新前扫的库）→ undefined = 不知道，卡片不画图标。
+    hasMod: row.hasMod === true ? true : undefined,
   };
 }
 

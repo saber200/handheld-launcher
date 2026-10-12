@@ -245,32 +245,6 @@ pub const MOD_EVENT: &str = "toolbox-mod-progress";
 /// 一个装了 OptiScaler 的游戏（工具箱那张「游戏 Mod / 工具」卡的「查看列表」用）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InstalledMod {
-    pub game: String,
-    /// 装在哪个目录（就是游戏目录）。
-    pub dir: String,
-    /// 账本里记的版本；旧版标记没记版本就是空串。
-    pub version: String,
-    pub hook: String,
-}
-
-/// 列出「哪些游戏装了 OptiScaler」。
-///
-/// 为什么要现扫一遍：账本（`.fantasyhub-optiscaler.json`）写在**每个游戏的目录里**，
-/// 不是集中在一处；所以要先拿到库里的游戏（`scan_games`，含手动添加的），
-/// 再逐个目录看有没有账本 / 旧版标记。慢一点（几秒），所以只由按钮触发，不在进页时跑。
-#[tauri::command]
-pub async fn toolbox_mod_list(app: tauri::AppHandle) -> Vec<InstalledMod> {
-    let games = crate::scan::scan_games(app).await;
-    crate::off_main(move || mod_list_now(games)).await.unwrap_or_default()
-}
-
-fn mod_list_now(games: Vec<crate::scan::ScannedGame>) -> Vec<InstalledMod> {
-    installed_mods(games)
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ModProgress {
     /// `download` / `extract` / `copy` / `done`
     pub phase: String,
@@ -1162,33 +1136,6 @@ pub fn game_has_mod(launch_path: &str, install_path: &str) -> bool {
         return false;
     };
     read_installed(&plan).is_some() || marker_present(&plan.dir) || marker_present(&plan.root)
-}
-
-/// 列出装了 OptiScaler 的游戏：账本优先；只有旧版标记（没账本）的也列出来，
-/// 版本写空串 —— 「装了但不知道装的哪版」是真实状态，不编一个版本号。
-#[cfg_attr(not(windows), allow(dead_code))]
-fn installed_mods(games: Vec<crate::scan::ScannedGame>) -> Vec<InstalledMod> {
-    let mut out = Vec::new();
-    for game in games {
-        let Some(plan) = install_plan(&game.launch_path, &game.install_path) else {
-            continue;
-        };
-        // 报**真实所在**的那个目录：老安装（0.1.5x 把文件铺在游戏根目录那批）要是报主程序旁，
-        // 就把用户指到一个空目录去了。
-        let (dir, version, hook) = match read_installed(&plan) {
-            Some((row, where_)) => (where_, row.version, row.hook),
-            None if marker_present(&plan.dir) => (plan.dir.clone(), String::new(), String::new()),
-            None if marker_present(&plan.root) => (plan.root.clone(), String::new(), String::new()),
-            None => continue,
-        };
-        out.push(InstalledMod {
-            game: game.name,
-            dir: dir.display().to_string(),
-            version,
-            hook,
-        });
-    }
-    out
 }
 
 /// 这次重装能不能把目标目录里那个同名 DLL 当成「我们自己上次装的」。
@@ -2806,51 +2753,6 @@ mod tests {
         assert!(err.contains("OptiScaler.dll"), "报错要说清缺什么：{err}");
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_dir_all(&package).ok();
-    }
-
-    #[test]
-    fn mod_list_reports_where_the_files_actually_are() {
-        let scanned = |name: &str, install: &Path| crate::scan::ScannedGame {
-            id: name.to_string(),
-            name: name.to_string(),
-            cover: String::new(),
-            cover_path: String::new(),
-            install_path: install.to_string_lossy().to_string(),
-            launch_path: String::new(),
-            size_bytes: 0,
-            playtime_minutes: 0,
-            // 扫描收尾才按账本覆盖；这里是测试夹具，测试自己会调 `installed_mods`。
-            has_mod: false,
-        };
-
-        // 新装的一批：账本在主程序旁，列表就该报主程序旁。
-        let (plan, root_new, dir_new) = plan_with_subfolder("list-new");
-        write_manifest(&dir_new, &manifest_for("dxgi.dll", &["dxgi.dll"], &[])).expect("manifest");
-        // 老的一批：账本在游戏根目录，列表必须照实报根目录（报主程序旁会指向空目录）。
-        let (plan_old, root_old, _) = plan_with_subfolder("list-old");
-        write_manifest(&root_old, &manifest_for("winmm.dll", &["winmm.dll"], &[])).expect("manifest");
-        // 只有纯文本标记的旧安装：认得出，但版本写空串。
-        let (plan_legacy, root_legacy, _) = plan_with_subfolder("list-legacy");
-        std::fs::write(root_legacy.join(OPTISCALER_MARKER), "dxgi.dll\n").expect("marker");
-
-        let rows = installed_mods(vec![
-            scanned("新装的", &root_new),
-            scanned("老位置的", &root_old),
-            scanned("只有标记的", &root_legacy),
-            scanned("没装的", &game_tree("list-none", &[("Game.exe", 32)])),
-        ]);
-
-        assert_eq!(rows.len(), 3, "没装的游戏不该出现在列表里");
-        assert_eq!(rows[0].dir, plan.dir.display().to_string());
-        assert_eq!(rows[0].version, "0.9.4");
-        assert_eq!(rows[0].hook, "dxgi.dll");
-        assert_eq!(rows[1].dir, plan_old.root.display().to_string());
-        assert_eq!(rows[1].hook, "winmm.dll");
-        assert_eq!(rows[2].dir, plan_legacy.root.display().to_string());
-        assert_eq!(rows[2].version, "", "旧标记没记版本，不能编一个");
-        for dir in [&root_new, &root_old, &root_legacy] {
-            std::fs::remove_dir_all(dir).ok();
-        }
     }
 
     #[test]

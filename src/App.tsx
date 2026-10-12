@@ -508,7 +508,7 @@ export default function App() {
             {tab === "apps" && <AppsPage />}
             {tab === "downloads" && <DownloadsPage onOpenFiles={() => setTab("files")} />}
             {tab === "files" && <FilesPage />}
-            {tab === "toolbox" && <ToolboxPage onOpenGames={() => setTab("games")} />}
+            {tab === "toolbox" && <ToolboxPage />}
             {tab === "emulators" && <EmulatorsPage />}
           </div>
         </div>

@@ -771,6 +771,57 @@ const scanTabs = async () => {
        * 所以现在是两层：外层 `.library-name` 贴底（`bottom: 0`）铺渐变，带 facts 时用 padding-bottom
        * 让位；里层 `.library-name-text` 下内边距为 0，专门限行。这里两条一起量。
        */
+      /*
+       * 0.1.80：① 工具箱里那张「游戏 Mod / 工具」卡整块去掉了（装 Mod 只走游戏卡片菜单）；
+       *         ② 游戏卡片上给装了 OptiScaler 的游戏加一颗角标 —— **只给装了的**加。
+       */
+      if (name === "工具箱") {
+        const tbMod = await page.eval(`
+          const cards = [...document.querySelectorAll('.k4-card')];
+          const titles = cards.map((c) => (c.querySelector('.k4-card-title')?.textContent || '').trim());
+          return {
+            cards: cards.length,
+            titles,
+            // 那张卡的去重特征：动作按钮写「查看列表」或者有 OptiScaler / Mod 字样
+            hasModCard: cards.some((c) => {
+              const t = (c.textContent || '').toLowerCase();
+              return t.includes('查看列表') || t.includes('optiscaler') || /\bmod\b/.test(t);
+            }),
+          };
+        `);
+        note(
+          !tbMod.hasModCard,
+          `工具箱：那张 OptiScaler / Mod 卡已经去掉（现有 ${tbMod.cards} 张卡：${tbMod.titles.join("、")}）`,
+        );
+      }
+
+      if (name === "游戏库") {
+        const badges = await page.eval(`
+          const preview = await import('/src/data/previewGames.ts');
+          const want = new Map(preview.PREVIEW_GAMES.map((g) => [String(g.id), !!g.hasMod]));
+          const cards = [...document.querySelectorAll('[data-card-id]')];
+          const seen = cards.map((card) => ({
+            id: card.getAttribute('data-card-id'),
+            has: !!card.querySelector('.library-mod-badge'),
+          }));
+          return {
+            seen,
+            wantCount: [...want.values()].filter(Boolean).length,
+            // 库里可见的这几张卡里，应该有多少张带角标
+            expectShown: seen.filter((row) => want.get(row.id)).length,
+          };
+        `);
+        const withBadge = badges.seen.filter((row) => row.has).length;
+        note(
+          withBadge > 0 && withBadge === badges.expectShown,
+          `游戏库：装了 OptiScaler 的卡片带角标（可见 ${badges.seen.length} 张卡里 ${withBadge} 张带角标，预览数据里应有 ${badges.expectShown} 张）`,
+        );
+        note(
+          badges.seen.length - withBadge > 0,
+          `游戏库：没装 Mod 的卡片上确实没有角标（${badges.seen.length - withBadge} 张干净）`,
+        );
+      }
+
       if (name === "游戏库") {
         const long = await page.eval(`
           const names = ["DYNASTY WARRIORS 3: Complete Edition Remastered", "Mount & Blade: Warband", "Red Dead Redemption 2"];

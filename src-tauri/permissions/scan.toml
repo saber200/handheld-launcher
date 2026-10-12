@@ -130,8 +130,4 @@ identifier = "allow-toolbox-cancel-mod"
 description = "Cancel the OptiScaler download in progress."
 commands.allow = ["toolbox_cancel_mod"]
 
-[[permission]]
-identifier = "allow-toolbox-mod-list"
-description = "List the mod files installed next to a game."
-commands.allow = ["toolbox_mod_list"]
 

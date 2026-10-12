@@ -183,9 +183,6 @@ export type Catalog = {
     // 画板 K4（工具箱）：页面小标题、自检按钮、各卡的短文案。
     toolboxSubtitle: string;
     toolboxSelfCheck: string;
-    toolboxModTitle: string;
-    toolboxModBody: string;
-    toolboxModAction: string;
     toolboxRuntimesSub: string;
     toolboxRuntimesAction: string;
     toolboxMaintenanceTitle: string;
@@ -202,14 +199,6 @@ export type Catalog = {
     toolboxCleanDone: (freed: string, caches: number, logs: number) => string;
     toolboxCleanNothing: string;
     /* ── 「查看列表」与驱动版本（功能 14 第 3、4 条） ── */
-    toolboxModListAction: string;
-    toolboxModListTitle: string;
-    toolboxModListLoading: string;
-    toolboxModListEmpty: string;
-    toolboxModListBody: string;
-    toolboxModListEntry: (game: string, version: string) => string;
-    toolboxModListLegacy: string;
-    toolboxModInstalled: (count: number, version: string) => string;
   };
   keyboard: { label: string; backspace: string; done: string };
   library: {
@@ -334,6 +323,8 @@ export type Catalog = {
     gameCount: (count: number) => string;
     startGame: string;
     cardMenu: string;
+    /** 卡片角标：这个游戏装了 OptiScaler（悬停与读屏用）。 */
+    modBadge: string;
     platformSteam: string;
     platformEpic: string;
     platformManual: string;
@@ -974,9 +965,6 @@ export const zh: Catalog = {
     runtimesEmpty: "暂时没有可安装的运行库项。",
     toolboxSubtitle: "运行库 · Mod · 系统维护",
     toolboxSelfCheck: "自检",
-    toolboxModTitle: "游戏 Mod / 工具",
-    toolboxModBody: "在游戏卡片菜单里对单个游戏安装",
-    toolboxModAction: "去游戏库",
     toolboxRuntimesSub: "VC++ / .NET / DirectX 一键补齐",
     toolboxRuntimesAction: "检查更新",
     toolboxMaintenanceTitle: "系统维护",
@@ -993,14 +981,6 @@ export const zh: Catalog = {
     toolboxCleanDone: (freed, caches, logs) =>
       `清出 ${freed}（${caches} 个缓存目录、${logs} 个日志文件）`,
     toolboxCleanNothing: "没有可清的东西（缓存目录本来就空）",
-    toolboxModListAction: "查看列表",
-    toolboxModListTitle: "装了 Mod 的游戏",
-    toolboxModListLoading: "正在扫一遍游戏目录…",
-    toolboxModListEmpty: "库里还没有游戏装过 OptiScaler",
-    toolboxModListBody: "账本写在每个游戏的目录里，所以这里要现扫一遍才能列全。",
-    toolboxModListEntry: (game, version) => `${game} · OptiScaler ${version}`,
-    toolboxModListLegacy: "旧版标记（没记版本）",
-    toolboxModInstalled: (count, version) => `已装 ${count} 个游戏${version ? ` · OptiScaler ${version}` : ""}`,
   },
   keyboard: { label: "数字键盘", backspace: "删除", done: "完成" },
   library: {
@@ -1121,6 +1101,7 @@ export const zh: Catalog = {
     gameCount: (count) => `${count} 个游戏`,
     startGame: "开始游戏",
     cardMenu: "卡片菜单",
+    modBadge: "已装 OptiScaler（FSR 放大器）",
     platformSteam: "Steam",
     platformEpic: "Epic",
     platformManual: "手动添加",
@@ -1724,9 +1705,6 @@ export const en: Catalog = {
     runtimesEmpty: "No runtime packages available yet.",
     toolboxSubtitle: "Runtimes · Mods · Maintenance",
     toolboxSelfCheck: "Self-check",
-    toolboxModTitle: "Game mods / tools",
-    toolboxModBody: "Install per game from its card menu",
-    toolboxModAction: "Open library",
     toolboxRuntimesSub: "VC++ / .NET / DirectX in one pass",
     toolboxRuntimesAction: "Check again",
     toolboxMaintenanceTitle: "Maintenance",
@@ -1743,14 +1721,6 @@ export const en: Catalog = {
     toolboxCleanDone: (freed, caches, logs) =>
       `Freed ${freed} (${caches} cache folders, ${logs} log files)`,
     toolboxCleanNothing: "Nothing to clean — the cache folders are already empty",
-    toolboxModListAction: "View list",
-    toolboxModListTitle: "Games with mods installed",
-    toolboxModListLoading: "Scanning the game folders…",
-    toolboxModListEmpty: "No game in the library has OptiScaler yet",
-    toolboxModListBody: "The ledger lives inside each game folder, so this has to scan them to list them all.",
-    toolboxModListEntry: (game, version) => `${game} · OptiScaler ${version}`,
-    toolboxModListLegacy: "Legacy marker (version not recorded)",
-    toolboxModInstalled: (count, version) => `${count} game(s) installed${version ? ` · OptiScaler ${version}` : ""}`,
   },
   keyboard: { label: "Number pad", backspace: "Delete", done: "Done" },
   library: {
@@ -1871,6 +1841,7 @@ export const en: Catalog = {
     gameCount: (count) => `${count} games`,
     startGame: "Start game",
     cardMenu: "Card menu",
+    modBadge: "OptiScaler installed (FSR upscaler)",
     platformSteam: "Steam",
     platformEpic: "Epic",
     platformManual: "Added by hand",

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { text } from "../i18n";
-import { NavIcon, RefreshIcon } from "../components/NavIcons";
+import { RefreshIcon } from "../components/NavIcons";
 import { formatSize } from "../library/format";
 
 type RuntimePackage = {
@@ -29,14 +29,6 @@ type MaintenanceClean = {
   logFiles: number;
 };
 
-/** 装了 OptiScaler 的一个游戏（`toolbox_mod_list`）。 */
-type InstalledMod = {
-  game: string;
-  dir: string;
-  version: string;
-  hook: string;
-};
-
 /**
  * 这一页读到的状态，**存在模块作用域**（不是组件 state）。
  *
@@ -56,7 +48,6 @@ type ToolboxSnapshot = {
   runtimes: RuntimePackage[];
   maintenance: MaintenanceScan | null;
   /** Mod 列表扫出来的行（弹窗开着才有；关掉/切页都留着 —— 卡片状态行要用它写装了哪一版）。 */
-  modRows: InstalledMod[];
 };
 
 let snapshot: ToolboxSnapshot | null = null;
@@ -66,7 +57,13 @@ function inTauri(): boolean {
 }
 
 /**
- * 工具箱页（画板 K4）：游戏 Mod 工具 + 运行库 + 系统维护三张卡。
+ * 工具箱页（画板 K4）：运行库 + 系统维护两张卡。
+ *
+ * ⚠️ 2026-10-12：原来这里还有第三张「游戏 Mod / 工具」卡（OptiScaler 状态 + 「查看列表」按钮
+ * 列装了哪些游戏）。用户要求**整个去掉**：「反正这个 optiscaler 已经在游戏的弹出按钮组里安装了，
+ * 你为啥要留着这个？不如直接去掉得了」—— 装 Mod 的入口只留游戏卡片菜单那一条路，工具箱不再重复。
+ * 对应地后端 `toolbox_mod_list` 也删了；「哪些游戏装了」改成游戏卡片上的一颗角标
+ * （数据来自扫描时的 `has_mod`，判据是账本 `toolbox::game_has_mod`）。
  *
  * 为什么页头也在这里：右上那颗「自检」就是**把这一页的状态全部重读一遍**，跟下面几张卡
  * 用的是同一批命令，放在同一个组件里才不用绕一圈回调。
@@ -74,7 +71,7 @@ function inTauri(): boolean {
  * 这一页的数据是**快照**（模块作用域，见下面 `ToolboxSnapshot`）：切走再切回不重读 ——
  * 只有「自检」和页里那几个动作（装运行库 / 立即清理）会重新读。
  */
-export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
+export function ToolboxPanel() {
   const m = text().toolbox;
   const panelRef = useRef<HTMLDivElement>(null);
   const [runtimes, setRuntimes] = useState<RuntimePackage[]>(snapshot?.runtimes ?? []);
@@ -86,10 +83,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
   const [maintenance, setMaintenance] = useState<MaintenanceScan | null>(snapshot?.maintenance ?? null);
   const [cleaning, setCleaning] = useState(false);
   /** 「查看列表」弹窗；`rows` 关掉弹窗也留着（卡片状态行要用它显示装了哪一版）。 */
-  const [modList, setModList] = useState<{ open: boolean; busy: boolean; rows: InstalledMod[]; error: string } | null>(
-    // 上次扫到过就带着行回来（弹窗本身不开：切页回来弹出的窗是打扰）。
-    snapshot?.modRows.length ? { open: false, busy: false, rows: snapshot.modRows, error: "" } : null,
-  );
 
   const refreshRuntimes = useCallback(() => {
     if (!inTauri()) {
@@ -109,25 +102,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
     void invoke<MaintenanceScan>("toolbox_maintenance")
       .then(setMaintenance)
       .catch(() => setMaintenance(null));
-  }, []);
-
-  /**
-   * 「查看列表」：**现扫一遍库里的游戏目录**（账本写在每个游戏目录里，没有集中的索引）。
-   * 慢几秒，所以只在用户点的时候跑；扫描期间弹窗里写「正在扫」。
-   */
-  const openModList = useCallback(() => {
-    if (!inTauri()) {
-      setModList({ open: true, busy: false, rows: [], error: m.toolboxPreview });
-      return;
-    }
-    setModList((prev) => ({ open: true, busy: true, rows: prev?.rows ?? [], error: "" }));
-    void invoke<InstalledMod[]>("toolbox_mod_list")
-      .then((rows) => setModList({ open: true, busy: false, rows, error: "" }))
-      .catch((err) =>
-        setModList({ open: true, busy: false, rows: [], error: m.toolboxFailed(String(err)) }),
-      );
-    // m 是语言包对象，每次渲染都新；这里只借它拼提示行。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** 「立即清理」：删缓存目录 + 自己的日志。结果如实显示（清出多少、删了几个）。 */
@@ -210,10 +184,8 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
     snapshot = {
       runtimes,
       maintenance,
-      // modList 为 null 时保留上次扫到的行：别把「装了哪一版」抹掉。
-      modRows: modList ? modList.rows : (snapshot?.modRows ?? []),
     };
-  }, [runtimes, maintenance, modList]);
+  }, [runtimes, maintenance]);
 
 
 
@@ -237,20 +209,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
 
   const tauri = inTauri();
 
-  /** 「查看列表」这颗按钮：扫描中写「处理中」，其余时候就是画板上那三个字。 */
-  const modListActionLabel = modList?.busy ? m.toolboxWorking : m.toolboxModListAction;
-  /**
-   * Mod 卡的状态行（画板上写的是「OptiScaler 2.4」）：只有**所有**装了 Mod 的游戏版本一致
-   * 时才写出版本号 —— 版本不一致时写哪一个都是在骗人，那种情况让用户点开列表看。
-   */
-  const modVersions = new Set((modList?.rows ?? []).map((row) => row.version).filter(Boolean));
-  const modStatus =
-    modList && !modList.busy && !modList.error && modList.rows.length > 0
-      ? m.toolboxModInstalled(
-          modList.rows.length,
-          modVersions.size === 1 ? [...modVersions][0] : "",
-        )
-      : "";
 
   /**
    * 系统维护那三行的文案。
@@ -283,25 +241,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
 
       <div className="k4-body" ref={panelRef}>
         <div className="k4-row">
-          <div className="k4-side">
-            <section className="k4-card" aria-label={m.toolboxModTitle}>
-              <div className="k4-card-head">
-                <span className="k4-card-icon" aria-hidden>
-                  <NavIcon id="toolbox" />
-                </span>
-                <div className="k4-card-text">
-                  <h3 className="k4-card-title">{m.toolboxModTitle}</h3>
-                  <p className="k4-card-body">{modStatus || m.toolboxModBody}</p>
-                </div>
-                {/* 画板这颗按钮是「查看列表」：列出哪些游戏装了 Mod。
-                    以前这里是「去游戏库」（那时没有列列表的命令）；现在有 `toolbox_mod_list`
-                    了，按钮就按画板做真事 —— 去游戏库那条路仍然在（游戏卡片的菜单里）。 */}
-                <button type="button" className="k4-card-action" data-focusable onClick={openModList}>
-                  {modListActionLabel}
-                </button>
-              </div>
-            </section>
-          </div>
         </div>
 
         <div className="k4-pair">
@@ -397,71 +336,6 @@ export function ToolboxPanel({ onOpenGames }: { onOpenGames?: () => void }) {
         {note ? <p className="k4-note">{note}</p> : null}
       </div>
 
-      {modList?.open && (
-        <div className="group-dialog focus-trap open">
-          <button
-            type="button"
-            className="drawer-scrim"
-            aria-label={text().close}
-            tabIndex={-1}
-            onClick={() => setModList({ ...modList, open: false })}
-          />
-          <div
-            className="group-dialog-panel group-create-panel"
-            role="dialog"
-            aria-label={m.toolboxModListTitle}
-          >
-            <h2>{m.toolboxModListTitle}</h2>
-            {/* 扫描要几秒（要用库里的游戏列表逐个查账本），所以先把话说清楚。 */}
-            <p className="group-empty">{m.toolboxModListBody}</p>
-            {modList.busy ? (
-              <p className="group-empty">{m.toolboxModListLoading}</p>
-            ) : modList.error ? (
-              <p className="group-empty">{modList.error}</p>
-            ) : modList.rows.length === 0 ? (
-              <p className="group-empty">{m.toolboxModListEmpty}</p>
-            ) : (
-              <div className="k4-rows">
-                {modList.rows.map((row) => (
-                  <div key={row.dir} className="k4-row-item">
-                    <span className="k4-tick is-on" aria-hidden>
-                      ✓
-                    </span>
-                    <strong>
-                      {m.toolboxModListEntry(row.game, row.version || m.toolboxModListLegacy)}
-                    </strong>
-                    <small>
-                      {row.dir}
-                      {row.hook ? ` · ${row.hook}` : ""}
-                    </small>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="library-tools">
-              <button
-                type="button"
-                className="library-tool"
-                data-focusable
-                onClick={() => {
-                  setModList({ ...modList, open: false });
-                  onOpenGames?.();
-                }}
-              >
-                {m.toolboxModAction}
-              </button>
-              <button
-                type="button"
-                className="library-tool"
-                data-focusable
-                onClick={() => setModList({ ...modList, open: false })}
-              >
-                {text().close}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

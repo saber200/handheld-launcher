@@ -42,7 +42,6 @@
     "allow-system-power",
     "allow-system-storage",
     "allow-system-power-status",
-    "allow-toolbox-mod-list",
     "allow-toolbox-maintenance",
     "allow-toolbox-maintenance-clean",
     "allow-quit-launcher",

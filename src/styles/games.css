@@ -314,6 +314,34 @@
   animation: none;
 }
 
+/*
+ * 「这个游戏装了 OptiScaler」的角标（用户 2026-10-12 要求：卡片上要能看出装没装）。
+ * 放**左上角**：右上角是「正在运行」那颗圆点，两者可能同时出现（装了 Mod 又正在跑）。
+ * 只画在装了的那张卡上 —— 没装的卡片连占位都没有（不留空框）。
+ */
+.library-mod-badge {
+  position: absolute;
+  top: calc(8 * var(--dp));
+  left: calc(8 * var(--dp));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(20 * var(--dp));
+  height: calc(20 * var(--dp));
+  border-radius: calc(6 * var(--dp));
+  background: rgba(10, 16, 27, 0.72);
+  border: 1px solid rgba(61, 214, 198, 0.55);
+  color: var(--accent);
+  backdrop-filter: blur(2px);
+}
+
+.library-mod-badge .icon,
+.library-mod-badge svg {
+  width: calc(13 * var(--dp));
+  height: calc(13 * var(--dp));
+}
+
 .k1-run-dot {
   position: absolute;
   top: calc(8 * var(--dp));

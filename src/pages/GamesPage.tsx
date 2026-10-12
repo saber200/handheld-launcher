@@ -4,7 +4,7 @@ import { currentLocale, text } from "../i18n";
 import { LibraryShelf, type CardOptions } from "../components/LibraryShelf";
 import { EpicMark, SteamMark } from "../components/DeviceIcons";
 import { KeyCap } from "../components/KeyCap";
-import { MenuIcon, PlayIcon } from "../components/NavIcons";
+import { MenuIcon, ModIcon, PlayIcon } from "../components/NavIcons";
 import { libraryActions } from "../library/actions";
 import { formatPlaytime, formatPlaytimeAndSize, formatSize } from "../library/format";
 import { type GameEntry } from "../data/previewGames";
@@ -313,6 +313,13 @@ function GameCard({
           <span className="library-name-text">{title}</span>
         </span>
         {facts && <span className="k1-card-facts tnum">{facts}</span>}
+        {/* 装了 OptiScaler 才画这颗角标（没装 = 什么都不画，不留空位）。
+            位置放左上：右上角已经是「正在运行」那颗圆点。 */}
+        {game.hasMod && (
+          <span className="library-mod-badge" title={text().library.modBadge} aria-label={text().library.modBadge}>
+            <ModIcon />
+          </span>
+        )}
         {running && <span className="k1-run-dot" aria-hidden />}
         <KeyCap label="A" className="k1-a" />
       </button>
@@ -330,6 +337,11 @@ function GameCard({
     >
       {picked && <span className="pick-mark">✓</span>}
       {cover}
+      {game.hasMod && (
+        <span className="library-mod-badge" title={text().library.modBadge} aria-label={text().library.modBadge}>
+          <ModIcon />
+        </span>
+      )}
       <span className="library-name">
         <span className="library-name-text">{title}</span>
       </span>

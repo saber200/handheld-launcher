@@ -15,13 +15,20 @@ export type GameEntry = {
   sizeBytes?: number;
   /** 总时长（分钟）。0 / undefined = 不知道。目前只有 Steam 有（localconfig 的 Playtime）。 */
   playtimeMinutes?: number;
+  /**
+   * 这个游戏装了启动器自己的 OptiScaler 吗。判据是**我们自己的账本/旧标记**
+   * （`toolbox::game_has_mod`），不是「目录里有没有 dxgi.dll」—— 那个名字 DXVK、ReShade、
+   * 游戏自带的代理 DLL 都在用，按文件名判会给没装过的游戏也标上图标（标错比不标更糟）。
+   * 卡片上据此画不画那颗小图标；没装 = undefined，什么也不画。
+   */
+  hasMod?: boolean;
 };
 
 /** Browser preview only. Real library scanning needs the Windows app. */
 export const PREVIEW_GAMES: GameEntry[] = [
   { id: "2358720", name: "黑神话：悟空", cover: cover(2358720), sizeBytes: gb(130), playtimeMinutes: hours(32.5) },
-  { id: "1245620", name: "艾尔登法环", cover: cover(1245620), sizeBytes: gb(60), playtimeMinutes: hours(88.2) },
-  { id: "1091500", name: "赛博朋克 2077", cover: cover(1091500), sizeBytes: gb(70), playtimeMinutes: hours(45.1) },
+  { id: "1245620", name: "艾尔登法环", cover: cover(1245620), sizeBytes: gb(60), playtimeMinutes: hours(88.2), hasMod: true },
+  { id: "1091500", name: "赛博朋克 2077", cover: cover(1091500), sizeBytes: gb(70), playtimeMinutes: hours(45.1), hasMod: true },
   { id: "1086940", name: "博德之门 3", cover: cover(1086940), sizeBytes: gb(122), playtimeMinutes: hours(96.4) },
   { id: "292030", name: "巫师 3：狂猎", cover: cover(292030), sizeBytes: gb(50), playtimeMinutes: hours(120) },
   { id: "1145360", name: "哈迪斯", cover: cover(1145360), sizeBytes: gb(15), playtimeMinutes: hours(42.6) },

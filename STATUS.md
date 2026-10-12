@@ -117,6 +117,32 @@
   （工具箱与首页的布局没塌、设置抽屉少一行但其余照常）。顺带一个可预期的变化：安装包会明显变小
   （小组件 payload 过去固定占 ~7.8 MB，0.1.60–0.1.64 的包都是 27–30 MB）。
 
+## 未发布（0.1.80）：工具箱去掉 OptiScaler 那张卡；游戏卡片上标出「装了 OptiScaler」（2026-10-12，用户两条）
+
+1. **工具箱里第三张卡（游戏 Mod / 工具）整块删掉**。用户原话：「反正这个 optiscaler 已经在游戏的
+   弹出按钮组里安装了，你为啥要留着这个？不如直接去掉得了」。删掉的是：那张卡（标题 + 状态行 +
+   「查看列表」按钮）、它的列表弹窗、「装了哪些游戏」那个扫描命令，以及只为它存在的文案与权限：
+   - 前端：`ToolboxPanel` 里的 `modList` 状态 / `openModList` / `modStatus` / `modListActionLabel` /
+     快照里的 `modRows`、`ToolboxPage`/`App` 传下来的 `onOpenGames`（只有那颗按钮在用）；
+   - 后端：`toolbox_mod_list`（命令 + `mod_list_now` + `installed_mods` + `InstalledMod` + 那个测试）；
+   - 权限：`scan.toml` 里的 `allow-toolbox-mod-list`、`capabilities/default.json` 里的引用
+     （`npm run audit:acl` 专门盯这三处一致，漏一处它就红）；
+   - 文案：`toolboxMod*` 6 条 + `toolboxModList*` 6 条（中英各一份，1.5 KB）。
+   **按游戏装 Mod 那条路一个字没动**（游戏卡片菜单 → 装 Mod，仍走 `toolbox_install_optiscaler`）。
+2. **游戏卡片上加角标**（用户：「现在哪个游戏装了、哪个没装都没显示，你不如在游戏的卡片上加一个
+   图标显示」）：
+   - 判据在后端：`toolbox::game_has_mod()` 查**我们自己的账本**（`.fantasyhub-optiscaler.json`，
+     以及上一代的纯文本标记；目标目录 + 游戏根目录两个老落点），**不是**「目录里有没有 `dxgi.dll`」
+     —— 那个名字 DXVK / ReShade / 游戏自带的代理 DLL 都在用，按文件名判会给没装过的游戏也标上。
+   - `ScannedGame` 新增 `has_mod`，在 `scan_games_now` **收尾统一补一遍**（不撒进 Steam / Epic /
+     手动各分支，免得「手动添加的游戏没有这个标记」这种漏网）；老缓存里没这一项 = 不画。
+   - 卡片上是一颗**左上角**的小角标（闪电图标 + 悬停/读屏说明「已装 OptiScaler（FSR 放大器）」）：
+     右上角留给「正在运行」那颗圆点，两者可能同时出现。**没装的卡片什么都不画**，不留空框。
+
+探针（1280×720 与 1920×1080 都 0 ❌）：工具箱那张卡不存在了（现在只剩「游戏运行库」「系统维护」
+两张）、游戏库里**带角标的张数 = 预览数据里 `hasMod` 的张数**（12 张里 2 张）、其余 10 张干净。
+`npm run build` / `audit-ui` / `audit-acl` / `cargo test` 86 项 / `cargo clippy` 全过。
+
 ## 未发布（0.1.79）：状态条按盘符分别显示容量；工具箱那两张卡改成跟着内容长高（2026-10-12，用户两条要求）
 
 1. **状态条「存储空间」除了总量，还要逐盘显示**（用户：「也分盘符显示下容量吧，这样比较一目了然」）。
