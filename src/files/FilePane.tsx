@@ -26,7 +26,6 @@ type Props = {
   firstRef: RefObject<HTMLButtonElement | null>;
   listRef: RefObject<HTMLDivElement | null>;
   onActivatePane: () => void;
-  onFocusRow: (index: number) => void;
   onPick: (index: number, options?: { range?: boolean }) => void;
   onOpen: (entry: FileEntry) => void;
   onMenu: (entry: FileEntry) => void;
@@ -105,7 +104,6 @@ export function FilePane({
   firstRef,
   listRef,
   onActivatePane,
-  onFocusRow,
   onPick,
   onOpen,
   onMenu,
@@ -177,7 +175,6 @@ export function FilePane({
               size={sizes[entry.path]}
               selectMode={selectMode}
               firstRef={firstRef}
-              onFocusRow={onFocusRow}
               onPick={onPick}
               onOpen={onOpen}
               onMenu={onMenu}
@@ -199,7 +196,6 @@ type RowProps = {
   size?: DirSize;
   selectMode: boolean;
   firstRef: RefObject<HTMLButtonElement | null>;
-  onFocusRow: (index: number) => void;
   onPick: (index: number, options?: { range?: boolean }) => void;
   onOpen: (entry: FileEntry) => void;
   onMenu: (entry: FileEntry) => void;
@@ -215,7 +211,6 @@ function FileRow({
   size,
   selectMode,
   firstRef,
-  onFocusRow,
   onPick,
   onOpen,
   onMenu,
@@ -279,7 +274,6 @@ function FileRow({
           event.preventDefault();
           onDrop(entry);
         }}
-        onFocus={() => onFocusRow(index)}
         onContextMenu={(event) => {
           event.preventDefault();
           onMenu(entry);

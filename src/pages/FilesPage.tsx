@@ -405,9 +405,6 @@ export function FilesPage() {
     return { pane, index };
   }, []);
 
-  const setPickedFor = useCallback((pane: PaneId, next: string[]) => {
-    setPicked((current) => ({ ...current, [pane]: next }));
-  }, []);
 
   /** 选中/取消一项。带 `range` 就是从锚点选到这里（鼠标 Shift、手柄靠选择模式扫过）。 */
   const pick = useCallback(
@@ -433,18 +430,6 @@ export function FilesPage() {
     [],
   );
 
-  /** 焦点走到哪就选到哪：手柄没有 Shift，这就是「区间选择」。 */
-  const focusRowFor = useCallback(
-    (pane: PaneId, index: number) => {
-      if (!selectMode) return;
-      const entry = paneRef.current[pane][index];
-      if (!entry) return;
-      setPicked((current) =>
-        current[pane].includes(entry.path) ? current : { ...current, [pane]: [...current[pane], entry.path] },
-      );
-    },
-    [selectMode],
-  );
 
   const selectAll = useCallback(
     (pane: PaneId) => {
@@ -564,6 +549,17 @@ export function FilesPage() {
 
   function openEntry(entry: FileEntry, pane: PaneId) {
     setMenu(null);
+    /*
+     * 选择模式里 **A = 选中/取消这一项**，不打开它。
+     *
+     * 用户 2026-10-12：「按 X 之后需要按 A 键才会选中，否则不选中，只是移动」——
+     * 选中动作只留 A 一条路；选完按 Y 出菜单做删除/复制，或再按 X 退出选择模式。
+     */
+    if (selectMode) {
+      const index = paneRef.current[pane].findIndex((row) => row.path === entry.path);
+      if (index >= 0) pick(pane, index);
+      return;
+    }
     if (entry.kind === "dir") {
       browsers[pane].enter(entry);
       return;
@@ -590,20 +586,24 @@ export function FilesPage() {
     return true;
   }
 
-  /** X：进/出选择模式，或在选择模式里切换当前项的选中。 */
+  /**
+   * X：进 / 出选择模式。**进去之后不选中任何东西** —— 选哪一项由 A 决定。
+   *
+   * 用户 2026-10-12 的真机反馈：「一旦我按 X，那么我聚焦移动的项就都会被多选，很容易误删。
+   * 我建议你改成：按 X 之后需要按 A 键才会选中，否则不选中，只是移动」。
+   * 老实现是"进模式即选中当前项 + 焦点走到哪选到哪"（手柄没有 Shift，本想做区间选择），
+   * 但代价是**只要移动就会选上**，想删一项却划过去三行，就多删两个——误删比"选起来慢"糟得多。
+   */
   function toggleSelect() {
     const spot = focusedRow();
     if (!spot) return false;
     setActivePane(spot.pane);
     if (!selectMode) {
-      // 第一次按 = 进选择模式并选中当前项：手柄上「进模式」和「选第一项」是同一个动作，
-      // 拆成两次按键对玩家是纯负担。
       setSelectMode(true);
-      setPickedFor(spot.pane, [paneRef.current[spot.pane][spot.index].path]);
       anchorRef.current[spot.pane] = spot.index;
       return true;
     }
-    pick(spot.pane, spot.index);
+    exitSelection();
     return true;
   }
 
@@ -895,7 +895,6 @@ export function FilesPage() {
       const node = event.target as HTMLElement | null;
       node?.scrollIntoView({ block: "nearest" });
       // 预览要跟着**焦点**走：行上有 `data-file-index`，用它反查是哪一条。
-      // 不复用 `onFocusRow`：那个回调只在多选模式里干活（见 focusRowFor）。
       const index = Number(node?.dataset.fileIndex ?? "-1");
       if (index < 0) return;
       const pane: PaneId = node?.closest("[data-pane='right']") ? "right" : "left";
@@ -1478,7 +1477,6 @@ export function FilesPage() {
             firstRef={leftFirst}
             listRef={leftList}
             onActivatePane={() => setActivePane("left")}
-            onFocusRow={(index) => focusRowFor("left", index)}
             onPick={(index, options) => pick("left", index, options)}
             onOpen={(entry) => openEntry(entry, "left")}
             onMenu={(entry) => {
@@ -1503,7 +1501,6 @@ export function FilesPage() {
               firstRef={rightFirst}
               listRef={rightList}
               onActivatePane={() => setActivePane("right")}
-              onFocusRow={(index) => focusRowFor("right", index)}
               onPick={(index, options) => pick("right", index, options)}
               onOpen={(entry) => openEntry(entry, "right")}
               onMenu={(entry) => {

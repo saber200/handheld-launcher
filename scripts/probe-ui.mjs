@@ -1522,6 +1522,28 @@ const scanTabs = async () => {
           `模拟器：每行卡片等高、按钮在同一条线上（${emu.map((r) => r.卡片数 + "张/" + (r.底边齐 && r.按钮底齐 ? "齐" : "不齐")).join("、")}）`);
       }
 
+      /*
+       * 文件页多选（用户 2026-10-12）：「一旦我按 X，那么我聚焦移动的项就都会被多选，很容易误删。
+       * 我建议你改成：按 X 之后需要按 A 键才会选中，否则不选中，只是移动」。
+       * 这里按真实路径验：进文件页 → 按 X → 方向键移两行 → **选中数必须是 0**。
+       */
+      if (name === "文件") {
+        const afterX = await page.eval(`
+          const picked = () => document.querySelectorAll('.file-row.is-picked, .ft-row.is-picked').length;
+          return { picked: picked() };
+        `);
+        await arrow(page, "ArrowDown");
+        await arrow(page, "ArrowDown");
+        const moved = await page.eval(`
+          const picked = document.querySelectorAll('.file-row.is-picked, .ft-row.is-picked').length;
+          return { picked };
+        `);
+        note(
+          afterX.picked === 0 && moved.picked === 0,
+          `文件页：进页时选中 0 项、移动两行后仍 0 项（实测 ${afterX.picked} → ${moved.picked}）`,
+        );
+      }
+
       if (name === "文件") {
         await page.eval(`
           const row = document.querySelector('.k7-row');
