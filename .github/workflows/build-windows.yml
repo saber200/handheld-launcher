@@ -199,14 +199,27 @@ jobs:
               | python3 -c "import json,sys; d=json.load(sys.stdin); print('  附件 id:', d.get('id', d))" 2>/dev/null || true
           done
 
-          # ④ 把 latest.json 覆盖写到 Gitee 仓库默认分支（应用读的就是这个固定地址）
-          CONTENT=$(python3 -c "import base64;print(base64.b64encode(open('gitee-latest.json','rb').read()).decode())")
-          SHA=$(curl -sS "$API/contents/latest.json?access_token=$GITEE_TOKEN" \
-            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
-          curl -sS -X POST "$API/contents/latest.json" \
-            -d "access_token=$GITEE_TOKEN" -d "content=$CONTENT" \
-            -d "message=chore: latest.json for $TAG" -d "branch=master" ${SHA:+-d "sha=$SHA"} \
-            | python3 -c "import json,sys; d=json.load(sys.stdin); print('latest.json 提交:', d.get('commit',{}).get('sha','?')[:8])" 2>/dev/null || true
+          # ④ 把 latest.json 放进仓库默认分支（应用读的固定地址就是它）
+          #
+          # ⚠️ 这里**故意用 git push，而不是 contents API**：2026-10-13 实测 v0.1.97 那次
+          # 发行版和附件都传上去了，但 contents API 那一步没写进去（raw/master/latest.json 一直 404），
+          # 而 API 失败时只回一段 JSON、脚本不报错 —— 静默失败最难查。git 这条路是确定的语义：
+          # clone → 改文件 → commit → push，成没成看退出码就知道。
+          WORK=$(mktemp -d)
+          git clone --depth 1 "https://saber200:${GITEE_TOKEN}@gitee.com/$OWNER/$REPO.git" "$WORK" >/dev/null 2>&1
+          cp gitee-latest.json "$WORK/latest.json"
+          cd "$WORK"
+          git config user.name "fantasyhub-ci"
+          git config user.email "ci@users.noreply.gitee.com"
+          git add latest.json
+          if git diff --cached --quiet; then
+            echo "latest.json 内容没变，跳过提交"
+          else
+            git commit -m "chore: latest.json for $TAG" >/dev/null
+            git push origin HEAD:"${GITEE_BRANCH:-master}" 2>&1 | tail -2
+            echo "latest.json 已推送"
+          fi
+          cd - >/dev/null
 
           echo "国内镜像完成：https://gitee.com/$OWNER/$REPO/releases/tag/$TAG"
 
