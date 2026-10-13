@@ -1527,6 +1527,46 @@ const scanTabs = async () => {
        * 我建议你改成：按 X 之后需要按 A 键才会选中，否则不选中，只是移动」。
        * 这里按真实路径验：进文件页 → 按 X → 方向键移两行 → **选中数必须是 0**。
        */
+      /*
+       * 双栏（双视图）那一行「盘符 / 面包屑」不许纵向长大（用户 2026-10-12 真机照片：
+       * 两栏中间孤零零一个「盘符」，上下全是大片空白 —— `.k7-crumbs` 的 `flex: 1` 在纵向
+       * flex 容器里变成了"占满高度"）。这里切到双栏，量那一行的高度。
+       */
+      if (name === "文件") {
+        const dualCrumb = await page.eval(`
+          // 找到工具栏里那颗「双栏」按钮并点它
+          const btn = [...document.querySelectorAll('.k7-tool')].find((b) =>
+            /双栏|Dual/.test(b.getAttribute('aria-label') || b.textContent || ''),
+          );
+          btn?.click();
+          await new Promise((r) => setTimeout(r, 500));
+          const panes = document.querySelectorAll('.k7-panes .k7-pane');
+          const crumbs = [...document.querySelectorAll('.k7-panes .k7-pane > .k7-crumbs')];
+          const dp = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dp')) || 1;
+          return {
+            panes: panes.length,
+            heights: crumbs.map((c) => +c.getBoundingClientRect().height.toFixed(1)),
+            dp,
+            paneH: panes.length ? +panes[0].getBoundingClientRect().height.toFixed(1) : 0,
+          };
+        `);
+        note(
+          dualCrumb.panes >= 1 &&
+            dualCrumb.heights.length > 0 &&
+            dualCrumb.heights.every((h) => h <= 48 * dualCrumb.dp),
+          `文件页：双栏时面包屑那一行不占满高度（${dualCrumb.panes} 栏，行高 ${dualCrumb.heights.join(" / ")}px，面板高 ${dualCrumb.paneH}px）`,
+        );
+        // 切回单栏，别影响后面「进页 0 项选中」那条断言
+        await page.eval(`
+          const btn = [...document.querySelectorAll('.k7-tool')].find((b) =>
+            /双栏|Dual/.test(b.getAttribute('aria-label') || b.textContent || ''),
+          );
+          btn?.click();
+          await new Promise((r) => setTimeout(r, 400));
+          return true;
+        `);
+      }
+
       if (name === "文件") {
         const afterX = await page.eval(`
           const picked = () => document.querySelectorAll('.file-row.is-picked, .ft-row.is-picked').length;
