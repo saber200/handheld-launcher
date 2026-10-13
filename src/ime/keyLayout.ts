@@ -1,123 +1,202 @@
 /*
- * 手柄键盘的**键面布局**（纯数据，不含任何 React）。
+ * 键面布局。**按用户 2026-10-13 拍的 OneXPlayer 屏幕键盘照片逐键对齐**。
  *
- * 单独拆出来的理由：布局是「我们承诺能打出哪些字符」这件事的**唯一事实来源**，
- * 而这件事需要一个自动化测试盯着（`keyLayout.test.ts` 检查整套 ASCII 与中文常用标点
- * 是否都可达）。测试用 Node 跑、不引 React，所以这份数据不能和组件混在一个文件里。
+ * 纯数据、不含 React —— 因为「这把键盘能打出哪些字符」需要一个跑在 Node 里、
+ * 不引 React 的测试盯着（`keyLayout.test.ts`）。改键表改这里，然后 `npm test`。
  *
- * 改键表时**不要**直接改 `GamepadKeyboard.tsx` —— 改这里，然后跑 `npm test`。
+ * ## 照片读出来的三条关键事实
+ *
+ * 1. **它是一把完整键盘，不是分层的**：6 行 —— `Esc+F1–F12` / 数字行 / `Tab`+QWERTY /
+ *    `Caps`+ASDF / `Shift`+ZXCV / `Ctrl Win Alt`+空格+方向键。Shift 的作用只是把键面
+ *    在**同一个键印的上下两个字符**之间切换（第二张图 Shift 点亮后字母变大写、数字变符号），
+ *    所以我原来那套「字母层 / 符号层」可以整个去掉。
+ * 2. **符号全在数字行的 Shift 形态里**：`` `~ `` `1!` `2@` `3#` `4$` `5%` `6^` `7&` `8*`
+ *    `9(` `0)` `-_` `=+`，再配上 `[{` `]}` `\|` `;:` `'"` `,<` `.>` `/?` —— 整套 ASCII 都在。
+ * 3. **键面上直接印手柄角标**：`X` 在 Backspace 上、`Y` 在空格上、`R2` 在 Enter 上、
+ *    `L2` 在左 Shift 上、`L3` 在 Caps 上。这是这把键盘最好用的部分：用户不用记
+ *    「哪个键是退格」，看键面就知道。
+ *
+ * ## 一个猜错又改回来的地方
+ *
+ * 我原本把 `L2` 猜成「左扳机按到底」（两段行程），因为标准手柄里 LT 与 L2 是同一个键。
+ * 照片显示**左 Shift 那颗键上印着 `L2`** —— 它是**一个独立的物理键**，和 `LT` 不是一回事。
+ * 所以 `LT` 与 `L2` 各接各的：**LT = 按住 Shift，L2 = 这颗 Shift 键（按下锁上、再按松开）**。
  */
 
 /**
- * 键盘分**两层**（像手机上的 `ABC` / `?123`），两层都是 4 行字符键 + 1 行中文标点：
- *
- *   | 层 | 4 行字符键 | 最后一行 |
- *   |---|---|---|
- *   | 字母层 | `qwertyuiop` / `asdfghjkl` / `zxcvbnm` / **占位** | 共用的中文标点 |
- *   | 符号层 | 数字一行 + ASCII 标点三行 | 共用的中文标点 |
- *
- * ## 为什么字母层要留一行占位（本文件里最费劲的一条约束）
- *
- * 键盘是贴着屏幕底边弹出的**固定高度面板**，切层时高度一变，整把键盘会往上跳一下
- * （实测差 52px，很难看）。而这里有个硬算术：
- *
- *   - 符号层要装 **42 个键位**（数字 10 + ASCII 可打印标点 32），每行最多 10 键 → **必须 4 行**；
- *   - 字母层只有 26 个字母 → **3 行就够**。
- *
- * 差一行就是 52px 的跳动。所以字母层补一行**占位键**（`visibility: hidden`：占高度、
- * 不显示、也不参与焦点），把两层拉齐。占位行不参与「能打出哪些字」的判定。
- *
- * ## 42 个键位怎么塞进 4×10
- *
- * 数字 10 个占满第一行，剩 32 个标点分三行：10 + 10 + 10 只装得下 30，还差 2 个。
- * 所以 ` （反引号）与 | （竖线）放在最后一行单独收尾（见 `SYMBOL_ROWS` 第 5 项）——
- * 这两个是 ASCII 里最不可能出现在文件名中的，为它们破坏整行节奏不值得。
- *
- * 一路调这个布局踩了三次坑，三条现在都有测试盯着：
- * ① 补符号时**漏掉一整行**（`! # $ % & * + , ; : ? =` 全没了）；
- * ② 补回来那行写成 **12 键**（超过每行 10 键的上限）；
- * ③ 两层**不等高**（切层时键盘跳一下）。
+ * 键面上印的**手柄角标** —— 直接从照片读出来的。
+ * 角标是这把键盘的识别特征，也是它比一把普通软键盘好用的地方。
  */
-export const LETTER_ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"] as const;
+export type GamepadBadge = "X" | "Y" | "L2" | "R2" | "L3";
 
-/** 字母层的占位行：只为把高度拉齐，不显示、不可聚焦。 */
-export const LETTER_FILLER_ROW = "xxxx" as const;
+/** 非字符键的 id。组件与 `App.tsx` 靠它分派行为。 */
+export type WideId =
+  | "esc" | "backspace" | "tab" | "caps" | "enter"
+  | "shift-left" | "shift-right" | "ctrl" | "win" | "alt"
+  | "arrow-left" | "arrow-up" | "arrow-down" | "arrow-right";
 
 /**
- * 符号层的 ASCII 符号：数字一行 + 标点三行 + 收尾一行。
+ * 一颗键。
  *
- * **整套 94 个 ASCII 可打印字符全部可达**（大小写字母来自字母层、空格有独立键）。
- * 最常用的排前面（`.` `-` `_` 在文件名里出现最多）。
+ * `shiftedOf` 是**同一个键在 Shift 下打出来的另一个字符**（真键盘上印在键面下半部分，
+ * 照片里就是 `1` 上面那个 `!`）。字母不需要写它 —— 大写是小写字母的天然 Shift 形态。
  */
-export const SYMBOL_ROWS = [
-  "1234567890", // 数字占满一行 —— 顺便把「数字键」这件事解决掉
-  ".-_@(),;:?",
-  "!*/\\~'\"<>^",
-  "#$%&+=[]{}",
-  "`|", // ASCII 里最冷门的两个，单独一行收尾（理由见文件头）
-] as const;
+export type Key =
+  /**
+   * 字符键：`label` 是键面主文字。
+   *
+   * `code` 缺省 = **功能键**（照片里的 `F1`–`F12`）：有键面、能聚焦、按下去有反馈，
+   * 但**不往输入框里送文字** —— 否则按 F1 会打出字面的「f1」，那是错的。
+   */
+  | { kind: "char"; label: string; code?: string; shiftedOf?: string }
+  /** 功能键（Shift / Enter / Tab…）：行为由 `id` 决定。 */
+  | { kind: "wide"; id: WideId; label: string; badge?: GamepadBadge; units?: number }
+  /** 空格：`Y` 角标印在中间。 */
+  | { kind: "space"; label: string; badge: GamepadBadge; units?: number };
+
+const char = (code: string, shiftedOf?: string): Key => ({ kind: "char", label: code, code, shiftedOf });
+/** 功能键：只有键面，不送文字。 */
+const fn = (label: string): Key => ({ kind: "char", label });
+const wide = (id: WideId, label: string, badge?: GamepadBadge, units?: number): Key => ({
+  kind: "wide",
+  id,
+  label,
+  badge,
+  units,
+});
+
+/** 第 1 行：`Esc` + `F1`–`F12`。 */
+const ROW_FN: Key[] = [
+  wide("esc", "Esc", undefined, 1.4),
+  ...Array.from({ length: 12 }, (_, i) => fn(`F${i + 1}`)),
+]; // 1.4 + 12 = 13.4
+
+/** 第 2 行：`` ` `` + 数字 + `-` `=` + `Backspace`（右上角，印 `X`）。 */
+const ROW_NUMBERS: Key[] = [
+  char("`", "~"),
+  char("1", "!"), char("2", "@"), char("3", "#"), char("4", "$"), char("5", "%"),
+  char("6", "^"), char("7", "&"), char("8", "*"), char("9", "("), char("0", ")"),
+  char("-", "_"), char("=", "+"),
+  wide("backspace", "Backspace", "X", 1.4),
+]; // 13 字符 + 1.4 = 14.4 单位
+
+/** 第 3 行：`Tab` + QWERTY + `[` `]` `\`。 */
+const ROW_QWERTY: Key[] = [
+  wide("tab", "Tab", undefined, 1.4),
+  ..."qwertyuiop".split("").map((c) => char(c)),
+  char("[", "{"), char("]", "}"), char("\\", "|"),
+];
+
+/** 第 4 行：`Caps`（印 `L3`）+ ASDF + `;` `'` + `Enter`（印 `R2`）。 */
+const ROW_ASDF: Key[] = [
+  wide("caps", "Caps", "L3", 1.4),
+  ..."asdfghjkl".split("").map((c) => char(c)),
+  char(";", ":"), char("'", "\""),
+  wide("enter", "Enter", "R2", 1.4),
+]; // 1.6 + 9 字符 + 2 字符 + 1.4 = 14.4
+
+/** 第 5 行：左 `Shift`（印 `L2`，**L2 就是这颗键**）+ ZXCV + `,` `.` `/` + 右 Shift。 */
+const ROW_ZXCV: Key[] = [
+  wide("shift-left", "Shift", "L2", 1.8),
+  ..."zxcvbnm".split("").map((c) => char(c)),
+  char(",", "<"), char(".", ">"), char("/", "?"),
+  wide("shift-right", "Shift", undefined, 1.8),
+]; // 1.8 + 7 字符 + 3 字符 + 1.8 = 13.6
+
+/** 第 6 行：`Ctrl` `Win` `Alt` + 空格（印 `Y`）+ 四个方向键。 */
+const ROW_BOTTOM: Key[] = [
+  wide("ctrl", "Ctrl", undefined, 1.75),
+  wide("win", "Win", undefined, 1.75),
+  wide("alt", "Alt", undefined, 1.75),
+  { kind: "space", label: "空格", badge: "Y", units: 4.4 },
+  wide("arrow-left", "◀", undefined, 0.9),
+  wide("arrow-up", "▲", undefined, 0.9),
+  wide("arrow-down", "▼", undefined, 0.9),
+  wide("arrow-right", "▶", undefined, 0.9),
+]; // 3×1.75 + 4.4 + 4×0.9 = 13.25
+
+/** 照片里那一把键盘：6 行。 */
+export const KEY_ROWS: Key[][] = [ROW_FN, ROW_NUMBERS, ROW_QWERTY, ROW_ASDF, ROW_ZXCV, ROW_BOTTOM];
+
+/** 行数。测试拿它核对「加中文标点行之前」的行数没被随手改动。 */
+export const ROW_COUNT = KEY_ROWS.length;
+
+/** 每行键数上限（照片里最长的一行是 13 颗）。 */
+export const MAX_KEYS_PER_ROW = 14;
 
 /**
- * 中文标点，两层共用**同一行**（切层时这一行不动，用户的位置感不会丢）。
+ * 中文标点行。
  *
- * 挑的是中文里最高频的十个：逗号句号问号感叹号顿号冒号分号省略号破折号间隔号。
- * 注意 **`——` 是一个键打出两个字符** —— 中文破折号本来就占两格，所以它在这份表里
- * 是一个长度为 2 的字符串，覆盖检查要按「字符集合」而不是「单字符」来判。
+ * **照片里没有这一行** —— 这是本仓库自己加的：OneXPlayer 那把键盘是给 Windows 通用
+ * 场景用的，而本启动器的输入框里会出现中文文件名、中文搜索词，自带中文标点的键盘
+ * 比让用户去数字行凑 `，` 方便得多。放在最后一行，两层共用，不参与 Shift 变换。
  *
- * **全角引号与括号（`“”《》【】`）没有单独摆键**：它们和符号层已有的
- * `" ' < > [ ] { }` 是同一个键的两个形态，而中文输入场景里更常打的是逗号句号那一批。
- * 真需要全角引号时，先用候选条打中文、再打半角引号，读起来是一样的。
+ * `——` 是一个键打出两个字符（中文破折号本来就占两格）。
  */
 export const CJK_PUNCT = ["，", "。", "？", "！", "、", "：", "；", "…", "——", "·"] as const;
 
-/**
- * 每层**内容行**的目标行数：两层的数必须一致，否则切层时键盘高度会跳。
- *
- * 由符号层决定 —— 42 个键位（数字 10 + ASCII 标点 32）在每行 10 键的上限下至少要 5 行，
- * 所以取 5。字母层只有 3 行字母，剩下的两行用占位行补齐。
- */
-const CONTENT_ROWS = SYMBOL_ROWS.length;
-
-export type KeyboardLayer = "letters" | "symbols";
-
-/** 一行键。`filler` 的行为占位行：占高度、不显示、不可聚焦。 */
-export type KeyRow = { keys: readonly string[]; filler?: boolean };
+/** 键盘的 Shift 形态。`upper` = Shift 生效（按住 LT / 锁上 L2 / Caps 开着）。 */
+export type KeyboardLayer = "lower" | "upper";
 
 /**
- * 某一层的全部字符键行（不含底部那颗层切换键与空格 / 删除 / 完成）。
+ * 打这颗键送进输入框的字符。非字符键（Shift / 空格 / 方向键…）返回 null。
  *
- * 末行永远是共用的中文标点，两层的字符键行数也相同 —— 于是**总行数必然一致**，
- * 切层时键盘高度不变。这两条都由 `keyLayout.test.ts` 保证。
+ * 空格单独处理：它在 `upper` 下也只能是空格 —— 不能因为 Shift 生效就打出别的东西。
  */
-export function rowsForLayer(layer: KeyboardLayer): KeyRow[] {
-  const content: KeyRow[] =
-    layer === "letters"
-      ? LETTER_ROWS.map((row) => ({ keys: [...row] }))
-      : SYMBOL_ROWS.map((row) => ({ keys: [...row] }));
-
-  // 占位行的**数量是算出来的，不是写死的** —— 写死过一次（写 1 行，而符号层比字母层
-  // 多 2 行），于是两层还是不等高。哪一层内容行少就补几行到 CONTENT_ROWS。
-  const fillerCount = CONTENT_ROWS - content.length;
-  const fillers: KeyRow[] = Array.from({ length: Math.max(fillerCount, 0) }, () => ({
-    keys: [...LETTER_FILLER_ROW],
-    filler: true,
-  }));
-  return [...content, ...fillers, { keys: CJK_PUNCT }];
+export function charFor(key: Key, layer: KeyboardLayer): string | null {
+  if (key.kind === "space") return " ";
+  if (key.kind !== "char") return null;
+  // 功能键（F1–F12）：不送文字
+  if (!key.code) return null;
+  if (layer === "upper") {
+    if (key.shiftedOf) return key.shiftedOf;
+    if (/^[a-z]$/.test(key.code)) return key.code.toUpperCase();
+  }
+  return key.code;
 }
 
-/** 两层合起来能打出的**全部字符**（展开 `——` 这种多字符键，字母补上大写）。 */
-export function allReachableCharacters(): Set<string> {
+/**
+ * 两层合起来能打出的**全部字符**（测试用它核对整套 ASCII 覆盖）。
+ *
+ * 中文标点行不在里面 —— 它和 Shift 无关，由 `CJK_PUNCT` 单独核对。
+ */
+export function reachableCharacters(): Set<string> {
   const out = new Set<string>();
-  for (const layer of ["letters", "symbols"] as const) {
-    for (const row of rowsForLayer(layer)) {
-      if (row.filler) continue;
-      for (const key of row.keys) {
-        for (const ch of key) out.add(ch);
-        // 字母键没有单独的 Shift，但候选与输入框都吃大写，所以大写也算可达
-        if (key.length === 1 && /[a-z]/.test(key)) out.add(key.toUpperCase());
+  for (const layer of ["lower", "upper"] as const) {
+    for (const row of KEY_ROWS) {
+      for (const key of row) {
+        const ch = charFor(key, layer);
+        if (ch) out.add(ch);
       }
     }
   }
-  out.add(" "); // 空格有独立键
   return out;
+}
+
+/** 按坐标取键（测试与探针靠它「第几行第几列」定位，对齐照片时很有用）。 */
+export function keyAt(row: number, column: number): Key | undefined {
+  return KEY_ROWS[row]?.[column];
+}
+
+/** 一行的键数。 */
+export function rowWidth(row: number): number {
+  return KEY_ROWS[row]?.length ?? 0;
+}
+
+/** 一颗键占几个「字符键宽度」（视觉宽度，`flex-grow` 用它）。 */
+export function unitsOf(key: Key): number {
+  if (key.kind === "space") return key.units ?? 4.4;
+  if (key.kind === "wide") return key.units ?? 1.6;
+  return 1;
+}
+
+/**
+ * 一行占多少个宽度单位。
+ *
+ * 这个值**各行之间必须接近**（差得多了，行与行之间键宽不一致，看起来是「歪的」）。
+ * 照片里就是这个规律：`Esc` 行比字母行窄，`Ctrl/Win/Alt` 那行靠空格补齐。
+ * 测试 `keyLayout.test.ts` 钉住「各行差值不超过 1.5 单位」。
+ */
+export function rowUnits(row: number): number {
+  return (KEY_ROWS[row] ?? []).reduce((sum, key) => sum + unitsOf(key), 0);
 }

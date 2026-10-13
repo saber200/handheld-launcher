@@ -1,89 +1,110 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { text } from "../i18n";
+import { playSfx } from "../audio/sfx";
 import {
   backspaceField,
   bindKeyboardClosedHook,
   closeGamepadKeyboard,
+  fieldIsMultiline,
   gamepadKeyboardOpen,
   insertIntoField,
+  moveDirectionalFocus,
   subscribeGamepadKeyboard,
 } from "../hooks/useGamepadNav";
 import {
+  bindKeyboardCloseRequest,
   bindKeyboardField,
+  cancelComposition,
   commitCandidate,
-  ensureWordIndex,
   displayComposing,
+  ensureWordIndex,
   pressBackspace,
+  pressEnter,
   pressKey,
   pressSpace,
   resetKeyboardInput,
+  toggleCaps,
   toggleKeyboardMode,
+  toggleShiftLock,
   useKeyboardState,
 } from "../ime/keyboard";
 import { loadPinyinTable, usePinyinTable } from "../ime/pinyinTable";
-// 键面布局是纯数据，放 `src/ime/keyLayout.ts` —— 有测试逐个核对符号覆盖（见那个文件）
-import { rowsForLayer, type KeyboardLayer } from "../ime/keyLayout";
+// 键面布局是纯数据，放 `src/ime/keyLayout.ts` —— 有测试逐个核对符号覆盖与照片对齐
+import {
+  CJK_PUNCT,
+  KEY_ROWS,
+  charFor,
+  unitsOf,
+  type GamepadBadge,
+  type Key,
+  type KeyboardLayer,
+} from "../ime/keyLayout";
 
 /*
- * 手柄键盘（全键盘 + 拼音候选）。
+ * 手柄键盘。**布局与手柄键位都对照 OneXPlayer 的屏幕键盘**（用户 2026-10-13 拍的照片）：
  *
- * 历史：这里原来是一把**数字键盘**（3×3 数字 + 删除 + 完成），只够敲路径里的数字。
- * `FUTURE.md` 功能 12 的「这一版仍缺」写的就是这件事 ——「手柄上的文字输入（搜索与批量
- * 重命名要借系统键盘；现有数字键盘只够数字）」。现在补上：英文、数字、符号、拼音中文。
+ *   - 6 行完整键盘：`Esc+F1–F12` / 数字行 / `Tab`+QWERTY / `Caps`+ASDF / `Shift`+ZXCV /
+ *     `Ctrl Win Alt`+空格+方向键（实体键表在 `src/ime/keyLayout.ts`）
+ *   - 键面印**手柄角标**：`X` 在 Backspace、`Y` 在空格、`R2` 在 Enter、`L2` 在左 Shift、
+ *     `L3` 在 Caps —— 用户不用记「哪个键是退格」，看键面就知道
+ *   - `Shift` 的形态切换就是「同一个键印的上下两个字符」（数字行 `1`↔`!`），
+ *     没有「字母层 / 符号层」那种分层
  *
- * 两条设计约束，都是掌机逼出来的：
+ * ## 两条设计约束，都是掌机逼出来的
  *
- *   1. **一击可上屏**。手柄上按一下很贵，所以候选必须尽量是「整词」而不是单字 ——
- *      `nihao` 按一下空格就出「你好」，而不是先选「你」再选「好」。这靠引擎对整串
- *      拼音做切分实现（见 `src/ime/pinyin.ts`）。
+ *   1. **一击可上屏**。手柄上按一下很贵，所以候选尽量是「整词」而不是单字 ——
+ *      `nihao` 按一下空格就出「你好」。靠引擎对整串拼音做切分实现（`src/ime/pinyin.ts`）。
  *   2. **复用现成的焦点系统**。每个按键就是 `button[data-focusable]`，候选也是。
- *      于是方向键移动、A 确认这些**一行都不用重写** —— `useGamepadNav` 扫的就是这个属性。
- *      新增的只有 LB/RB 翻候选（接在 App 的 `onBumperLeft/Right` 上）。
+ *      方向键移动、A 确认这些**一行都不用重写** —— `useGamepadNav` 扫的就是这个属性。
  */
+
+/** 键面上的手柄角标。这是这把键盘的识别特征，也真的能帮用户少记一层映射。 */
+function Badge({ badge }: { badge: GamepadBadge }) {
+  return <span className="hint-key-badge">{badge}</span>;
+}
 
 export function GamepadKeyboard() {
   const open = useSyncExternalStore(subscribeGamepadKeyboard, gamepadKeyboardOpen);
-  const { composing, candidates, selected, mode } = useKeyboardState();
+  const { composing, candidates, selected, mode, shift, shiftLock, caps } = useKeyboardState();
   const tableState = usePinyinTable();
   const rootRef = useRef<HTMLDivElement>(null);
   /** 上一次渲染时「第一颗候选」的文本：用来判断候选是否需要重新接管焦点。 */
   const topCandidate = useRef<string | null>(null);
-  /** 当前层：字母 / 符号。默认字母层（打字绝大多数时候是字母）。 */
-  const [layer, setLayer] = useState<KeyboardLayer>("letters");
 
-  /*
-   * 键盘一关就清掉没上屏的组字。
+  /**
+   * 键面是否处于 Shift 形态（数字显符号、字母显大写）。
    *
-   * 为什么必须清：不清的话，用户带着一串拼音关掉键盘，下次按 B 会先被 `backOnce` 里的
-   * 「取消组字」吃掉一次，表现为「B 键第一次没反应」。
-   *
-   * 为什么在这个组件里注册而不是在 `keyboard.ts` 里直接 import：`keyboard.ts` 要用
-   * `useGamepadNav` 的字段读写，`useGamepadNav` 又要回调过来清组字 —— 两边互相 import
-   * 会绕成环。本组件同时依赖两者，在这里挂钩子最干净。
+   * 三个来源只要有一个成立就算：按住 `LT`、锁上 `L2`、`Caps` 开着。
+   * **但中文组字时强制回小写** —— 拼音就是小写，键面显示大写会让人以为打出来是大写。
    */
+  const shifted = (shift || shiftLock || caps) && !(mode === "zh" && composing);
+
+  // 键盘一关就清掉没上屏的组字与修饰键状态（理由见 `useGamepadNav.bindKeyboardClosedHook`）
   useEffect(() => {
     bindKeyboardClosedHook(resetKeyboardInput);
-    return () => bindKeyboardClosedHook(null);
+    bindKeyboardCloseRequest(() => closeGamepadKeyboard());
+    return () => {
+      bindKeyboardClosedHook(null);
+      bindKeyboardCloseRequest(null);
+    };
   }, []);
 
-  // 打开时：把字表拉起来、用界面文字建一次词索引、并让键盘能往输入框里写字
+  // 打开时：把字表拉起来、让键盘能往输入框里写字、并用界面文字建一次词索引
   useEffect(() => {
     if (!open) return;
-    bindKeyboardField({ insert: insertIntoField, backspace: backspaceField });
+    bindKeyboardField({ insert: insertIntoField, backspace: backspaceField, multiline: fieldIsMultiline });
     void loadPinyinTable().then(() => ensureWordIndex());
     return () => bindKeyboardField(null);
   }, [open]);
 
-  // 表加载完（可能晚于打开）也要补建一次索引 —— 它是中文字典的一部分，缺了就只有英文
+  // 字表加载完（可能晚于打开）也要补建一次索引 —— 它是中文字典的一部分，缺了只有英文
   useEffect(() => {
     if (open && tableState.status === "ready") ensureWordIndex();
   }, [open, tableState.status]);
 
-  // 每次打开都清掉上次残留的组字，并回到字母层（上次停在符号层不该影响这次）
+  // 每次打开都清掉上次残留的组字与修饰键
   useEffect(() => {
-    if (!open) return;
-    resetKeyboardInput();
-    setLayer("letters");
+    if (open) resetKeyboardInput();
   }, [open]);
 
   // 面板刚出现：把焦点放进它自己的第一颗按键（否则摇杆还停在输入框上）
@@ -95,9 +116,8 @@ export function GamepadKeyboard() {
   /*
    * 候选变了要重新接焦点。
    *
-   * 为什么必须做：用户敲 `n` 时焦点在 `n` 这颗键上；敲到 `ni` 出现候选后，如果那颗键
-   * 消失了（`z` 行不动，但候选是新增的），焦点会掉回 body —— 此时摇杆就没反应了。
-   * 所以第一颗候选一出现就把焦点交给它：接着按 A 就是「选第一个候选」，这正是用户要的。
+   * 用户敲 `n` 时焦点在 `n` 那颗键上；敲到 `ni` 出现候选后，如果焦点不挪过去，接着按 A
+   * 就会又打一个 `n`。所以第一颗候选一出现就把焦点交给它 —— 接着按 A 就是「选第一个候选」。
    */
   useLayoutEffect(() => {
     if (!open || !composing) {
@@ -114,10 +134,52 @@ export function GamepadKeyboard() {
 
   const label = text().keyboard;
   const composingShown = displayComposing(composing);
+  const layer: KeyboardLayer = shifted ? "upper" : "lower";
+
+  /** 功能键按下时干什么。照片里带角标的那几颗都在这里接上。 */
+  const pressWide = (id: Extract<Key, { kind: "wide" }>["id"]) => {
+    switch (id) {
+      case "backspace":
+        pressBackspace();
+        return;
+      case "enter":
+        pressEnter();
+        return;
+      // 左右两颗 Shift 都是 `L2` 那颗键：按下锁上、再按松开（用户要的「相当于长按 Shift」）
+      case "shift-left":
+      case "shift-right":
+        toggleShiftLock();
+        return;
+      case "caps":
+        toggleCaps();
+        return;
+      case "esc":
+        // 与手柄 B 同义：先取消组字，没有组字才关键盘
+        if (!cancelComposition()) closeGamepadKeyboard();
+        return;
+      case "arrow-left":
+        moveDirectionalFocus(-1, 0);
+        return;
+      case "arrow-right":
+        moveDirectionalFocus(1, 0);
+        return;
+      case "arrow-up":
+        moveDirectionalFocus(0, -1);
+        return;
+      case "arrow-down":
+        moveDirectionalFocus(0, 1);
+        return;
+      default:
+        // Tab / Ctrl / Win / Alt：照片上有这几颗键，但本键盘里没有对应行为。
+        // **不能让它「按了毫无反应」**（用户会以为卡住），所以发一声轻响表示收到了。
+        playSfx("click");
+        return;
+    }
+  };
 
   return (
     <div ref={rootRef} className="gamepad-keyboard" data-gamepad-keyboard role="group" aria-label={label.label}>
-      {/* 组字行：左边是「中/英」切换，中间是拼音与候选，右边在没候选时说明原因 */}
+      {/* 组字行：中英切换 + 拼音与候选 + 修饰键指示灯 */}
       <div className="gamepad-kb-compose">
         <button
           type="button"
@@ -154,50 +216,92 @@ export function GamepadKeyboard() {
             {tableState.status === "missing" ? label.noChinese : ""}
           </span>
         )}
+
+        {/*
+          修饰键状态必须**看得见**：用户按一下 L2 把 Shift 锁上了，没有指示就不知道
+          自己是「按住」还是「锁着」，打出一串大写会莫名其妙。锁定的用实底牌子区分。
+        */}
+        <span className="gamepad-kb-mods">
+          {shift ? <span className="gamepad-kb-mod">{label.shift}</span> : null}
+          {shiftLock ? <span className="gamepad-kb-mod is-locked">{label.shift} ⇪</span> : null}
+          {caps ? <span className="gamepad-kb-mod is-locked">{label.caps}</span> : null}
+        </span>
       </div>
 
-      {rowsForLayer(layer).map((row, rowIndex) => (
-        <div
-          key={`row-${rowIndex}`}
-          className={`gamepad-keyboard-row${row.filler ? " is-filler" : ""}`}
-          // 占位行只为把两层的**高度**拉齐（见 `keyLayout.ts` 文件头）：
-          // 它必须占位，但不能显示、不能聚焦 —— `aria-hidden` + CSS 的 visibility 一起上。
-          aria-hidden={row.filler ? true : undefined}
-        >
-          {row.keys.map((key) => (
-            <button
-              key={key}
-              type="button"
-              className="gamepad-key"
-              // 占位键不给 `data-focusable`：焦点系统扫的就是这个属性，
-              // 给了的话摇杆会停在看不见的键上（表现为「按方向键没反应」）。
-              data-focusable={row.filler ? undefined : true}
-              tabIndex={row.filler ? -1 : undefined}
-              onClick={() => pressKey(key)}
-            >
-              {key}
-            </button>
-          ))}
+      {KEY_ROWS.map((row, rowIndex) => (
+        <div key={`row-${rowIndex}`} className="gamepad-keyboard-row">
+          {row.map((key, keyIndex) => {
+            if (key.kind === "space") {
+              return (
+                <button
+                  key={`space-${keyIndex}`}
+                  type="button"
+                  className="gamepad-key is-space"
+                  style={{ flexGrow: unitsOf(key) }}
+                  data-focusable
+                  onClick={() => pressSpace()}
+                >
+                  <Badge badge={key.badge} />
+                  <span>{label.space}</span>
+                </button>
+              );
+            }
+            if (key.kind === "wide") {
+              const active =
+                key.id === "shift-left" || key.id === "shift-right"
+                  ? shiftLock
+                  : key.id === "caps"
+                    ? caps
+                    : false;
+              return (
+                <button
+                  key={key.id}
+                  type="button"
+                  className={`gamepad-key is-wide${active ? " is-active" : ""}`}
+                  // 宽度按 `keyLayout` 里逐键标好的单位（照片里的相对宽度），
+                  // 这样各行合计一致、键宽看起来是齐的（测试 `keyLayout.test.ts` 钉着这条）
+                  style={{ flexGrow: unitsOf(key) }}
+                  data-focusable
+                  onClick={() => pressWide(key.id)}
+                >
+                  {key.badge ? <Badge badge={key.badge} /> : null}
+                  <span>{key.label}</span>
+                </button>
+              );
+            }
+            // 字符键：Shift 形态下数字键显示它上面印的符号（照片里就是上下两个字符）。
+            // `code` 缺省的是 F1–F12 这类功能键：能聚焦、按下去有反馈，但不输入文字。
+            const shown = charFor(key, layer) ?? key.label;
+            return (
+              <button
+                key={`${key.code ?? key.label}-${keyIndex}`}
+                type="button"
+                className="gamepad-key has-label"
+                data-focusable
+                onClick={() => (key.code ? pressKey(key.code) : playSfx("click"))}
+              >
+                {key.shiftedOf ? (
+                  <span className="gamepad-key-shifted" aria-hidden="true">
+                    {layer === "upper" ? key.code : key.shiftedOf}
+                  </span>
+                ) : null}
+                <span className="gamepad-key-main">{shown}</span>
+              </button>
+            );
+          })}
         </div>
       ))}
 
+      {/* 中文标点行：本仓库自己加的（照片里没有，但中文输入需要，见 keyLayout.ts） */}
       <div className="gamepad-keyboard-row">
-        <button
-          type="button"
-          // 这颗键**永远在同一个位置**（底部最左），所以切层之后焦点不会掉 ——
-          // 用户连按两下就是「切过去再切回来」，不会因为键行变短而跳到别的键上。
-          className={`gamepad-key is-wide${layer === "symbols" ? " is-primary" : ""}`}
-          data-focusable
-          onClick={() => setLayer(layer === "letters" ? "symbols" : "letters")}
-        >
-          {layer === "letters" ? label.symbols : label.letters}
-        </button>
-        <button type="button" className="gamepad-key is-wide" data-focusable onClick={() => pressSpace()}>
-          {label.space}
-        </button>
-        <button type="button" className="gamepad-key is-wide" data-focusable onClick={() => pressBackspace()}>
-          {label.backspace}
-        </button>
+        {CJK_PUNCT.map((mark) => (
+          <button key={mark} type="button" className="gamepad-key" data-focusable onClick={() => pressKey(mark)}>
+            {mark}
+          </button>
+        ))}
+      </div>
+
+      <div className="gamepad-keyboard-row">
         <button
           type="button"
           className="gamepad-key is-wide is-primary"

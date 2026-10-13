@@ -173,6 +173,7 @@ pub fn run() {
             startup::open_fse_settings,
             startup::open_desktop,
             startup::enter_fullscreen,
+            startup::minimize_launcher,
             startup::system_power,
             startup::quit_launcher,
             i18n::set_locale,

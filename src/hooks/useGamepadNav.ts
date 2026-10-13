@@ -32,6 +32,8 @@ type Options = {
   onFaceTop?: () => void;
   /** Xbox X / PS Square。 */
   onFaceLeft?: () => void;
+  /** 左摇杆按下（L3）。键盘把它当大写锁定（对标 OneXPlayer 的 Caps）。 */
+  onStickPress?: () => void;
   enabled?: boolean;
 };
 
@@ -241,6 +243,11 @@ function writeField(next: string, caret: number) {
  * 调用方（`src/ime/keyboard.ts`）**不该关心光标** —— 它只说「插这段字」。光标由本模块
  * 维护（`keyboardCaret`），这里也是全仓库唯一知道「怎么改一个受控输入框的值」的地方。
  */
+/** 当前被键盘编辑的输入框能不能接受换行（`textarea` 能，`input` 不能）。 */
+export function fieldIsMultiline(): boolean {
+  return keyboardTarget instanceof HTMLTextAreaElement;
+}
+
 export function insertIntoField(text: string) {
   const el = keyboardTarget;
   if (!el || !text) return;
@@ -659,6 +666,7 @@ export function useGamepadNav({
   onTriggerRight,
   onFaceTop,
   onFaceLeft,
+  onStickPress,
   viewGesture = "press",
   enabled = true,
 }: Options) {
@@ -671,6 +679,7 @@ export function useGamepadNav({
   const startHeld = useRef(false);
   const faceTopHeld = useRef(false);
   const faceLeftHeld = useRef(false);
+  const stickLeftHeld = useRef(false);
   const confirmHeld = useRef(false);
   const backHeld = useRef(false);
 
@@ -713,6 +722,24 @@ export function useGamepadNav({
       suspendCaret = false;
     };
     document.addEventListener("pointerdown", onPointerDown);
+
+    /*
+     * 输入框**一拿到焦点就把手柄键盘弹出来**。
+     *
+     * 用户 2026-10-13 的真机反馈：「键盘还是不对，还是原来那样」+ 之前那句「所有的输入框都要用
+     * 这个键盘」。原来只有「焦点在输入框上按 A」这一条路（`confirmFocused`），真机上显然不灵
+     * （按了没反应，用户看到的就是"压根儿没法用"）。改成焦点一到就弹：鼠标点、手柄移进去、
+     * 程序 focus() 都算，**没有任何一条路会漏**。
+     * 只读/禁用/数字以外的框不弹（`inputMode` 不再过滤 —— 现在是全键盘，谁都能用）。
+     */
+    const onFocusIn = (event: FocusEvent) => {
+      const el = event.target;
+      if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
+      if (el.disabled || el.readOnly) return;
+      if (gamepadKeyboardOpen() && keyboardTarget === el) return;
+      openGamepadKeyboard(el);
+    };
+    document.addEventListener("focusin", onFocusIn);
     const keyboard = virtualKeyboard();
     const onKeyboard = () => {
       if ((keyboard?.boundingRect.height ?? 0) < 1) {
@@ -779,14 +806,31 @@ export function useGamepadNav({
       if (rt && !triggers.current.r) onTriggerRight?.();
       triggers.current = { l: lt, r: rt };
 
+
+      /*
+       * Y / X（button 3 / 2）。
+       *
+       * 这里的屏蔽条件有个**反过来的特例**：手柄键盘打开时，Y 是空格、X 是退格
+       * （对标 OneXPlayer 的映射），必须照常派发 —— 所以「正在编辑文本」这个条件
+       * 遇到键盘打开时要**放行**，而不是继续屏蔽。以前是无条件 `!field`，结果键盘
+       * 开着按 Y 什么都不发生，正好和用户要的相反。
+       */
       const field = textEditing ? typingTarget() : null;
+      const keyboardUp = gamepadKeyboardOpen();
+      const blocked = field !== null && !keyboardUp;
+
       const faceTop = !!pad.buttons[3]?.pressed;
-      if (faceTop && !faceTopHeld.current && !field) onFaceTop?.();
+      if (faceTop && !faceTopHeld.current && !blocked) onFaceTop?.();
       faceTopHeld.current = faceTop;
 
       const faceLeft = !!pad.buttons[2]?.pressed;
-      if (faceLeft && !faceLeftHeld.current && !field) onFaceLeft?.();
+      if (faceLeft && !faceLeftHeld.current && !blocked) onFaceLeft?.();
       faceLeftHeld.current = faceLeft;
+
+      // L3（左摇杆按下）= 大写锁定；R3 目前没分配，留着以后接。
+      const stickLeft = !!pad.buttons[10]?.pressed;
+      if (stickLeft && !stickLeftHeld.current && !blocked) onStickPress?.();
+      stickLeftHeld.current = stickLeft;
 
       const ax = pad.axes[0] ?? 0;
       const ay = pad.axes[1] ?? 0;
@@ -838,8 +882,9 @@ export function useGamepadNav({
     return () => {
       window.cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("focusin", onFocusIn);
       keyboard?.removeEventListener("geometrychange", onKeyboard);
       viewport?.removeEventListener("resize", onViewport);
     };
-  }, [enabled, viewGesture, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onStart, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft]);
+  }, [enabled, viewGesture, onBack, onConfirm, onBumperLeft, onBumperRight, onView, onStart, onTriggerLeft, onTriggerRight, onFaceTop, onFaceLeft, onStickPress]);
 }

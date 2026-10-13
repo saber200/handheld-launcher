@@ -58,6 +58,23 @@ pub fn enter_fullscreen(window: tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+/// 收起成窗口并最小化（用户 2026-10-13：「桌面模式下启动器无法最小化，永远占着屏幕」）。
+///
+/// 为什么放在 Rust 侧而不是前端直接调 `minimize()`：**全屏状态下 `minimize()` 是无效的**
+/// （Windows 上全屏窗口不响应最小化），必须先退出全屏。而本程序的全屏是 `fill_screen()`
+/// 设的（铺满显示器 + `set_fullscreen(true)`），两个动作必须**紧挨着**做、中间不能被别的事
+/// 插进来 —— 这正是「一次 IPC 调用里做完」该解决的问题，所以做成一个命令而不是两个。
+///
+/// 与 `enter_fullscreen` 成对：那个负责铺回去，这个负责收起来。日志行也对称，
+/// 真机上查「界面呼不出来」时第一件事就是看日志里最后一次是哪一种模式（见 `open_desktop` 的注释）。
+#[tauri::command]
+pub fn minimize_launcher(window: tauri::WebviewWindow) -> Result<(), String> {
+    let _ = window.set_fullscreen(false);
+    let _ = window.minimize();
+    crate::logutil::write_line("windowed mode (leave fullscreen + minimize)");
+    Ok(())
+}
+
 /// Leave maximized state, then size the window to the whole monitor.
 /// A maximized borderless window is clamped to the work area, which leaves a taskbar-sized gap.
 pub fn fill_screen(window: &tauri::WebviewWindow) {

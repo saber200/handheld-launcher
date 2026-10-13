@@ -32,12 +32,30 @@ type Snapshot = {
   /** 当前高亮的候选下标。 */
   selected: number;
   mode: KeyboardMode;
+  /**
+   * 修饰键状态（对标 OneXPlayer 那把键盘的手柄映射）：
+   *   - `shift`：**按住** LT 期间为真（松开即失效）
+   *   - `shiftLock`：L2 一按锁上、再按一下松开（「相当于长按 Shift」）
+   *   - `caps`：L3 切换的大写锁定
+   * 界面上要**看得见**这三个状态，否则用户不知道自己是「按住」还是「锁上了」。
+   */
+  shift: boolean;
+  shiftLock: boolean;
+  caps: boolean;
 };
 
 /** 组字串上限。超过就当用户误触了，不再往上堆。 */
 const MAX_COMPOSING = 32;
 
-let snapshot: Snapshot = { composing: "", candidates: [], selected: 0, mode: "zh" };
+let snapshot: Snapshot = {
+  composing: "",
+  candidates: [],
+  selected: 0,
+  mode: "zh",
+  shift: false,
+  shiftLock: false,
+  caps: false,
+};
 const listeners = new Set<() => void>();
 
 /**
@@ -49,7 +67,24 @@ type FieldOps = {
   insert: (text: string) => void;
   /** 退格：删掉光标前的一个字符（或选区）。 */
   backspace: () => void;
+  /** 当前输入框能不能接受换行（`textarea` 能，`input` 不能）。 */
+  multiline: () => boolean;
 };
+
+/**
+ * 「请求关掉键盘」的钩子。由 `GamepadKeyboard` 注册 —— 不在这里直接 import
+ * `useGamepadNav` 的 `closeGamepadKeyboard`，因为本模块已经被它反过来依赖（字段读写），
+ * 两边互相 import 会绕成环（同 `bindKeyboardClosedHook` 那处的处理）。
+ */
+let closeRequest: (() => void) | null = null;
+
+export function bindKeyboardCloseRequest(hook: (() => void) | null) {
+  closeRequest = hook;
+}
+
+function requestClose() {
+  closeRequest?.();
+}
 
 let ops: FieldOps | null = null;
 
@@ -181,8 +216,9 @@ export function keyboardMode(): KeyboardMode {
 
 export function setKeyboardMode(mode: KeyboardMode) {
   if (snapshot.mode === mode) return;
-  // 换语言时丢掉没上屏的组字：留着「汉语拼音」挂在英文模式上只会让人困惑
-  snapshot = { composing: "", candidates: [], selected: 0, mode };
+  // 换语言时丢掉没上屏的组字：留着「汉语拼音」挂在英文模式上只会让人困惑。
+  // 修饰键**保留** —— 用户按着 Shift 切中英，不该把 Shift 弄丢。
+  snapshot = { ...snapshot, composing: "", candidates: [], selected: 0, mode };
   emit();
 }
 
@@ -192,9 +228,56 @@ export function toggleKeyboardMode() {
 
 /** 键盘打开 / 关闭时清干净组字（避免下次打开还挂着上次没上屏的拼音）。 */
 export function resetKeyboardInput() {
-  if (!snapshot.composing && snapshot.selected === 0 && snapshot.candidates.length === 0) return;
-  snapshot = { ...snapshot, composing: "", candidates: [], selected: 0 };
+  // 修饰键也要复位：`shift` 是「按住 LT」的镜像，键盘都关了还留着「按着 Shift」，
+  // 下次打开打出来的就是大写，而用户什么都没按。
+  if (
+    !snapshot.composing &&
+    snapshot.selected === 0 &&
+    snapshot.candidates.length === 0 &&
+    !snapshot.shift &&
+    !snapshot.shiftLock &&
+    !snapshot.caps
+  ) {
+    return;
+  }
+  snapshot = { ...snapshot, composing: "", candidates: [], selected: 0, shift: false, shiftLock: false, caps: false };
   emit();
+}
+
+/**
+ * 符号键按住 Shift 时打出来的东西（美式键盘布局）。
+ *
+ * 只列**和键面不同**的那些；不在表里的符号（如 `-` `_` 之外的）Shift 后仍是自身。
+ * 键面本身在 `keyLayout.ts`，这张表是「同一个键的另一个形态」。
+ */
+const SHIFTED: Record<string, string> = {
+  "1": "!", "2": "@", "3": "#", "4": "$", "5": "%",
+  "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
+  "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|",
+  ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?", "`": "~",
+};
+
+/**
+ * 按当前修饰键状态把键面字符变换成实际要打出的字符。
+ *
+ * 三种情况分开处理，因为它们的语义不同：
+ *
+ *   1. **中文组字**：字母必须以**小写**进缓冲区（拼音就是小写），Shift / Caps 不许干扰 ——
+ *      否则 `nihao` 变成 `NIHAO`，引擎一个音节都切不出来。
+ *      大写需求在中文模式下没有意义（上屏的是汉字）。
+ *   2. **Caps 或 Shift-Lock**（锁定态）：字母变大写；符号也按 Shift 形态（真键盘的 Caps
+ *      其实不影响符号，但这里锁定的语义是「当 Shift 一直按着」，所以一起变）。
+ *   3. **按住 Shift**：只影响**这一个字符**，打完就没了（`shift` 由 LT 的松开事件清掉，
+ *      不需要这里消费）。
+ */
+export function transformKey(char: string): string {
+  // 中文组字要小写字母，修饰键不参与
+  if (snapshot.mode === "zh" && /^[a-z]$/.test(char)) return char;
+  const upper = snapshot.caps || snapshot.shiftLock || snapshot.shift;
+  if (!upper) return char;
+  if (/^[a-z]$/.test(char)) return char.toUpperCase();
+  if (snapshot.caps || snapshot.shiftLock || snapshot.shift) return SHIFTED[char] ?? char;
+  return char;
 }
 
 /**
@@ -205,14 +288,72 @@ export function resetKeyboardInput() {
  */
 export function pressKey(char: string) {
   if (!ops) return;
-  if (snapshot.mode === "zh" && /^[a-z]$/.test(char)) {
+  const out = transformKey(char);
+  if (snapshot.mode === "zh" && /^[a-z]$/.test(out)) {
     if (snapshot.composing.length >= MAX_COMPOSING) return;
-    snapshot = { ...snapshot, composing: snapshot.composing + char };
+    snapshot = { ...snapshot, composing: snapshot.composing + out };
     recompute(false);
     emit();
     return;
   }
-  ops.insert(char);
+  ops.insert(out);
+}
+
+/** 按住 LT 期间为真；松开即失效（`shiftLock` 不受影响）。 */
+export function setShift(down: boolean) {
+  if (snapshot.shift === down) return;
+  snapshot = { ...snapshot, shift: down };
+  emit();
+}
+
+/** L2：一按锁上 Shift、再按一下松开（用户要的「相当于长按 Shift」）。 */
+export function toggleShiftLock() {
+  snapshot = { ...snapshot, shiftLock: !snapshot.shiftLock };
+  emit();
+}
+
+/** L3：大写锁定。 */
+export function toggleCaps() {
+  snapshot = { ...snapshot, caps: !snapshot.caps };
+  emit();
+}
+
+/**
+ * RT = Enter。行为分两种情况，因为**单行输入框塞不进换行**：
+ *
+ *   1. **多行（textarea）**：先确认没上屏的拼音，再真的换行。
+ *   2. **单行（input）**：确认拼音之后**关掉键盘**（等于「完成」）。
+ *
+ * 第 2 条是踩出来的：一开始无条件 `insert("\n")`，而 `<input>` 会把换行吃掉 ——
+ * 用户敲完 `nihao` 按 RT，结果是「候选上屏了但什么都没发生」，看着像卡住。
+ * 启动器里的输入框**绝大多数是单行的**（搜索框、重命名、新建文件名），所以这条必须分。
+ *
+ * 无论哪种情况，**先把没上屏的拼音确认掉**：用户敲完 `nihao` 直接按回车，意图显然是
+ * 「把你好打出来」，不是「放弃」。真键盘上的中文输入法也是这个行为。
+ */
+export function pressEnter() {
+  if (!ops) return;
+  if (snapshot.composing) {
+    if (snapshot.candidates.length) {
+      // 有候选：上屏第一个（用户的意图就是「把你好打出来」）
+      commitCandidate(snapshot.selected);
+    } else {
+      /*
+       * 有组字但**一个候选都没有** → 把拼音原文当文本上屏。
+       *
+       * 什么时候会没有候选：字表还没加载上、或者用户根本不是在打拼音 ——
+       * 中文模式下敲 `apex`（想搜游戏）就是一个候选都切不出来。
+       * 这时候按回车如果只是把字母丢掉，用户会看到「敲的字凭空消失」。
+       * 上屏原文才是预期行为。
+       */
+      const raw = snapshot.composing;
+      snapshot = { ...snapshot, composing: "", candidates: [], selected: 0 };
+      emit();
+      ops.insert(raw);
+    }
+  }
+  if (ops.multiline()) ops.insert("\n");
+  else requestClose();
 }
 
 /**
@@ -253,6 +394,31 @@ export function commitCandidate(index: number) {
   snapshot = { ...snapshot, composing: "", candidates: [], selected: 0 };
   emit();
 }
+
+/**
+ * 手柄按键 → 键盘动作。**对标 OneXPlayer 那把键盘的映射**：
+ *
+ *   | 手柄 | 动作 |
+ *   | --- | --- |
+ *   | `Y`（△） | 空格（有候选时=确认第一个候选） |
+ *   | `X`（□） | 退格 |
+ *   | `RT` | 回车（先确认没上屏的拼音，再回车） |
+ *   | `LT` | Shift：**按住**生效，松开失效 |
+ *   | `L2` | Shift 锁定：一按锁上、再按一下松开 |
+ *   | `L3` | 大写锁定（Caps） |
+ *
+ * 集中在这里而不是散在 `App.tsx` 里，是因为这些动作**只对键盘有意义**，
+ * 而且「按下 / 松开」成对（`setShift(true)` / `setShift(false)`）—— 放一起不容易漏掉松开的那个。
+ */
+export const gamepadKeyActions = {
+  space: pressSpace,
+  backspace: pressBackspace,
+  enter: pressEnter,
+  shiftDown: () => setShift(true),
+  shiftUp: () => setShift(false),
+  toggleShiftLock,
+  toggleCaps,
+} as const;
 
 /** 光标在候选条上左右移动。返回是否消费了这次按键。 */
 export function moveCandidate(delta: number): boolean {

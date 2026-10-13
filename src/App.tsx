@@ -20,7 +20,14 @@ import {
   useGamepadNav,
 } from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
-import { cancelComposition, moveCandidate, pressBackspace, pressKey, pressSpace } from "./ime/keyboard";
+import {
+  cancelComposition,
+  gamepadKeyActions,
+  moveCandidate,
+  pressBackspace,
+  pressKey,
+  pressSpace,
+} from "./ime/keyboard";
 import { useFileJobs } from "./files/useFileJobs";
 import { libraryActions } from "./library/actions";
 import { NAV, NAV_ROUTES, type TabId } from "./types";
@@ -404,33 +411,83 @@ export default function App() {
       libraryActions().closeDialog?.();
       toggleSettings();
     },
-    onFaceTop: () => {
-      // Y：规格书 §13.2 的「文件」页那一格是**剪切**。只在真的有选中项时接走，
-      // 否则落到全局含义（上下文菜单 —— 属性 / 压缩 / 解压 / 批量重命名都只在里面）。
-      if (fileActions().cut?.()) return;
-      fileActions().openMenu?.();
-    },
-    onFaceLeft: () => {
-      // X：文件页那一格是**复制**；没选中东西时才回到「进选择模式」——
-      // 选择模式是手柄上唯一能多选的路（多选之后靠方向键逐项选中）。
-      if (fileActions().copy?.()) return;
-      fileActions().toggleSelect?.();
-    },
     onStart: () => {
       // Menu / Start：启动器里一直空闲，这里给文件页当「菜单键」用 ——
       // 有选中项时 Y 已经是剪切了，属性 / 压缩那些还得有个入口。
       fileActions().openMenu?.();
     },
     onBack: backOnce,
+    /*
+     * LT / RT：键盘打开时是 **Shift / 回车**（对标 OneXPlayer 的映射），
+     * 关着的时候才是文件页换栏 / 书库换分组。
+     *
+     * LT 是**按住**语义，所以「按下」在 `onTriggerLeft`、「松开」必须另有出处 ——
+     * 见下面 `useEffect` 里那段轮询。手柄扳机的松开不像按键那样有边沿事件可用。
+     */
     onTriggerLeft: () => {
+      if (gamepadKeyboardOpen()) {
+        gamepadKeyActions.shiftDown();
+        return;
+      }
       if (fileActions().switchPane?.(-1)) return;
       libraryActions().cycleGroup?.(-1);
     },
     onTriggerRight: () => {
+      if (gamepadKeyboardOpen()) {
+        gamepadKeyActions.enter();
+        return;
+      }
       if (fileActions().switchPane?.(1)) return;
       libraryActions().cycleGroup?.(1);
     },
+    // Y = 空格，X = 退格（键盘打开时；关着时仍是「菜单 / 多选」，由下面兜住）
+    onFaceTop: () => {
+      if (gamepadKeyboardOpen()) {
+        gamepadKeyActions.space();
+        return;
+      }
+      if (fileActions().cut?.()) return;
+      fileActions().openMenu?.();
+    },
+    onFaceLeft: () => {
+      if (gamepadKeyboardOpen()) {
+        gamepadKeyActions.backspace();
+        return;
+      }
+      if (fileActions().copy?.()) return;
+      fileActions().toggleSelect?.();
+    },
+    // L3 = 大写锁定
+    onStickPress: () => {
+      if (gamepadKeyboardOpen()) gamepadKeyActions.toggleCaps();
+    },
   });
+
+  /*
+   * LT 的**松开**检测。
+   *
+   * `useGamepadNav` 的 `onTriggerLeft` 只有「按下」这一个边沿（扳机不像按键那样有成对的
+   * 边沿回调可用），而 OneXPlayer 的映射里 LT 是**按住**生效的 Shift —— 不处理松开，
+   * 用户按一下 LT 之后 Shift 就永远按着了。
+   *
+   * 所以在 App 里自己盯一下 `buttons[6]`：键盘打开期间、且上一帧是按下的、这一帧松开了，
+   * 就派发 `shiftUp()`。轮询频率 60ms，人感觉不到延迟；键盘关着时这个循环什么都不做。
+   */
+  useEffect(() => {
+    let wasDown = false;
+    const timer = window.setInterval(() => {
+      if (!gamepadKeyboardOpen()) {
+        wasDown = false;
+        return;
+      }
+      const pad = (navigator.getGamepads?.() ?? []).find(Boolean);
+      if (!pad) return;
+      const down = !!pad.buttons[6]?.pressed;
+      if (wasDown && !down) gamepadKeyActions.shiftUp();
+      wasDown = down;
+    }, 60);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const m = text();
   /*

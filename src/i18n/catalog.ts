@@ -153,6 +153,11 @@ export type Catalog = {
     fsePreview: string;
     quit: string;
     quitHint: string;
+    /** 最小化到任务栏（桌面模式下要能腾出屏幕）。 */
+    minimize: string;
+    minimizeHint: string;
+    /** 浏览器预览里点「窗口模式」时的实话。 */
+    minimizePreview: string;
     autostartReadFailed: string;
     autostartPreview: string;
     autostartOn: string;
@@ -212,6 +217,9 @@ export type Catalog = {
     symbols: string;
     /** 切回字母层的键面文字。 */
     letters: string;
+    /** Shift / Caps 状态指示灯的文字。 */
+    shift: string;
+    caps: string;
     /** 字表没加载上时的提示（中文输入不可用，英文照打）。 */
     noChinese: string;
   };
@@ -952,6 +960,9 @@ export const zh: Catalog = {
     fsePreview: "浏览器预览无法登记全屏体验",
     quit: "退出启动器",
     quitHint: "退出并回到桌面",
+    minimize: "窗口模式",
+    minimizeHint: "收起启动器去用桌面；任务栏点回来，或用下面那行回到全屏",
+    minimizePreview: "浏览器预览里没有真窗口可收起（真机上会进任务栏）",
     autostartReadFailed: "无法读取开机自启状态（需在打包后的桌面端测试）",
     autostartPreview: "浏览器预览模式不支持自启，请用 tauri:dev 或安装包验证",
     autostartOn: "已开启。下次登录进入启动器；这次被关掉也会再打开。",
@@ -1006,6 +1017,8 @@ export const zh: Catalog = {
     english: "英",
     symbols: "符号",
     letters: "字母",
+    shift: "Shift",
+    caps: "Caps",
     noChinese: "中文候选表没加载上，只能打英文",
   },
   library: {
@@ -1701,6 +1714,9 @@ export const en: Catalog = {
     fsePreview: "Browser preview can't register fullscreen experience",
     quit: "Quit",
     quitHint: "Leave and return to the desktop",
+    minimize: "Windowed mode",
+    minimizeHint: "Put the launcher away to use the desktop; click the taskbar to return",
+    minimizePreview: "Browser previews have no real window to put away (on the handheld it drops to the taskbar)",
     autostartReadFailed: "Couldn't read the startup setting. Try the installed app.",
     autostartPreview: "Browser preview can't change startup. Use the desktop app.",
     autostartOn: "On. It opens at the next sign-in, and again if this window is closed.",
@@ -1756,6 +1772,8 @@ export const en: Catalog = {
     english: "EN",
     symbols: "?123",
     letters: "ABC",
+    shift: "Shift",
+    caps: "Caps",
     noChinese: "Pinyin table unavailable — English only",
   },
   library: {

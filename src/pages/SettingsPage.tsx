@@ -151,6 +151,55 @@ export function SettingsPage({ active, onClose }: Props) {
   };
 
 
+  /*
+   * 收起成窗口并最小化（用户 2026-10-13 报：「桌面模式下启动器无法最小化，永远占着屏幕」）。
+   *
+   * **走 Rust 的 `minimize_launcher`，不在前端分两步调**：
+   *
+   *   - 全屏窗口在 Windows 上**最小化是无效的**（表现就是「点了没反应、永远占着屏幕」），
+   *     所以必须先退出全屏；
+   *   - 而本程序的全屏是 Rust 侧 `fill_screen()` 设的（铺满显示器 + `set_fullscreen(true)`），
+   *     两个动作必须**紧挨着**做完、中间不能插进别的东西 —— 正是一次命令里做完该解决的问题。
+   *     前端分两次 IPC，中间那一小段窗口就已经不是全屏了，会有可见的闪一下。
+   *
+   * **为什么是「最小化」而不是「隐藏」**：本程序**没有托盘图标、也没有全局热键**
+   * （0.1.62 把那个带托盘的独立前端整个删掉了）。隐藏窗口就没有任何把它叫回来的入口 ——
+   * 那是把用户关在门外。最小化之后任务栏上有按钮，点一下就回来，这是可逆的。
+   * 想铺回全屏，下面那行「回到全屏」就是配套的另一个方向。
+   */
+  const minimizeLauncher = async () => {
+    if (!isTauri) {
+      // 预览里没有真实的窗口可收 —— 如实说一句，不做「看起来点了但什么都没发生」的按钮
+      setMessage(m.minimizePreview);
+      return;
+    }
+    try {
+      await invoke("minimize_launcher");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  };
+
+  /**
+   * 回到全屏 —— 与上面那行成对。
+   *
+   * 走 Rust 的 `enter_fullscreen` 而不是 `setFullscreen(true)`：桌面壳里那把是
+   * `fill_screen()`（先铺满显示器再开 fullscreen），才能盖住任务栏那一条；
+   * 光调 `setFullscreen(true)` 在部分机器上会留出任务栏的空隙。命令本来就在，只是没人调。
+   */
+  const backToFullscreen = async () => {
+    if (!isTauri) {
+      setMessage(m.fullscreenPreview);
+      return;
+    }
+    try {
+      await invoke("enter_fullscreen");
+      setMessage(m.fullscreenDone);
+    } catch (e) {
+      setMessage(m.fullscreenFailed(String(e)));
+    }
+  };
+
   const quitApp = async () => {
     if (!isTauri) {
       window.close();
@@ -388,6 +437,35 @@ export function SettingsPage({ active, onClose }: Props) {
           </span>
         </button>
 
+
+        {/*
+          窗口模式 ↔ 回到全屏（用户 2026-10-13 报：「桌面模式下启动器无法最小化，永远占着屏幕」）。
+          两者是**一对**：能收起来，也得能铺回去 —— 只给单向入口等于把用户关在门外。
+          这一对的文案与 Rust 命令（`enter_fullscreen`）本来就有，只是入口在某次改动中被删了。
+        */}
+        <button type="button" className="k3-row" data-focusable onClick={() => void minimizeLauncher()}>
+          <span className="k3-text">
+            <strong>{m.minimize}</strong>
+            <small>{m.minimizeHint}</small>
+          </span>
+          <span className="k3-control">
+            <span className="k3-value" aria-hidden>
+              ⌄
+            </span>
+          </span>
+        </button>
+
+        <button type="button" className="k3-row" data-focusable onClick={() => void backToFullscreen()}>
+          <span className="k3-text">
+            <strong>{m.fullscreen}</strong>
+            <small>{m.fullscreenHint}</small>
+          </span>
+          <span className="k3-control">
+            <span className="k3-value" aria-hidden>
+              ⌃
+            </span>
+          </span>
+        </button>
 
         <button type="button" className="k3-row" data-focusable onClick={() => void quitApp()}>
           <span className="k3-text">

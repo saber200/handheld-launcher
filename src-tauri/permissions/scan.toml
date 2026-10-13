@@ -81,6 +81,11 @@ description = "Fill the screen again after leaving fullscreen for the desktop."
 commands.allow = ["enter_fullscreen"]
 
 [[permission]]
+identifier = "allow-minimize-launcher"
+description = "Leave fullscreen and drop to the taskbar so the Windows desktop is usable."
+commands.allow = ["minimize_launcher"]
+
+[[permission]]
 identifier = "allow-system-power"
 description = "Sleep, restart, or shut down Windows."
 commands.allow = ["system_power"]

@@ -1106,23 +1106,29 @@ img.app-icon {
 }
 
 /*
- * 手柄键盘（全键盘 + 拼音候选）。
+ * 手柄键盘。几何按「照片那套 6 行键盘 + 1 行中文标点 + 1 行完成」算：
  *
- * 宽度从数字键盘时代的 280dp 放大到 660dp：十列字母每颗还要放得下两个字，
- * 窄了就只能缩字号，掌机上离眼 30cm 会看不清。高度靠行数控制（6 行 + 组字行）。
+ *   宽 900dp（14 列：最长一行是数字行的 13 键 + 内边距），键高 36dp、间距 4dp
+ *   → 总高约 393px（1280×800 上占屏高 49%）
+ *
+ * `--kb-key-h` 单独提出来是因为键盘行数容易变：改行数时只调这一个值就能重新配平高度，
+ * 不用在七八条规则里找 `calc(36 * var(--dp))`。
  */
 .gamepad-keyboard {
+  --kb-key-h: calc(36 * var(--dp));
+  --kb-gap: calc(4 * var(--dp));
+
   position: fixed;
   left: 50%;
   bottom: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: calc(660 * var(--dp));
-  max-width: calc(100vw - 24px);
+  gap: var(--kb-gap);
+  width: calc(900 * var(--dp));
+  max-width: calc(100vw - 16px);
   transform: translateX(-50%);
-  padding: 10px 14px 16px;
+  padding: calc(8 * var(--dp)) calc(10 * var(--dp)) calc(12 * var(--dp));
   background: rgba(11, 18, 32, 0.97);
   border: 1px solid var(--line);
   border-bottom: none;
@@ -1130,18 +1136,18 @@ img.app-icon {
   animation: slide-in-up var(--dur-page) var(--ease-out) both;
 }
 
-/* 组字行：中英切换 + 拼音串 + 候选条 */
+/* ── 组字行：中英切换 + 拼音 + 候选 + 修饰键指示灯 ── */
 .gamepad-kb-compose {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: calc(42 * var(--dp));
+  gap: calc(10 * var(--dp));
+  min-height: calc(36 * var(--dp));
 }
 
 .gamepad-kb-mode {
   flex: 0 0 auto;
   min-width: calc(52 * var(--dp));
-  height: calc(34 * var(--dp));
+  height: calc(30 * var(--dp));
   border-radius: var(--radius-chip);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.06);
@@ -1157,7 +1163,7 @@ img.app-icon {
 
 .gamepad-kb-pinyin {
   flex: 0 0 auto;
-  font-size: calc(17 * var(--dp));
+  font-size: calc(16 * var(--dp));
   letter-spacing: 0.04em;
   color: var(--accent);
   text-transform: lowercase;
@@ -1166,7 +1172,7 @@ img.app-icon {
 .gamepad-kb-candidates {
   display: flex;
   flex: 1;
-  gap: 6px;
+  gap: calc(6 * var(--dp));
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -1179,7 +1185,7 @@ img.app-icon {
 .gamepad-kb-candidate {
   flex: 0 0 auto;
   min-width: calc(38 * var(--dp));
-  height: calc(34 * var(--dp));
+  height: calc(30 * var(--dp));
   padding: 0 calc(9 * var(--dp));
   border-radius: var(--radius-chip);
   border: 1px solid var(--line);
@@ -1195,9 +1201,7 @@ img.app-icon {
 
 /* 学过的词点一个记号：让用户看得见「它记住了我选过的词」。
    类名里带 `dot` 是有意的 —— `scripts/audit-ui.mjs` 只允许「状态点 / 按键角标 / 滑块旋钮」
-   用正圆，这个小圆点正是状态点那一类。
-   用 inline-block 而不是绝对定位：候选按钮是普通流内元素，绝对定位得额外加
-   `position: relative`，没必要为一个小点引入定位上下文。 */
+   用正圆，这个小圆点正是状态点那一类。 */
 .gamepad-kb-learned-dot {
   display: inline-block;
   width: 4px;
@@ -1209,48 +1213,128 @@ img.app-icon {
   opacity: 0.75;
 }
 
-/* 字表没加载上时只写一行说明，不占候选条的位置 */
 .gamepad-kb-hint {
   font-size: calc(12 * var(--dp));
-  color: var(--text-dim, rgba(255, 255, 255, 0.55));
+  color: var(--ink-4);
 }
 
+/* ── 修饰键状态指示灯（Shift / Caps）── */
+.gamepad-kb-mods {
+  display: flex;
+  flex: 0 0 auto;
+  gap: calc(6 * var(--dp));
+}
+
+.gamepad-kb-mod {
+  padding: calc(3 * var(--dp)) calc(8 * var(--dp));
+  border-radius: var(--radius-tag);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: calc(12 * var(--dp));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 锁定的（L2 的 Shift 锁定 / L3 的 Caps）用实底，和「按住 LT」的临时状态一眼分得开 */
+.gamepad-kb-mod.is-locked {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+/* ── 键行与按键 ── */
 .gamepad-keyboard-row {
   display: flex;
   justify-content: center;
-  gap: 5px;
-}
-
-/* 占位行：字母层靠它把高度拉到和符号层一样（不然切层时整把键盘会往上跳）。
-   `visibility: hidden` 而不是 `display: none` —— 后者不占高度，就白加了。 */
-.gamepad-keyboard-row.is-filler {
-  visibility: hidden;
+  gap: var(--kb-gap);
 }
 
 .gamepad-key {
+  display: flex;
   flex: 1;
-  height: calc(46 * var(--dp));
+  align-items: center;
+  justify-content: center;
+  gap: calc(4 * var(--dp));
+  height: var(--kb-key-h);
   min-width: 0;
-  padding: 0;
+  padding: 0 calc(4 * var(--dp));
   border-radius: var(--radius-chip);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.06);
+  font-size: calc(15 * var(--dp));
+  color: var(--ink-2);
   transition:
     background-color var(--dur-fast) var(--ease-soft),
     border-color var(--dur-fast) var(--ease-soft),
     transform var(--dur-fast) var(--ease-out);
 }
 
-/* 底部那三颗（空格 / 删除 / 完成）比字母键宽 */
+/* 功能键与空格比字符键宽。照片里 Backspace / Enter / Shift / 空格都是宽键，
+   宽度比例照它给的观感走（不追求逐像素还原，掌机上按得准比像素对齐重要）。 */
+/* 宽键与空格的 `flex-grow` 由 `keyLayout.ts` 的 `unitsOf()` 内联给出 ——
+   每颗键占几个「字符键宽度」是布局数据的一部分（照片里的相对宽度），
+   写死在这里就等于把布局拆到两个文件里维护。这里只管字号与字重。 */
 .gamepad-key.is-wide {
-  flex: 2;
+  font-size: calc(12 * var(--dp));
+  font-weight: 600;
+}
+
+.gamepad-key.is-space {
+  font-size: calc(13 * var(--dp));
 }
 
 .gamepad-key.is-primary {
   color: var(--on-accent);
   background: var(--accent);
   border-color: transparent;
-  font-weight: 600;
+}
+
+/* Shift / Caps 生效时键面点亮（照片里 Shift 锁定就是亮着的） */
+.gamepad-key.is-active {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+/* ── 键面：主文字 + 手柄角标 + Shift 双印字 ── */
+.gamepad-key-main {
+  font-size: calc(15 * var(--dp));
+  line-height: 1;
+}
+
+/* 数字键在 Shift 形态下显示键面上半部分那个符号（照片里就是上下两个字符） */
+.gamepad-key-shifted {
+  font-size: calc(10 * var(--dp));
+  line-height: 1;
+  color: var(--ink-4);
+}
+
+.gamepad-key.has-label {
+  flex-direction: column;
+  gap: calc(1 * var(--dp));
+}
+
+/*
+ * 手柄角标 —— 这把键盘的识别特征（照片里 `X` 在 Backspace、`Y` 在空格、`R2` 在 Enter…）。
+ * 做成实底小圆牌：掌机上离眼 30cm 也要一眼认出「这颗键用手柄哪个键按」。
+ *
+ * 类名用 `hint-key-badge` 而不是自创一个：`scripts/audit-ui.mjs` 的
+ * `CIRCLE_ALLOW` 里 `hint-key` 这一项就是为「手柄按键角标」留的（见那个脚本的注释），
+ * 复用它等于沿用仓库已有的约定，而不是去放宽审计规则。
+ */
+.hint-key-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(16 * var(--dp));
+  height: calc(16 * var(--dp));
+  padding: 0 calc(3 * var(--dp));
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: calc(10 * var(--dp));
+  font-weight: 700;
+  line-height: 1;
 }
 
 .gamepad-key:active {
