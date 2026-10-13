@@ -20,6 +20,7 @@ import {
   useGamepadNav,
 } from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
+import { cancelComposition, moveCandidate, pressBackspace, pressKey, pressSpace } from "./ime/keyboard";
 import { useFileJobs } from "./files/useFileJobs";
 import { libraryActions } from "./library/actions";
 import { NAV, NAV_ROUTES, type TabId } from "./types";
@@ -254,6 +255,13 @@ export default function App() {
    */
   const backOnce = useCallback(() => {
     if (closePowerMenu()) return;
+    // 键盘在组字（拼音还没上屏）时，B 键先**取消组字** —— 这是用户按下 B 的第一意图，
+    // 直接把整个键盘关掉会让刚敲的拼音白打。
+    if (cancelComposition()) return;
+    if (gamepadKeyboardOpen()) {
+      closeGamepadKeyboard();
+      return;
+    }
     if (fileActions().back?.()) return;
     if (libraryActions().closeDialog?.()) return;
     if (libraryActions().openCardMenu?.()) return;
@@ -267,17 +275,43 @@ export default function App() {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
       if (gamepadKeyboardOpen()) {
-        if (e.key === "Escape" || e.key === "b" || e.key === "B") {
+        if (e.key === "Escape") {
           e.preventDefault();
-          closeGamepadKeyboard();
+          // Esc 与手柄 B 同义：先取消组字，没有组字才关键盘
+          if (!cancelComposition()) closeGamepadKeyboard();
           return;
         }
-        if (e.key === "ArrowLeft") moveDirectionalFocus(-1, 0);
-        if (e.key === "ArrowRight") moveDirectionalFocus(1, 0);
-        if (e.key === "ArrowUp") moveDirectionalFocus(0, -1);
-        if (e.key === "ArrowDown") moveDirectionalFocus(0, 1);
-        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        if (e.key === "Backspace" || e.key === "b" || e.key === "B") {
+          // 注意：键盘开着时 **b 是「退格」而不是「关闭」**。手柄上用 B 关键盘很自然
+          // （它没有别的含义），但物理键盘的用户会想用 b 打字母 —— 让 b 退格更符合直觉，
+          // 关闭交给 Esc。
           e.preventDefault();
+          pressBackspace();
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          pressSpace();
+          return;
+        }
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          // 有候选时左右键在候选条里走，没候选才在按键之间挪
+          if (!moveCandidate(e.key === "ArrowRight" ? 1 : -1)) {
+            moveDirectionalFocus(e.key === "ArrowRight" ? 1 : -1, 0);
+          }
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          moveDirectionalFocus(0, e.key === "ArrowDown" ? 1 : -1);
+          e.preventDefault();
+          return;
+        }
+        // 可见字符走和手柄键位**同一条**输入路径，这样中英文两种模式的行为完全一致
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          pressKey(e.key);
+          return;
         }
         return;
       }
@@ -347,6 +381,8 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [intro, shiftTab, toggleSettings, backOnce]);
+  // 依赖里不需要单列 `cancelComposition` / `pressKey` / `pressBackspace` / `moveCandidate`：
+  // 它们是 `src/ime/keyboard.ts` 的模块级函数，引用永远不变（不是组件里的闭包）。
 
   useGamepadNav({
     enabled: intro === "done",
@@ -354,9 +390,13 @@ export default function App() {
     // （为什么不用「押后判定」，见 useGamepadNav.ts 的 `viewGesture`）。
     viewGesture: "double",
     onBumperLeft: () => {
+      // 键盘开着时 LB/RB 是「翻候选」而不是「换页签」：候选条可能连着十几颗，
+      // 摇杆要从按键区挪过去得按好几下，翻页键一步到位（中文输入时的主路径）。
+      if (moveCandidate(-1)) return;
       shiftTab(-1);
     },
     onBumperRight: () => {
+      if (moveCandidate(1)) return;
       shiftTab(1);
     },
     onView: () => {

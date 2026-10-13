@@ -1105,6 +1105,12 @@ img.app-icon {
   border-color: transparent;
 }
 
+/*
+ * 手柄键盘（全键盘 + 拼音候选）。
+ *
+ * 宽度从数字键盘时代的 280dp 放大到 660dp：十列字母每颗还要放得下两个字，
+ * 窄了就只能缩字号，掌机上离眼 30cm 会看不清。高度靠行数控制（6 行 + 组字行）。
+ */
 .gamepad-keyboard {
   position: fixed;
   left: 50%;
@@ -1112,34 +1118,133 @@ img.app-icon {
   z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: calc(280 * var(--dp));
+  gap: 6px;
+  width: calc(660 * var(--dp));
+  max-width: calc(100vw - 24px);
   transform: translateX(-50%);
-  padding: 12px 16px 18px;
-  background: rgba(11, 18, 32, 0.96);
+  padding: 10px 14px 16px;
+  background: rgba(11, 18, 32, 0.97);
   border: 1px solid var(--line);
   border-bottom: none;
   border-radius: 16px 16px 0 0;
   animation: slide-in-up var(--dur-page) var(--ease-out) both;
 }
 
+/* 组字行：中英切换 + 拼音串 + 候选条 */
+.gamepad-kb-compose {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: calc(42 * var(--dp));
+}
+
+.gamepad-kb-mode {
+  flex: 0 0 auto;
+  min-width: calc(52 * var(--dp));
+  height: calc(34 * var(--dp));
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 600;
+}
+
+/* 「中」用强调色标出来：用户一眼就知道现在敲的是拼音还是英文 */
+.gamepad-kb-mode.is-on {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.gamepad-kb-pinyin {
+  flex: 0 0 auto;
+  font-size: calc(17 * var(--dp));
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-transform: lowercase;
+}
+
+.gamepad-kb-candidates {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.gamepad-kb-candidates::-webkit-scrollbar {
+  display: none;
+}
+
+.gamepad-kb-candidate {
+  flex: 0 0 auto;
+  min-width: calc(38 * var(--dp));
+  height: calc(34 * var(--dp));
+  padding: 0 calc(9 * var(--dp));
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+
+.gamepad-kb-candidate.is-selected {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+/* 学过的词点一个记号：让用户看得见「它记住了我选过的词」。
+   类名里带 `dot` 是有意的 —— `scripts/audit-ui.mjs` 只允许「状态点 / 按键角标 / 滑块旋钮」
+   用正圆，这个小圆点正是状态点那一类。
+   用 inline-block 而不是绝对定位：候选按钮是普通流内元素，绝对定位得额外加
+   `position: relative`，没必要为一个小点引入定位上下文。 */
+.gamepad-kb-learned-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+/* 字表没加载上时只写一行说明，不占候选条的位置 */
+.gamepad-kb-hint {
+  font-size: calc(12 * var(--dp));
+  color: var(--text-dim, rgba(255, 255, 255, 0.55));
+}
+
 .gamepad-keyboard-row {
   display: flex;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .gamepad-key {
   flex: 1;
-  height: calc(52 * var(--dp));
-  padding: 0 10px;
-  border-radius: 10px;
+  height: calc(46 * var(--dp));
+  min-width: 0;
+  padding: 0;
+  border-radius: var(--radius-chip);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.06);
   transition:
     background-color var(--dur-fast) var(--ease-soft),
     border-color var(--dur-fast) var(--ease-soft),
     transform var(--dur-fast) var(--ease-out);
+}
+
+/* 底部那三颗（空格 / 删除 / 完成）比字母键宽 */
+.gamepad-key.is-wide {
+  flex: 2;
+}
+
+.gamepad-key.is-primary {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
 }
 
 .gamepad-key:active {

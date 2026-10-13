@@ -220,18 +220,44 @@ function writeField(next: string, caret: number) {
   el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-export function typeIntoGamepadField(text: string) {
+/**
+ * 在光标处插入文本（手柄键盘的中文候选、英文按键都走这里）。
+ *
+ * 调用方（`src/ime/keyboard.ts`）**不该关心光标** —— 它只说「插这段字」。光标由本模块
+ * 维护（`keyboardCaret`），这里也是全仓库唯一知道「怎么改一个受控输入框的值」的地方。
+ */
+export function insertIntoField(text: string) {
   const el = keyboardTarget;
-  if (!el) return;
-  const next = `${el.value.slice(0, keyboardCaret)}${text}${el.value.slice(keyboardCaret)}`;
-  writeField(next, keyboardCaret + text.length);
+  if (!el || !text) return;
+  const start = keyboardCaret;
+  const end = Math.max(el.selectionEnd ?? start, start);
+  const next = `${el.value.slice(0, start)}${text}${el.value.slice(end)}`;
+  // 光标按**码点**前进：emoji 这类代理对占两个 UTF-16 单元，用 text.length 会让光标错位。
+  writeField(next, start + Array.from(text).length);
 }
 
-export function backspaceGamepadField() {
+/**
+ * 退格：有选区就删选区，否则删光标前一个字符。
+ * 光标已经在最前面时**什么都不做** —— 不要越过输入框的开头去删别的东西。
+ */
+export function backspaceField() {
   const el = keyboardTarget;
-  if (!el || keyboardCaret <= 0) return;
-  const next = `${el.value.slice(0, keyboardCaret - 1)}${el.value.slice(keyboardCaret)}`;
-  writeField(next, keyboardCaret - 1);
+  if (!el) return;
+  const start = keyboardCaret;
+  const end = el.selectionEnd ?? start;
+  if (end > start) {
+    const next = `${el.value.slice(0, start)}${el.value.slice(end)}`;
+    writeField(next, start);
+    return;
+  }
+  if (start <= 0) return;
+  // 用 Array.from 按**码点**退格：中文和 emoji 都是「一个字好几个 UTF-16 单元」，
+  // 直接 slice(-1) 会把代理对劈成半个字符。
+  const points = Array.from(el.value.slice(0, start));
+  points.pop();
+  const head = points.join("");
+  const next = `${head}${el.value.slice(start)}`;
+  writeField(next, head.length);
 }
 
 /** Direction leaves a field that is not currently accepting text, and opens the keyboard with confirm. */
@@ -272,7 +298,9 @@ export function confirmFocused() {
     insertNewline(field);
     return;
   }
-  if (field instanceof HTMLInputElement && field.inputMode === "numeric" && visibleFocusables().includes(field)) {
+  // 输入框上按 A = 叫出手柄键盘。**以前这里卡了 `inputMode === "numeric"`**，因为那时候
+  // 键盘只有数字键，给文字框打开也没用；现在是全键盘（含拼音中文），所有输入框都能开。
+  if (field && visibleFocusables().includes(field)) {
     openGamepadKeyboard(field);
     return;
   }

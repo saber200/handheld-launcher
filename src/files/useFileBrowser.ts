@@ -135,19 +135,6 @@ function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-/**
- * 打开 Windows 触摸键盘（掌机上敲路径、文件名比手柄一格一格挪快得多）。
- * 返回空串 = 打开了；返回非空 = 给用户看的原因。
- */
-export async function showSoftKeyboard(): Promise<string> {
-  if (!inTauri()) return text().files.keyboardHint;
-  try {
-    await invoke("files_show_keyboard");
-    return "";
-  } catch (err) {
-    return toFileError(err).message;
-  }
-}
 
 export function isArchiveName(name: string): boolean {
   const lower = name.toLowerCase();

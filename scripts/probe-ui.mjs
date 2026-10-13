@@ -770,7 +770,19 @@ const scanTabs = async () => {
           note(k2.nameTop !== null && Math.abs(k2.nameTop - 114 * d) < 4,
             `K2 名称距卡顶 114dp（实测 ${k2.nameTop}）`);
           note(Math.abs(k2.footGap - 16 * d) < 2, `K2 底部行距卡下缘 16dp（实测 ${k2.footGap}）`);
-          note(Math.abs(k2.barH - 48 * d) < 3, `K2 底部操作条高 48dp=${(48 * d).toFixed(1)}（实测 ${k2.barH}）`);
+          // 底部操作条**去掉了**（用户 2026-10-12 指着「抖音 8.7.0 · 运行中 ｜ 启动 ｜ 打开目录」
+          // 那条说「把这个去掉 不要这个了」）：那两个动作在按 B 呼出的卡片菜单里都有。
+          // 所以这条从"高 48dp"改成"**根本不存在**"，并且工具栏上的能力照旧在。
+          note(k2.barH === 0, `K2 底部操作条已去掉（实测高 ${k2.barH}dp）`);
+          const k2Tools = await page.eval(`
+            const tools = [...document.querySelectorAll('.k1-tools .library-tool, .library-tools .library-tool')]
+              .map((b) => (b.textContent || '').trim());
+            return { hasRescan: tools.some((t) => /重新扫描|Rescan/.test(t)), count: tools.length };
+          `);
+          note(
+            k2Tools.hasRescan,
+            `软件库：工具栏上的能力还在（「重新扫描」${k2Tools.hasRescan ? "在" : "不在"}，工具按钮 ${k2Tools.count} 个）`,
+          );
           note(k2.title.length > 0, `K2 头部有标题（${k2.title}）`);
         }
       }

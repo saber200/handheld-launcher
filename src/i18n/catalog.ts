@@ -201,7 +201,16 @@ export type Catalog = {
     toolboxCleanNothing: string;
     /* ── 「查看列表」与驱动版本（功能 14 第 3、4 条） ── */
   };
-  keyboard: { label: string; backspace: string; done: string };
+  keyboard: {
+    label: string;
+    backspace: string;
+    done: string;
+    space: string;
+    chinese: string;
+    english: string;
+    /** 字表没加载上时的提示（中文输入不可用，英文照打）。 */
+    noChinese: string;
+  };
   library: {
     all: string;
     groups: string;
@@ -445,7 +454,6 @@ export type Catalog = {
     showHidden: string;
     hideHidden: string;
     keyboard: string;
-    keyboardHint: string;
     transferRate: (rate: string, remaining: string) => string;
     previewOpen: string;
     opened: (name: string) => string;
@@ -986,7 +994,15 @@ export const zh: Catalog = {
       `清出 ${freed}（${caches} 个缓存目录、${logs} 个日志文件）`,
     toolboxCleanNothing: "没有可清的东西（缓存目录本来就空）",
   },
-  keyboard: { label: "数字键盘", backspace: "删除", done: "完成" },
+  keyboard: {
+    label: "手柄键盘",
+    backspace: "删除",
+    done: "完成",
+    space: "空格",
+    chinese: "中",
+    english: "英",
+    noChinese: "中文候选表没加载上，只能打英文",
+  },
   library: {
     all: "全部",
     groups: "分组",
@@ -1218,7 +1234,6 @@ export const zh: Catalog = {
     showHidden: "显示隐藏",
     hideHidden: "不显示隐藏",
     keyboard: "软键盘",
-    keyboardHint: "打开 Windows 触摸键盘（掌机上输入更顺手）",
     transferRate: (rate, remaining) => `${rate}/秒 · 还剩 ${remaining}`,
     previewOpen: "浏览器预览不能调用系统打开。文本文件请用编辑。",
     opened: (name) => `已打开「${name}」。`,
@@ -1728,7 +1743,15 @@ export const en: Catalog = {
       `Freed ${freed} (${caches} cache folders, ${logs} log files)`,
     toolboxCleanNothing: "Nothing to clean — the cache folders are already empty",
   },
-  keyboard: { label: "Number pad", backspace: "Delete", done: "Done" },
+  keyboard: {
+    label: "On-screen keyboard",
+    backspace: "Delete",
+    done: "Done",
+    space: "Space",
+    chinese: "中",
+    english: "EN",
+    noChinese: "Pinyin table unavailable — English only",
+  },
   library: {
     all: "All",
     groups: "Groups",
@@ -1960,7 +1983,6 @@ export const en: Catalog = {
     showHidden: "Show hidden",
     hideHidden: "Hide hidden",
     keyboard: "Keyboard",
-    keyboardHint: "Open the Windows touch keyboard (easier typing on a handheld)",
     transferRate: (rate, remaining) => `${rate}/s · ${remaining} left`,
     previewOpen: "Browser preview can't open files with the system. Edit text files instead.",
     opened: (name) => `Opened “${name}”.`,

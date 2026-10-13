@@ -6,7 +6,6 @@ import { FileCrumbs, FilePane, formatBytes, formatTime, type FileLayout } from "
 import {
   EyeIcon,
   FolderIcon,
-  KeyboardIcon,
   SearchIcon,
   SortIcon,
   UpIcon,
@@ -17,7 +16,6 @@ import {
   toFileError,
   useFileBrowser,
   isArchiveName,
-  showSoftKeyboard,
   type Conflict,
   type FileEntry,
   type FileErrorInfo,
@@ -1316,21 +1314,8 @@ export function FilesPage() {
           >
             <EyeIcon off={!showHidden} />
           </button>
-          {/* 掌机上打字：与其让用户用手柄一格一格挪虚拟键盘，不如把系统那把叫出来。 */}
-          <button
-            type="button"
-            className="k7-tool"
-            data-focusable
-            aria-label={text().files.keyboard}
-            title={text().files.keyboardHint}
-            onClick={() =>
-              void showSoftKeyboard().then((problem) => {
-                if (problem) active.setNote(problem);
-              })
-            }
-          >
-            <KeyboardIcon />
-          </button>
+          {/* 「叫系统软键盘」那颗按钮 2026-10-13 去掉了：手柄键盘现在自带中英文输入
+              （见 src/ime/），路径 / 文件名都能在里面打，不需要再借 Windows 那把。 */}
           <button
             type="button"
             className="k7-tool"

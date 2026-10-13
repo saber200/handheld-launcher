@@ -1,5 +1,4 @@
 import { useState, type Ref } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { displayAppMark, displayAppName } from "../data/previewApps";
 import { currentLocale, text } from "../i18n";
 import { LibraryShelf, type CardOptions } from "../components/LibraryShelf";
@@ -15,16 +14,6 @@ export function AppsPage() {
    * 软件这边接进来之后，卡片包头行才敢写「运行中」（0.1.60 那版没有它就只写「已安装」）。
    */
   const runningIds = useRunningGameIds(library.items);
-
-  /** 打开某个软件的安装目录（复用文件页的 `file_open` —— 系统默认程序打开这个文件夹）。 */
-  const openFolder = (app: AppEntry) => {
-    const path = (app.installPath || "").trim();
-    if (!path) {
-      setStatus(text().library.previewNoScan);
-      return;
-    }
-    void invoke("file_open", { path }).catch((err) => setStatus(String(err)));
-  };
 
   return (
     <LibraryShelf
@@ -43,67 +32,6 @@ export function AppsPage() {
       status={status}
       // K2 底部那条（画板：聚焦卡的名字 + 元信息 +「安装 A」+「打开目录」）。
       // 已装的软件没有「安装」这回事，所以主按钮是**启动**（同一个能力：launchLibraryItem）。
-      renderBar={(item, ctx) => {
-        // 手动添加的软件没有 version / sizeBytes（它们是注册表里扫出来的字段），
-        // 所以这两个必须现判 —— 直接读会拿到 undefined 之外的类型错误。
-        const version = item && "version" in item ? (item.version || "").trim() : "";
-        const size = item && "sizeBytes" in item ? formatSize(item.sizeBytes) : "";
-        return (
-          <>
-            <p className="k2-bar-note">
-              {item ? (
-                <>
-                  <strong className="k2-bar-title">{ctx.name}</strong>
-                  <span className="k2-bar-meta tnum">
-                    {[
-                      version,
-                      size,
-                      runningIds.has(item.id)
-                        ? text().library.stateRunning
-                        : text().library.stateInstalled,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </>
-              ) : (
-                ctx.status
-              )}
-            </p>
-            <button
-              type="button"
-              className="k2-btn is-primary"
-              data-focusable
-              disabled={!item}
-              onClick={() => {
-                if (!item) return;
-                setStatus("");
-                void launchLibraryItem({
-                  id: item.id,
-                  name: item.name,
-                  launchPath: item.launchPath,
-                  installPath: item.installPath,
-                  customPath: item.customPath,
-                  kind: "app",
-                }).then(setStatus);
-              }}
-            >
-              {text().library.startApp}
-            </button>
-            <button
-              type="button"
-              className="k2-btn"
-              data-focusable
-              disabled={!item?.installPath}
-              onClick={() => {
-                if (item) openFolder(item);
-              }}
-            >
-              {text().library.openFolder}
-            </button>
-          </>
-        );
-      }}
       onUseFile={(target, file) => {
         setStatus("");
         return target.mode === "add" ? library.addFromFile(file) : library.setLaunchPath(target.id, file);

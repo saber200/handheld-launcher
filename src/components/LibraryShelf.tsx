@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { SearchIcon } from "./NavIcons";
 import { FilePicker } from "../files/FilePicker";
-import { showSoftKeyboard } from "../files/useFileBrowser";
 import { setLibraryActions } from "../library/actions";
 import { useLibraryGroups } from "../library/useLibraryGroups";
 import { DEFAULT_MOD_HOOK, type ModStatus, type ModVersion } from "../library/useLocalLibrary";
@@ -592,7 +591,6 @@ export function LibraryShelf<T extends Item>({
                     placeholder={searchPlaceholder}
                     maxLength={40}
                     onChange={(event) => setQuery(event.target.value)}
-                    onFocus={() => void showSoftKeyboard()}
                   />
                   <button
                     type="button"
@@ -615,7 +613,8 @@ export function LibraryShelf<T extends Item>({
                   data-focusable
                   onClick={() => {
                     setSearching(true);
-                    // 掌机上直接叫系统软键盘：手柄一格一格挪虚拟键盘太难用。
+                    // 这里**只**聚焦，不叫 Windows 触摸键盘：手柄键盘现在自带中英文输入
+                    // （见 `src/ime/`），而聚焦之后按 A 就会把它打开（`confirmFocused`）。
                     window.setTimeout(() => {
                       document.querySelector<HTMLInputElement>(".k2-search-input")?.focus();
                     }, 0);
@@ -753,32 +752,17 @@ export function LibraryShelf<T extends Item>({
       {/* K2 的底部操作条（画板 y=554..602）：左边是**聚焦那一张**的名字 + 元信息，
           右边两颗真按钮（画板上是「安装 A」+「打开目录」；页面侧给，见 renderBar）。
           没传 renderBar 就退化成原来的「重新扫描 / 添加软件」—— 那两个能力只是换了入口。 */}
-      {k2 && (
+      {/*
+         * 页面底部那条操作条**只有页面显式给了才画**。
+         *
+         * 用户 2026-10-12 指着软件库底部那条「抖音 8.7.0 · 运行中 ｜ 启动 ｜ 打开目录」说
+         * 「把这个去掉 不要这个了」—— 那两个动作在按 B 呼出的卡片菜单里都有，底部再摆一条
+         * 只是重复占地方、还占掉一列卡片的高度。所以这一版起**没传就什么都不画**（原来会退化成
+         * 「重新扫描 / 添加软件」那一套兜底，那两个入口在工具栏里本来就有）。
+         */}
+      {k2 && renderBar && (
         <div className="k2-bar" data-focus-zone="library-actions">
-          {renderBar ? (
-            renderBar(focused ?? null, { name: focused ? nameOf(focused) : "", status: cardStatus })
-          ) : (
-            <>
-              <p className="k2-bar-note">{cardStatus}</p>
-              <button
-                type="button"
-                className="k2-btn is-primary"
-                data-focusable
-                disabled={scanning}
-                onClick={onScan}
-              >
-                {text().library.rescan}
-              </button>
-              <button
-                type="button"
-                className="k2-btn"
-                data-focusable
-                onClick={() => setFileTarget({ mode: "add" })}
-              >
-                {kind === "games" ? text().library.addGame : text().library.addApp}
-              </button>
-            </>
-          )}
+          {renderBar(focused ?? null, { name: focused ? nameOf(focused) : "", status: cardStatus })}
         </div>
       )}
       {/* 信息面板 + 操作区：内容全在页面侧（游戏库才知道来源/路径/运行状态），
