@@ -135,100 +135,52 @@ jobs:
         shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        # 这一整段里不许出现 heredoc（<<EOF）：YAML 块标量要求每行都有缩进，而 heredoc 的
+        # 结束标记必须在行首，两者天然打架。第一次的写法结束标记带了 10 个空格，于是 heredoc
+        # 永不结束——它后面的命令全成了文本、一条都没执行；再叠加 continue-on-error，
+        # 表现就是「每次都成功、Gitee 上一个附件都没有」。所以这里所有 python 一律单行 -c。
         run: |
           set -uo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::warning::没有配置 GITEE_TOKEN，跳过国内镜像这一步（GitHub 那份照常发布）"
+            echo "::warning::没有 GITEE_TOKEN，跳过国内镜像（GitHub 那份照常发布）"
             exit 0
           fi
           TAG="${{ github.ref_name }}"
           OWNER=saber200
           REPO=fantasyhub-releases
           API="https://gitee.com/api/v5/repos/$OWNER/$REPO"
-          DIR=target/release/bundle/nsis
-          EXE=$(ls "$DIR"/*setup.exe | head -1)
+          EXE=$(ls target/release/bundle/nsis/*setup.exe | head -1)
           SIG="$EXE.sig"
           NAME=$(basename "$EXE")
           VERSION="${TAG#v}"
           URL="https://gitee.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
+          ID_OF="import json,sys; d=json.load(sys.stdin); print(d.get('id') or ('ERR '+str(d)[:180]))"
 
-          # ⓪ 先确保仓库**非空**：空的 Gitee 仓库没有分支，建 tag / 发行版会被直接拒
-          #    （2026-10-13 实测：v0.1.95 那次 releases 列表是空的，就是栽在这儿）。
-          #    用 contents API 写一个 README，第一次调用会把 master 建出来。
-          curl -sS -X POST "$API/contents/README.md" \
-            -d "access_token=$GITEE_TOKEN" \
-            -d "content=$(printf '# fantasyhub-releases\n\n国内镜像：安装包与 latest.json。' | base64)" \
-            -d "message=chore: init repository" -d "branch=master" > /dev/null || true
-          echo "分支自检：$(curl -sS "$API/branches?access_token=$GITEE_TOKEN" | head -c 120)"
+          python3 -c "import datetime,json,sys; sig=open(sys.argv[1],encoding='utf-8').read().strip(); e={'signature':sig,'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':e,'windows-x86_64-nsis':e}}; open('gitee-latest.json','w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False)); print('gitee-latest.json',sys.argv[3])" "$SIG" "$URL" "$VERSION"
 
-          # ① 建发行版（已存在就复用）
-          RID=$(curl -sS -X POST "$API/releases" \
-            -d "access_token=$GITEE_TOKEN" -d "tag_name=$TAG" -d "name=$TAG" \
-            -d "target_commitish=master" \
-            -d "body=Windows 安装包（国内镜像）。应用会自动校验签名，只认真实发布包。" \
-            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
-          if [ -z "$RID" ]; then
-            RID=$(curl -sS "$API/releases/tags/$TAG?access_token=$GITEE_TOKEN" \
-              | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
-          fi
-          echo "Gitee 发行版 id: $RID"
-          [ -n "$RID" ] || { echo "::warning::Gitee 建发行版失败（tag 是否已存在？）"; exit 0; }
-
-          # ② 拼一份指向 Gitee 的 latest.json
-          python3 - "$SIG" "$URL" "$VERSION" <<'PYEOF'
-          import json, sys
-          sig_path, url, version = sys.argv[1], sys.argv[2], sys.argv[3]
-          sig = open(sig_path, encoding="utf-8").read().strip()
-          entry = {"signature": sig, "url": url}
-          data = {
-              "version": version,
-              "notes": "国内镜像（Gitee）。",
-              "pub_date": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
-                  .strftime("%Y-%m-%dT%H:%M:%SZ"),
-              "platforms": {"windows-x86_64": entry, "windows-x86_64-nsis": entry},
-          }
-          open("gitee-latest.json", "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False))
-          print("写好 gitee-latest.json：版本", version)
-          PYEOF
-
-          # ③ 传附件（安装包 / .sig / latest.json）
-          for f in "$EXE" "$SIG" gitee-latest.json; do
-            echo "上传 $(basename "$f") …"
-            curl -sS -X POST "$API/releases/$RID/attach_files" \
-              -F "access_token=$GITEE_TOKEN" -F "file=@$f" \
-              | python3 -c "import json,sys; d=json.load(sys.stdin); print('  附件 id:', d.get('id', d))" 2>/dev/null || true
-          done
-
-          # ④ 再挂一个**固定 tag** 的发行版（tag 名固定为 `latest`），把 latest.json 挂在它下面。
-          #
-          # 为什么要这么一个"奇怪的"固定 tag：应用里必须有一个**永不变化**的 URL 去读"最新版本"。
-          # 两条路都试过了、都不成：contents API 静默失败（v0.1.97）、带令牌 git push 也没写进去
-          # （v0.1.98，raw/master/latest.json 至今 404）。而**发行版附件这条路已经验证是通的**
-          # （v0.1.97 的发行版和附件都传上去了 ✓），所以干脆让"最新版指针"也走附件：
-          #   https://gitee.com/<owner>/<repo>/releases/download/latest/latest.json
-          # 版本号那次的发行版照旧建（安装包挂在版本 tag 下），这个 `latest` 只放一份指针文件。
-          LID=$(curl -sS -X POST "$API/releases" \
-            -d "access_token=$GITEE_TOKEN" -d "tag_name=latest" -d "name=latest" \
-            -d "target_commitish=master" -d "body=最新版指针（latest.json）。应用读这个地址。" \
-            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
-          if [ -z "$LID" ]; then
-            LID=$(curl -sS "$API/releases/tags/latest?access_token=$GITEE_TOKEN" \
-              | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
-          fi
+          mkrel() { curl -sS -X POST "$API/releases" -d "access_token=$GITEE_TOKEN" -d "tag_name=$1" -d "name=$1" -d "target_commitish=master" -d "body=Windows 安装包（国内镜像）。" | python3 -c "$ID_OF"; }
+          getrel() { curl -sS "$API/releases/tags/$1?access_token=$GITEE_TOKEN" | python3 -c "$ID_OF"; }
+          RID=$(mkrel "$TAG"); case "$RID" in ''|ERR*) RID=$(getrel "$TAG");; esac
+          echo "版本发行版 id: $RID"
+          LID=$(mkrel latest); case "$LID" in ''|ERR*) LID=$(getrel latest);; esac
           echo "latest 发行版 id: $LID"
-          if [ -n "$LID" ]; then
-            # 同名附件会追加而不是覆盖 → 先把旧的同名附件删掉，保证读到的永远是最新那份
-            # 同名附件是"追加"不是"覆盖"，先把旧的删掉（保证读到的永远是最新那份）。
-            # 注意：这段必须写成**单行** python —— 多行代码会把 YAML 的块缩进打断（本机刚踩过）。
-            OLD=$(curl -sS "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(str(a.get('id')) for a in d.get('assets',[]) if a.get('name')=='latest.json'))" 2>/dev/null)
-            for id in $OLD; do
-              curl -sS -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" >/dev/null || true
-            done
-            curl -sS -X POST "$API/releases/$LID/attach_files" \
-              -F "access_token=$GITEE_TOKEN" -F "file=@gitee-latest.json" \
-              | python3 -c "import json,sys; d=json.load(sys.stdin); print('  latest.json 附件 id:', d.get('id', d))" 2>/dev/null || true
+
+          upload() { echo "--- 上传 $(basename "$2") → $1"; curl -sS -X POST "$API/releases/$1/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$2" | head -c 400; echo; }
+          case "$RID" in ''|ERR*) ;; *) upload "$RID" "$EXE"; upload "$RID" "$SIG"; upload "$RID" gitee-latest.json;; esac
+          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then
+            OLD=$(curl -sS "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json'))")
+            for id in $OLD; do echo "删旧 latest.json 附件 $id"; curl -sS -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" | head -c 200; echo; done
+            upload "$LID" gitee-latest.json
           fi
 
+          CHK="import json,sys; names=[a.get('name') for a in json.load(open('/tmp/rel.json')).get('assets',[])]; print('  名单:',names); miss=[w for w in sys.argv[1:] if w not in names]; print('::error::缺少附件 '+', '.join(miss)) if miss else print('  附件齐全'); sys.exit(1 if miss else 0)"
+          ok=0
+          if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ]; then curl -sS "$API/releases/$RID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" "$NAME" "$(basename "$SIG")" gitee-latest.json || ok=1; else ok=1; fi
+          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then curl -sS "$API/releases/$LID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" gitee-latest.json || ok=1; else ok=1; fi
+
+          echo '--- 指针自检:'
+          curl -sSL --max-time 30 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json" | head -c 200; echo
+          if [ "$ok" != "0" ]; then echo '::warning::Gitee 国内镜像没成（看上面的原始返回与名单）—— GitHub 那份不受影响'; exit 0; fi
           echo "国内镜像完成：https://gitee.com/$OWNER/$REPO/releases/tag/$TAG"
 
       # 归档产物只是「顺手拿个未安装的 exe」用：发布本身靠上面那步建 Release，跟这一步无关。
