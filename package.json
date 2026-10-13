@@ -1,7 +1,7 @@
 {
   "name": "handheld-launcher",
   "private": true,
-  "version": "0.1.93",
+  "version": "0.1.94",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,9 @@
     "audit:ui": "node scripts/audit-ui.mjs",
     "audit:acl": "node scripts/audit-acl.mjs",
     "hooks": "git config core.hooksPath .githooks",
-    "audit:ota": "node scripts/audit-ota.mjs"
+    "audit:ota": "node scripts/audit-ota.mjs",
+    "test": "node scripts/test-web.mjs",
+    "gen:pinyin": "node scripts/gen-pinyin-data.mjs"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.49.0",

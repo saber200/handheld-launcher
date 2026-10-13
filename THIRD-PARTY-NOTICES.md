@@ -52,6 +52,56 @@ CC0 不要求署名，这里记一笔只是为了讲清 path 的出处。
 **注意**：Simple Icons 因商标方要求**下架**了 `xbox` / `nintendoswitch` / `battlenet` / `ea`
 等标记。需要这几家的 logo 时不要指望这个包，本项目 Xbox 用的是 Tabler 的线性 `brand-xbox`。
 
+## 数据：Unicode Unihan 数据库（手柄键盘的拼音字表）
+
+- 文件：`public/pinyin-syllables.txt`（约 290 KB，随安装包分发）
+- 生成方式：`npm run gen:pinyin`（`scripts/gen-pinyin-data.mjs`）从 Unicode 官方
+  `Unihan.zip` 的 `Unihan_Readings.txt`（`kMandarin` / `kHanyuPinlu`）与
+  `Unihan_Variants.txt`（`kSimplifiedVariant`）提取，**不含任何第三方输入法词库**。
+- 许可证：**Unicode License v3**（MIT 类，允许随产品分发；要求保留版权与许可声明）
+- 版权：Copyright © 1991-2024 Unicode, Inc.
+- 用于：`src/ime/` 的拼音引擎 —— 手柄键盘的候选字、字频与繁简判断都来自这份表。
+
+```
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2024 Unicode, Inc.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY
+DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of data files and any associated documentation (the "Data Files") or
+software and any associated documentation (the "Software") to deal in the
+Data Files or Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, and/or sell
+copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that either (a)
+this copyright and permission notice appear with all copies of the Data
+Files or Software, or (b) this copyright and permission notice appear in
+associated Documentation.
+
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS
+INCLUDED IN THIS NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT
+OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THE DATA FILES OR SOFTWARE.
+```
+
+**为什么不用现成的中文输入法词库**：雾凇拼音 / 小狼毫那一套（`rime-ice` 等）是
+**GPL-3.0**，随安装包分发会传染本仓库；网上流传的 HSK / 词频表多半派生自 CC-CEDICT
+（BY-SA）且往往没有 LICENSE 文件。所以中文候选改走「官方字表 + 从用户自己的库里学词」
+（见 `src/ime/wordIndex.ts`），不引入任何第三方词库。
+
 ## 商标
 
 上列品牌图标（Steam、Epic Games、Xbox、Windows、PlayStation）是各自权利人的**商标**，

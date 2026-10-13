@@ -167,6 +167,9 @@ pub fn run() {
             startup::set_steam_silent,
             startup::fse_status,
             startup::register_fse,
+            // ⚠️ 现在**前端没有入口**了：用户 2026-10-12 要求把「打开系统全屏体验设置」那一行去掉
+            // （「只保留登记，用户自己去操作 windows 设置自由设置」）。命令本身留着 —— 它是一个
+            // 薄壳（打开 Windows 那个设置页），哪天想再给个入口，一行 UI 就能接回来。
             startup::open_fse_settings,
             startup::open_desktop,
             startup::enter_fullscreen,

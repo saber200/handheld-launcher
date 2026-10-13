@@ -16,7 +16,6 @@ import {
   IconFolder,
   IconFolderOpen,
   IconHome2,
-  IconKeyboard,
   IconLayoutGrid,
   IconLock,
   IconMenu2,
@@ -142,11 +141,6 @@ export function FileIcon() {
 /** 排序（三条递减的横线）。 */
 export function SortIcon() {
   return <IconSortDescending {...line} />;
-}
-
-/** 键盘（软键盘入口）。 */
-export function KeyboardIcon() {
-  return <IconKeyboard {...line} />;
 }
 
 /** 返回上一级。 */

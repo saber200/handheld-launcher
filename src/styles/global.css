@@ -1221,6 +1221,12 @@ img.app-icon {
   gap: 5px;
 }
 
+/* 占位行：字母层靠它把高度拉到和符号层一样（不然切层时整把键盘会往上跳）。
+   `visibility: hidden` 而不是 `display: none` —— 后者不占高度，就白加了。 */
+.gamepad-keyboard-row.is-filler {
+  visibility: hidden;
+}
+
 .gamepad-key {
   flex: 1;
   height: calc(46 * var(--dp));

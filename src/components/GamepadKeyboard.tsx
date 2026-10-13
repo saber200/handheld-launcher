@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { text } from "../i18n";
 import {
   backspaceField,
+  bindKeyboardClosedHook,
   closeGamepadKeyboard,
   gamepadKeyboardOpen,
   insertIntoField,
@@ -20,6 +21,8 @@ import {
   useKeyboardState,
 } from "../ime/keyboard";
 import { loadPinyinTable, usePinyinTable } from "../ime/pinyinTable";
+// 键面布局是纯数据，放 `src/ime/keyLayout.ts` —— 有测试逐个核对符号覆盖（见那个文件）
+import { rowsForLayer, type KeyboardLayer } from "../ime/keyLayout";
 
 /*
  * 手柄键盘（全键盘 + 拼音候选）。
@@ -38,13 +41,6 @@ import { loadPinyinTable, usePinyinTable } from "../ime/pinyinTable";
  *      新增的只有 LB/RB 翻候选（接在 App 的 `onBumperLeft/Right` 上）。
  */
 
-/** 字母排布。四行十列 —— 留出宽度给候选条，同时按键不至于小到看不清。 */
-const LETTER_ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"] as const;
-/** 数字与常用符号。文件名、搜索词里最常出现的那些，常用的排前面。 */
-const PLAIN_ROWS = ["1234567890", "-_=+()[]", "!#$%&*/,;:"] as const;
-/** 中文标点单独一行 —— 打中文时它比 `#` `%` 有用得多，而且键盘上别处打不出来。 */
-const CJK_PUNCT = ["，", "。", "？", "！", "、", "：", "；", "“", "”", "…"] as const;
-
 export function GamepadKeyboard() {
   const open = useSyncExternalStore(subscribeGamepadKeyboard, gamepadKeyboardOpen);
   const { composing, candidates, selected, mode } = useKeyboardState();
@@ -52,6 +48,23 @@ export function GamepadKeyboard() {
   const rootRef = useRef<HTMLDivElement>(null);
   /** 上一次渲染时「第一颗候选」的文本：用来判断候选是否需要重新接管焦点。 */
   const topCandidate = useRef<string | null>(null);
+  /** 当前层：字母 / 符号。默认字母层（打字绝大多数时候是字母）。 */
+  const [layer, setLayer] = useState<KeyboardLayer>("letters");
+
+  /*
+   * 键盘一关就清掉没上屏的组字。
+   *
+   * 为什么必须清：不清的话，用户带着一串拼音关掉键盘，下次按 B 会先被 `backOnce` 里的
+   * 「取消组字」吃掉一次，表现为「B 键第一次没反应」。
+   *
+   * 为什么在这个组件里注册而不是在 `keyboard.ts` 里直接 import：`keyboard.ts` 要用
+   * `useGamepadNav` 的字段读写，`useGamepadNav` 又要回调过来清组字 —— 两边互相 import
+   * 会绕成环。本组件同时依赖两者，在这里挂钩子最干净。
+   */
+  useEffect(() => {
+    bindKeyboardClosedHook(resetKeyboardInput);
+    return () => bindKeyboardClosedHook(null);
+  }, []);
 
   // 打开时：把字表拉起来、用界面文字建一次词索引、并让键盘能往输入框里写字
   useEffect(() => {
@@ -66,9 +79,11 @@ export function GamepadKeyboard() {
     if (open && tableState.status === "ready") ensureWordIndex();
   }, [open, tableState.status]);
 
-  // 每次打开都清掉上次残留的组字
+  // 每次打开都清掉上次残留的组字，并回到字母层（上次停在符号层不该影响这次）
   useEffect(() => {
-    if (open) resetKeyboardInput();
+    if (!open) return;
+    resetKeyboardInput();
+    setLayer("letters");
   }, [open]);
 
   // 面板刚出现：把焦点放进它自己的第一颗按键（否则摇杆还停在输入框上）
@@ -141,14 +156,23 @@ export function GamepadKeyboard() {
         )}
       </div>
 
-      {[...LETTER_ROWS, ...PLAIN_ROWS, CJK_PUNCT].map((row, rowIndex) => (
-        <div key={`row-${rowIndex}`} className="gamepad-keyboard-row">
-          {(typeof row === "string" ? [...row] : row).map((key) => (
+      {rowsForLayer(layer).map((row, rowIndex) => (
+        <div
+          key={`row-${rowIndex}`}
+          className={`gamepad-keyboard-row${row.filler ? " is-filler" : ""}`}
+          // 占位行只为把两层的**高度**拉齐（见 `keyLayout.ts` 文件头）：
+          // 它必须占位，但不能显示、不能聚焦 —— `aria-hidden` + CSS 的 visibility 一起上。
+          aria-hidden={row.filler ? true : undefined}
+        >
+          {row.keys.map((key) => (
             <button
               key={key}
               type="button"
               className="gamepad-key"
-              data-focusable
+              // 占位键不给 `data-focusable`：焦点系统扫的就是这个属性，
+              // 给了的话摇杆会停在看不见的键上（表现为「按方向键没反应」）。
+              data-focusable={row.filler ? undefined : true}
+              tabIndex={row.filler ? -1 : undefined}
               onClick={() => pressKey(key)}
             >
               {key}
@@ -158,6 +182,16 @@ export function GamepadKeyboard() {
       ))}
 
       <div className="gamepad-keyboard-row">
+        <button
+          type="button"
+          // 这颗键**永远在同一个位置**（底部最左），所以切层之后焦点不会掉 ——
+          // 用户连按两下就是「切过去再切回来」，不会因为键行变短而跳到别的键上。
+          className={`gamepad-key is-wide${layer === "symbols" ? " is-primary" : ""}`}
+          data-focusable
+          onClick={() => setLayer(layer === "letters" ? "symbols" : "letters")}
+        >
+          {layer === "letters" ? label.symbols : label.letters}
+        </button>
         <button type="button" className="gamepad-key is-wide" data-focusable onClick={() => pressSpace()}>
           {label.space}
         </button>

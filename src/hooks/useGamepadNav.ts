@@ -192,8 +192,23 @@ export function openGamepadKeyboard(el: HTMLInputElement | HTMLTextAreaElement) 
   emitKeyboard();
 }
 
+/**
+ * 键盘关闭时清掉没上屏的组字。
+ *
+ * 由 `src/ime/keyboard.ts` 在模块加载时注入 —— 不在这里直接 import，是因为键盘模块要用
+ * 本模块的 `insertIntoField` / `backspaceField`，互相 import 会绕成环。
+ * 为什么必须清：不清的话，用户带着一串没上屏的拼音关掉键盘，下次按 B 会先被
+ * 「取消组字」吃掉一次（`backOnce` 里的第一道判断），表现为「B 键第一次没反应」。
+ */
+let onKeyboardClosed: (() => void) | null = null;
+
+export function bindKeyboardClosedHook(hook: (() => void) | null) {
+  onKeyboardClosed = hook;
+}
+
 export function closeGamepadKeyboard() {
   if (!keyboardOpenFlag) return false;
+  onKeyboardClosed?.();
   const field = keyboardTarget;
   const caret = keyboardCaret;
   keyboardOpenFlag = false;

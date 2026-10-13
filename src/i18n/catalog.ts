@@ -208,6 +208,10 @@ export type Catalog = {
     space: string;
     chinese: string;
     english: string;
+    /** 切到符号层的键面文字。 */
+    symbols: string;
+    /** 切回字母层的键面文字。 */
+    letters: string;
     /** 字表没加载上时的提示（中文输入不可用，英文照打）。 */
     noChinese: string;
   };
@@ -453,7 +457,6 @@ export type Catalog = {
     compressFailed: (detail: string) => string;
     showHidden: string;
     hideHidden: string;
-    keyboard: string;
     transferRate: (rate: string, remaining: string) => string;
     previewOpen: string;
     opened: (name: string) => string;
@@ -1001,6 +1004,8 @@ export const zh: Catalog = {
     space: "空格",
     chinese: "中",
     english: "英",
+    symbols: "符号",
+    letters: "字母",
     noChinese: "中文候选表没加载上，只能打英文",
   },
   library: {
@@ -1233,7 +1238,6 @@ export const zh: Catalog = {
     compressFailed: (detail) => `压缩失败：${detail}`,
     showHidden: "显示隐藏",
     hideHidden: "不显示隐藏",
-    keyboard: "软键盘",
     transferRate: (rate, remaining) => `${rate}/秒 · 还剩 ${remaining}`,
     previewOpen: "浏览器预览不能调用系统打开。文本文件请用编辑。",
     opened: (name) => `已打开「${name}」。`,
@@ -1750,6 +1754,8 @@ export const en: Catalog = {
     space: "Space",
     chinese: "中",
     english: "EN",
+    symbols: "?123",
+    letters: "ABC",
     noChinese: "Pinyin table unavailable — English only",
   },
   library: {
@@ -1982,7 +1988,6 @@ export const en: Catalog = {
     compressFailed: (detail) => `Compress failed: ${detail}`,
     showHidden: "Show hidden",
     hideHidden: "Hide hidden",
-    keyboard: "Keyboard",
     transferRate: (rate, remaining) => `${rate}/s · ${remaining} left`,
     previewOpen: "Browser preview can't open files with the system. Edit text files instead.",
     opened: (name) => `Opened “${name}”.`,

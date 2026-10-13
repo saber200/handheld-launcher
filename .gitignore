@@ -17,3 +17,9 @@ src-tauri/fse/cert.pfx
 # 编辑器设置要跟着仓库走：里面的 rust-analyzer clippy 配置就是「提交前发现
 # dead_code / 编不过」的那道提醒，不该只存在某台机器上。
 !.vscode/settings.json
+
+# 广告片的生产目录（.fhvideo/）：里面有 100 MB 的成片与逐帧中间产物、以及抓下来的界面截图。
+# 这些东西是「产物」不是「源码」—— 可再生（做法写在 .fhvideo/README.md 里），
+# 跟着仓库走只会把 clone 撑大。脚本文档留在工作区里给下一版用，不进 git。
+/.fhvideo/
+/*.mp4
