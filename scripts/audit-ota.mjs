@@ -59,6 +59,19 @@ check(
   endpoints.some((url) => url.includes("fantasyhub-releases")),
   "tauri.conf.json：更新地址指向公开的发布物仓库（私有仓要 token，应用里不能带 token）",
 );
+// 国内镜像优先 + 至少留一个兜底（用户 2026-10-13：「github 上不翻墙下载实在是太费劲了」）。
+check(
+  endpoints.some((url) => url.includes("gitee.com")),
+  "tauri.conf.json：更新地址里有国内源（Gitee）—— 国内直连快得多",
+);
+check(
+  endpoints.filter((url) => !url.includes("gitee.com")).length > 0,
+  "tauri.conf.json：除国内源外还留了兜底源（国内源抽风时还能更新）",
+);
+check(
+  endpoints.findIndex((url) => url.includes("gitee.com")) === 0,
+  "tauri.conf.json：国内源排在**第一个**（updater 按顺序试，先试快的）",
+);
 check(
   ["quiet", "passive", "basicUi"].includes(updater.windows?.installMode ?? "passive"),
   `tauri.conf.json：Windows 安装模式合法（${updater.windows?.installMode ?? "默认 passive"}）`,

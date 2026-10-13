@@ -118,6 +118,89 @@ jobs:
           releaseDraft: false
           prerelease: ${{ github.ref_type != 'tag' }}
 
+      # ── 国内镜像：Gitee 发行版 + 一份「指向 Gitee 的 latest.json」 ────────────────
+      #
+      # 用户 2026-10-13：「github 上不翻墙下载实在是太费劲了」。
+      # 做法：GitHub 那一步照旧（它已经产出了安装包 + .sig + latest.json），这里再往
+      # Gitee 公开仓 `saber200/fantasyhub-releases` 推一份**国内可直连**的副本：
+      #   ① 建发行版（tag = vX.Y.Z），把 安装包 / .sig 传成附件；
+      #   ② 自己拼一份 `latest.json`（下载地址指向 Gitee 的附件、签名取 .sig 的内容），
+      #      既作为附件、也写到 Gitee 仓库默认分支 —— 应用读的固定地址就是
+      #      `https://gitee.com/saber200/fantasyhub-releases/raw/master/latest.json`。
+      # `continue-on-error: true`：**Gitee 这条线挂了不能拖垮发布**，GitHub 那份照样是好的。
+      # 令牌走 secret `GITEE_TOKEN`（Gitee 私人令牌，权限只要 projects）。
+      - name: Publish to Gitee (国内镜像)
+        if: github.ref_type == 'tag'
+        continue-on-error: true
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::warning::没有配置 GITEE_TOKEN，跳过国内镜像这一步（GitHub 那份照常发布）"
+            exit 0
+          fi
+          TAG="${{ github.ref_name }}"
+          OWNER=saber200
+          REPO=fantasyhub-releases
+          API="https://gitee.com/api/v5/repos/$OWNER/$REPO"
+          DIR=target/release/bundle/nsis
+          EXE=$(ls "$DIR"/*setup.exe | head -1)
+          SIG="$EXE.sig"
+          NAME=$(basename "$EXE")
+          VERSION="${TAG#v}"
+          URL="https://gitee.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
+
+          # ① 建发行版（已存在就复用）
+          RID=$(curl -sS -X POST "$API/releases" \
+            -d "access_token=$GITEE_TOKEN" -d "tag_name=$TAG" -d "name=$TAG" \
+            -d "target_commitish=master" \
+            -d "body=Windows 安装包（国内镜像）。应用会自动校验签名，只认真实发布包。" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+          if [ -z "$RID" ]; then
+            RID=$(curl -sS "$API/releases/tags/$TAG?access_token=$GITEE_TOKEN" \
+              | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+          fi
+          echo "Gitee 发行版 id: $RID"
+          [ -n "$RID" ] || { echo "::warning::Gitee 建发行版失败（tag 是否已存在？）"; exit 0; }
+
+          # ② 拼一份指向 Gitee 的 latest.json
+          python3 - "$SIG" "$URL" "$VERSION" <<'PYEOF'
+          import json, sys
+          sig_path, url, version = sys.argv[1], sys.argv[2], sys.argv[3]
+          sig = open(sig_path, encoding="utf-8").read().strip()
+          entry = {"signature": sig, "url": url}
+          data = {
+              "version": version,
+              "notes": "国内镜像（Gitee）。",
+              "pub_date": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                  .strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {"windows-x86_64": entry, "windows-x86_64-nsis": entry},
+          }
+          open("gitee-latest.json", "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False))
+          print("写好 gitee-latest.json：版本", version)
+          PYEOF
+
+          # ③ 传附件（安装包 / .sig / latest.json）
+          for f in "$EXE" "$SIG" gitee-latest.json; do
+            echo "上传 $(basename "$f") …"
+            curl -sS -X POST "$API/releases/$RID/attach_files" \
+              -F "access_token=$GITEE_TOKEN" -F "file=@$f" \
+              | python3 -c "import json,sys; d=json.load(sys.stdin); print('  附件 id:', d.get('id', d))" 2>/dev/null || true
+          done
+
+          # ④ 把 latest.json 覆盖写到 Gitee 仓库默认分支（应用读的就是这个固定地址）
+          CONTENT=$(python3 -c "import base64;print(base64.b64encode(open('gitee-latest.json','rb').read()).decode())")
+          SHA=$(curl -sS "$API/contents/latest.json?access_token=$GITEE_TOKEN" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null)
+          curl -sS -X POST "$API/contents/latest.json" \
+            -d "access_token=$GITEE_TOKEN" -d "content=$CONTENT" \
+            -d "message=chore: latest.json for $TAG" -d "branch=master" ${SHA:+-d "sha=$SHA"} \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print('latest.json 提交:', d.get('commit',{}).get('sha','?')[:8])" 2>/dev/null || true
+
+          echo "国内镜像完成：https://gitee.com/$OWNER/$REPO/releases/tag/$TAG"
+
       # 归档产物只是「顺手拿个未安装的 exe」用：发布本身靠上面那步建 Release，跟这一步无关。
       #
       # 2026-10-10 v0.1.68 那次：编译、打包、建 Release 全都成功了，**整轮却判失败** ——

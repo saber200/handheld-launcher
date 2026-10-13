@@ -56,6 +56,27 @@ curl -sIL https://github.com/saber200/fantasyhub-releases/releases/latest/downlo
 
 `latest.json` 里 `version` 必须是**比掌机上装的更新**的版本号 —— 一样或更旧，应用就不会提示更新。
 
+## 四点五、国内镜像（Gitee，2026-10-13 起）
+
+用户原话：「github 上不翻墙下载实在是太费劲了」。所以发布物**同时**推两份：
+
+| | 地址 | 谁写 |
+| --- | --- | --- |
+| 国内优先 | `https://gitee.com/saber200/fantasyhub-releases/raw/master/latest.json` | CI 的「Publish to Gitee」这一步 |
+| 兜底 | `https://github.com/saber200/fantasyhub-releases/releases/latest/download/latest.json` | CI 的 tauri-action 那一步 |
+
+- 应用里的 `plugins.updater.endpoints` 是**数组，按顺序试** —— 国内源抽风会自动落到 GitHub ✓。
+- **换源不影响安全**：更新包必须通过私钥签名校验才装得上，镜像站换了文件也没用 ✓。
+- Gitee 那一步是 **`continue-on-error`**：它挂了不影响 GitHub 那份发布 ✓；没配 `GITEE_TOKEN`
+  时它会打一条 warning 然后跳过 ✓。
+- Gitee 的限额（官方帮助中心）：**单附件 ≤ 100M**、**每仓库附件总量 ≤ 1G**。安装包约 72M ✓，
+  但总量会攒 —— **发版多了要删旧发行版**（应用只读最新那份 `latest.json`，旧版留着没用）。
+- 令牌：Gitee → 设置 → 私人令牌 → 新建（权限只要 `projects`）→ 存到私有仓的
+  Actions secret **`GITEE_TOKEN`**。过期/换令牌只改这个 secret，代码不用动。
+- ⚠️ 两个**未在本机验证过**的假设（第一次发版后会知道）：Gitee 发行版附件的下载地址形如
+  `https://gitee.com/<owner>/<repo>/releases/download/<tag>/<file>`；默认分支是 `master`。
+  哪个不对，改 CI 里那两处字符串即可 —— 而**即使两个都不对，更新也只是回落到 GitHub**（不会坏）。
+
 ## 五、排错对照表
 
 | 现象 | 多半是 | 怎么办 |
