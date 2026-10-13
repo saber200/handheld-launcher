@@ -151,8 +151,6 @@ export type Catalog = {
     fseHint: string;
     fseRegister: string;
     fseRegisterHint: string;
-    fseOpenSettings: string;
-    fseOpenSettingsHint: string;
     fsePreview: string;
     quit: string;
     quitHint: string;
@@ -167,7 +165,6 @@ export type Catalog = {
     desktopPreview: string;
     desktopDone: string;
     desktopFailed: (detail: string) => string;
-    fseOpenFailed: (detail: string) => string;
     powerPreview: string;
     slept: string;
     powerFailed: (detail: string) => string;
@@ -943,8 +940,6 @@ export const zh: Catalog = {
     fseHint: "登记后可在系统设置里选成主页应用",
     fseRegister: "登记全屏体验",
     fseRegisterHint: "需要开发人员模式；管理员运行更稳",
-    fseOpenSettings: "打开系统全屏体验设置",
-    fseOpenSettingsHint: "把主页应用选成「幻想枢纽」",
     fsePreview: "浏览器预览无法登记全屏体验",
     quit: "退出启动器",
     quitHint: "退出并回到桌面",
@@ -958,9 +953,7 @@ export const zh: Catalog = {
     fullscreenFailed: (detail) => `无法回到全屏：${detail}`,
     desktopPreview: "浏览器预览无法打开 Windows 桌面",
     desktopDone: "已打开 Windows 桌面，启动器还在。",
-    desktopFailed: (detail) => `无法打开桌面：${detail}`,
-    fseOpenFailed: (detail) => `无法打开设置：${detail}`,
-    powerPreview: "浏览器预览无法休眠、重启或关机",
+    desktopFailed: (detail) => `无法打开桌面：${detail}`,    powerPreview: "浏览器预览无法休眠、重启或关机",
     slept: "已进入休眠。",
     powerFailed: (detail) => `电源操作失败：${detail}`,
   },
@@ -1689,8 +1682,6 @@ export const en: Catalog = {
     fseHint: "After registering, pick FantasyHub as the home app in Windows Settings",
     fseRegister: "Register fullscreen experience",
     fseRegisterHint: "Needs Developer Mode; admin helps",
-    fseOpenSettings: "Open Windows FSE settings",
-    fseOpenSettingsHint: "Choose FantasyHub as the home app",
     fsePreview: "Browser preview can't register fullscreen experience",
     quit: "Quit",
     quitHint: "Leave and return to the desktop",
@@ -1704,9 +1695,7 @@ export const en: Catalog = {
     fullscreenFailed: (detail) => `Couldn't fill the screen: ${detail}`,
     desktopPreview: "Browser preview can't open the Windows desktop",
     desktopDone: "The desktop is open. The launcher is still running.",
-    desktopFailed: (detail) => `Couldn't open the desktop: ${detail}`,
-    fseOpenFailed: (detail) => `Couldn't open settings: ${detail}`,
-    powerPreview: "Browser preview can't sleep, restart, or shut down",
+    desktopFailed: (detail) => `Couldn't open the desktop: ${detail}`,    powerPreview: "Browser preview can't sleep, restart, or shut down",
     slept: "Going to sleep.",
     powerFailed: (detail) => `Power action failed: ${detail}`,
   },

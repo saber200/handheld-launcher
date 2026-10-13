@@ -510,6 +510,23 @@ const run = async (width, height) => {
         hasScale: rows.some((r) => /界面缩放|Interface scale|UI scale/i.test(r.textContent || '')),
       };
     `);
+    /*
+     * 「打开系统全屏体验设置」那一行也去掉了（用户 2026-10-12：「只保留登记，用户自己去操作
+     * windows 设置」）—— 「登记」（FSE 稀疏包）那一行**保留**。
+     */
+    const fseRows = await page.eval(`
+      const rows = [...document.querySelectorAll('.k3-list .k3-row')];
+      const text = rows.map((r) => (r.textContent || '').trim());
+      return {
+        hasOpenSettings: text.some((t) => /打开系统全屏体验设置|Open.*fullscreen experience/i.test(t)),
+        hasRegister: text.some((t) => /登记|Register/i.test(t)),
+      };
+    `);
+    note(
+      !fseRows.hasOpenSettings && fseRows.hasRegister,
+      `设置抽屉：「打开系统全屏体验设置」已去掉（还在=${fseRows.hasOpenSettings}），「登记」保留=${fseRows.hasRegister}`,
+    );
+
     note(
       !deadRow.hasDeadzone && deadRow.hasScale,
       `设置抽屉：死区那一行已去掉（还在=${deadRow.hasDeadzone}），旁边的「界面缩放」还在=${deadRow.hasScale}`,

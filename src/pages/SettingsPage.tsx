@@ -150,17 +150,6 @@ export function SettingsPage({ active, onClose }: Props) {
     }
   };
 
-  const openFseSettings = async () => {
-    if (!isTauri) {
-      setMessage(text().settings.fsePreview);
-      return;
-    }
-    try {
-      await invoke("open_fse_settings");
-    } catch (e) {
-      setMessage(text().settings.fseOpenFailed(String(e)));
-    }
-  };
 
   const quitApp = async () => {
     if (!isTauri) {
@@ -399,17 +388,6 @@ export function SettingsPage({ active, onClose }: Props) {
           </span>
         </button>
 
-        <button type="button" className="k3-row" data-focusable onClick={() => void openFseSettings()}>
-          <span className="k3-text">
-            <strong>{m.fseOpenSettings}</strong>
-            <small>{m.fseOpenSettingsHint}</small>
-          </span>
-          <span className="k3-control">
-            <span className="k3-value" aria-hidden>
-              ↗
-            </span>
-          </span>
-        </button>
 
         <button type="button" className="k3-row" data-focusable onClick={() => void quitApp()}>
           <span className="k3-text">
