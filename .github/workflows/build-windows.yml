@@ -152,7 +152,7 @@ jobs:
       - name: Publish to Gitee (国内镜像)
         if: github.ref_type == 'tag'
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: 45
         shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
@@ -177,10 +177,11 @@ jobs:
           # ⚠️ 暂时指向 GitHub：Gitee 的 72MB 附件还没传成功过（小文件能传、大文件挂），
           # 若这里写 Gitee 的地址，应用会拿到一个 404 的安装包地址 —— 那比慢更糟。
           # 等大文件上传解决（或改用对象存储），把下面这行换回 gitee.com 即可。
-          URL="https://github.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
+          GH_URL="https://github.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
+          GITEE_URL="https://gitee.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
+          URL="$GH_URL"   # 先按 GitHub 写；下面确认安装包真的在 Gitee 上之后再改写成 Gitee
           ID_OF="import json,sys; d=json.load(sys.stdin); print(d.get('id') or ('ERR '+str(d)[:180]))"
 
-          python3 -c "import datetime,json,sys; sig=open(sys.argv[1],encoding='utf-8').read().strip(); e={'signature':sig,'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':e,'windows-x86_64-nsis':e}}; open('latest.json','w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False)); print('latest.json',sys.argv[3])" "$SIG" "$URL" "$VERSION"
 
           mkrel() { curl -sS --max-time 60 -X POST "$API/releases" -d "access_token=$GITEE_TOKEN" -d "tag_name=$1" -d "name=$1" -d "target_commitish=master" -d "body=Windows 安装包（国内镜像）。" | python3 -c "$ID_OF"; }
           getrel() { curl -sS --max-time 60 "$API/releases/tags/$1?access_token=$GITEE_TOKEN" | python3 -c "$ID_OF"; }
@@ -192,7 +193,7 @@ jobs:
           upload() { echo "--- 上传 $(basename "$2") → $1"; curl -sS --max-time 900 -X POST "$API/releases/$1/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$2" | head -c 400; echo; }
           case "$RID" in ''|ERR*) ;; *) upload "$RID" "$EXE"; upload "$RID" "$SIG"; upload "$RID" latest.json;; esac
           if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then
-            OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json'))")
+            OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')))")
             for id in $OLD; do echo "删旧 latest.json 附件 $id"; curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" | head -c 200; echo; done
             upload "$LID" latest.json
           fi
@@ -201,6 +202,24 @@ jobs:
           ok=0
           if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ]; then curl -sS --max-time 60 "$API/releases/$RID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" "$NAME" "$(basename "$SIG")" latest.json || ok=1; else ok=1; fi
           if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" latest.json || ok=1; else ok=1; fi
+
+          # ── 指针重写：安装包在 Gitee 上就指向 Gitee（国内直连），否则指 GitHub ──────────
+          # 用户 2026-10-13 的要求就一句：编译好之后，在启动器里直接 OTA 下载最新版、走国内源、不用梯子。
+          # 所以这里必须**自动**选一个真的能下到的地址 —— 绝不写 404（那比慢更糟）。
+          if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ] && curl -sS --max-time 60 "$API/releases/$RID?access_token=$GITEE_TOKEN" -o /tmp/rel.json && grep -q "$NAME" /tmp/rel.json; then
+            echo '安装包已在 Gitee 上 → 指针指向 Gitee（国内直连）'
+            URL="$GITEE_URL"
+          else
+            echo '安装包不在 Gitee 上 → 指针指向 GitHub（慢，但一定装得上）'
+            URL="$GH_URL"
+          fi
+          python3 -c "import datetime,json,sys; sig=open(sys.argv[1],encoding='utf-8').read().strip(); e={'signature':sig,'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':e,'windows-x86_64-nsis':e}}; open('latest.json','w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False)); print('latest.json',sys.argv[3])" "$SIG" "$URL" "$VERSION"
+
+          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then
+            OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')))")
+            for id in $OLD; do echo "清旧指针附件 $id"; curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" >/dev/null; done
+            upload "$LID" latest.json
+          fi
 
           echo '--- 指针自检:'
           curl -sSL --max-time 30 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json" | head -c 200; echo
