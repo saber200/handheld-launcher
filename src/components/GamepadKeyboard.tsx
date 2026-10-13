@@ -69,7 +69,6 @@ export function GamepadKeyboard() {
   const tableState = usePinyinTable();
   const rootRef = useRef<HTMLDivElement>(null);
   /** 上一次渲染时「第一颗候选」的文本：用来判断候选是否需要重新接管焦点。 */
-  const topCandidate = useRef<string | null>(null);
 
   /**
    * 键面是否处于 Shift 形态（数字显符号、字母显大写）。
@@ -114,21 +113,14 @@ export function GamepadKeyboard() {
   }, [open]);
 
   /*
-   * 候选变了要重新接焦点。
+   * 这里原来有一段：候选一变就把焦点**抢到第一颗候选**上（理由曾是「接着按 A 就是选第一个」）。
    *
-   * 用户敲 `n` 时焦点在 `n` 那颗键上；敲到 `ni` 出现候选后，如果焦点不挪过去，接着按 A
-   * 就会又打一个 `n`。所以第一颗候选一出现就把焦点交给它 —— 接着按 A 就是「选第一个候选」。
+   * 用户 2026-10-13 要求去掉：「为什么每次我输入只要识别到能拼成中文了，你就把焦点自动聚焦到
+   * 上面的文字了？正常逻辑应该是留在原位置……我输入不管是中文还是英文，只要它符合联想就会自动
+   * 聚焦，很容易误操作」。
+   *
+   * 新规矩：**焦点永远不自己跑**。候选词带 1…9 序号，想选第几个就按数字键（见下面字符键）。
    */
-  useLayoutEffect(() => {
-    if (!open || !composing) {
-      topCandidate.current = null;
-      return;
-    }
-    const first = candidates[0]?.text ?? null;
-    if (first === null || first === topCandidate.current) return;
-    topCandidate.current = first;
-    rootRef.current?.querySelector<HTMLElement>("[data-candidate]")?.focus();
-  }, [open, composing, candidates]);
 
   if (!open) return null;
 
@@ -205,6 +197,9 @@ export function GamepadKeyboard() {
                   className={`gamepad-kb-candidate${index === selected ? " is-selected" : ""}`}
                   onClick={() => commitCandidate(index)}
                 >
+                  <span className="gamepad-kb-cand-num" aria-hidden="true">
+                    {index + 1}
+                  </span>
                   {candidate.learned ? <span className="gamepad-kb-learned-dot" aria-hidden="true" /> : null}
                   {candidate.text}
                 </button>
@@ -278,7 +273,21 @@ export function GamepadKeyboard() {
                 type="button"
                 className="gamepad-key has-label"
                 data-focusable
-                onClick={() => (key.code ? pressKey(key.code) : playSfx("click"))}
+                onClick={() => {
+                  /*
+                   * 组字中按 `1`–`9` = 选第几颗候选（用户 2026-10-13：「联想词前面出现 1、2、
+                   * 3…一直到第九个，我移动到对应的数字键按下后，它就选第几个」）。
+                   * 只在**组字中**这么解释；没组字时数字键还是打数字。
+                   */
+                  const bare = key.code ?? "";
+                  const pick = /^[1-9]$/.test(bare) ? Number(bare) - 1 : -1;
+                  if (composing && pick >= 0 && pick < candidates.length) {
+                    commitCandidate(pick);
+                    return;
+                  }
+                  if (key.code) pressKey(key.code);
+                  else playSfx("click");
+                }}
               >
                 {key.shiftedOf ? (
                   <span className="gamepad-key-shifted" aria-hidden="true">

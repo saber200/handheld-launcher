@@ -1182,6 +1182,25 @@ img.app-icon {
   display: none;
 }
 
+/*
+ * 长键名的功能键（`Backspace` 最典型）：用户 2026-10-13「backspace 键太短了，都没空间了，挤在一起」。
+ * 先把**字**收进键里（字号小一点、左右内边距紧一点）；键宽是布局单位算出来的，动它会打乱整行
+ * 合计（`keyLayout.test.ts` 钉着），所以拥挤先从字体这头解决。
+ */
+.gamepad-key.is-wide {
+  font-size: calc(12 * var(--dp));
+  padding: 0 calc(6 * var(--dp));
+  letter-spacing: -0.02em;
+}
+
+/* 候选词前面的序号（1…9）：按对应数字键即可选中。 */
+.gamepad-kb-cand-num {
+  margin-right: calc(5 * var(--dp));
+  color: var(--ink-4);
+  font-size: calc(11 * var(--dp));
+  font-variant-numeric: tabular-nums;
+}
+
 .gamepad-kb-candidate {
   flex: 0 0 auto;
   min-width: calc(38 * var(--dp));
