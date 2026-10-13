@@ -499,6 +499,22 @@ const run = async (width, height) => {
         hasSwitch: !!row.querySelector('.k3-switch'),
       };
     `);
+    /*
+     * 「手柄死区」那一行**整行去掉了**（用户 2026-10-12：「手柄死区的调整也给去掉 不要了」）。
+     * 死区本身还在用（输入层读的是 preferences 里的默认值），去掉的只是"让用户调"的那一行。
+     */
+    const deadRow = await page.eval(`
+      const rows = [...document.querySelectorAll('.k3-list .k3-row')];
+      return {
+        hasDeadzone: rows.some((r) => /死区|deadzone/i.test(r.textContent || '')),
+        hasScale: rows.some((r) => /界面缩放|Interface scale|UI scale/i.test(r.textContent || '')),
+      };
+    `);
+    note(
+      !deadRow.hasDeadzone && deadRow.hasScale,
+      `设置抽屉：死区那一行已去掉（还在=${deadRow.hasDeadzone}），旁边的「界面缩放」还在=${deadRow.hasScale}`,
+    );
+
     note(
       !!steamRow && steamRow.small === "" && /静默启动 Steam/.test(steamRow.strong) && steamRow.hasSwitch,
       steamRow

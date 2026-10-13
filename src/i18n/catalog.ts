@@ -140,11 +140,7 @@ export type Catalog = {
     scaleSmall: string;
     scaleNormal: string;
     scaleBig: string;
-    deadzoneTitle: string;
-    deadzoneHint: string;
     /** 参数是百分比整数（「35」）。 */
-    deadzoneValue: (percent: string) => string;
-    deadzoneRaw: (value: string) => string;
     on: string;
     off: string;
     fullscreen: string;
@@ -937,10 +933,6 @@ export const zh: Catalog = {
     scaleSmall: "小",
     scaleNormal: "标准",
     scaleBig: "大",
-    deadzoneTitle: "手柄死区",
-    deadzoneHint: "摇杆方向判定阈值",
-    deadzoneValue: (percent) => `${percent}%`,
-    deadzoneRaw: (value) => `阈值 ${value}`,
     on: "开",
     off: "关",
     fullscreen: "回到全屏",
@@ -1687,10 +1679,6 @@ export const en: Catalog = {
     scaleSmall: "Small",
     scaleNormal: "Default",
     scaleBig: "Large",
-    deadzoneTitle: "Stick deadzone",
-    deadzoneHint: "Direction threshold for the analog stick",
-    deadzoneValue: (percent) => `${percent}%`,
-    deadzoneRaw: (value) => `threshold ${value}`,
     on: "On",
     off: "Off",
     fullscreen: "Fill the screen",

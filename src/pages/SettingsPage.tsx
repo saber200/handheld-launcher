@@ -4,7 +4,6 @@ import { getVersion } from "@tauri-apps/api/app";
 import { text, useI18n } from "../i18n";
 import { playSwitch } from "../audio/sfx";
 import {
-  DEADZONE_CHOICES,
   SCALE_CHOICES,
   setPrefs,
   usePrefs,
@@ -210,17 +209,6 @@ export function SettingsPage({ active, onClose }: Props) {
           (autoScale * prefsNow.scale).toFixed(2),
         );
 
-  /** 手柄死区：预设四档，按档走。 */
-  const stepDeadzone = (dir: -1 | 1) => {
-    const index = DEADZONE_CHOICES.indexOf(
-      prefsNow.deadzone as (typeof DEADZONE_CHOICES)[number],
-    );
-    const next = DEADZONE_CHOICES[Math.max(0, Math.min(DEADZONE_CHOICES.length - 1, index + dir))];
-    if (next != null) {
-      setPrefs({ deadzone: next });
-      playSwitch(true);
-    }
-  };
 
   return (
     <div className="settings-body">
@@ -390,40 +378,6 @@ export function SettingsPage({ active, onClose }: Props) {
                 </button>
               ))}
             </span>
-          </span>
-        </div>
-
-        <div className="k3-row">
-          <span className="k3-text">
-            <strong>{m.deadzoneTitle}</strong>
-            <small>
-              {m.deadzoneHint} · {m.deadzoneRaw(String(prefsNow.deadzone))}
-            </small>
-          </span>
-          <span className="k3-control">
-            <button
-              type="button"
-              className="k3-seg-item"
-              data-focusable
-              aria-label={`${m.deadzoneTitle} −`}
-              disabled={prefsNow.deadzone <= DEADZONE_CHOICES[0]}
-              onClick={() => stepDeadzone(-1)}
-            >
-              −
-            </button>
-            <span className="k3-value tnum">
-              {m.deadzoneValue(String(Math.round(prefsNow.deadzone * 100)))}
-            </span>
-            <button
-              type="button"
-              className="k3-seg-item"
-              data-focusable
-              aria-label={`${m.deadzoneTitle} ＋`}
-              disabled={prefsNow.deadzone >= DEADZONE_CHOICES[DEADZONE_CHOICES.length - 1]}
-              onClick={() => stepDeadzone(1)}
-            >
-              ＋
-            </button>
           </span>
         </div>
 
