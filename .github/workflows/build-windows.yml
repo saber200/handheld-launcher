@@ -152,6 +152,15 @@ jobs:
           VERSION="${TAG#v}"
           URL="https://gitee.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
 
+          # ⓪ 先确保仓库**非空**：空的 Gitee 仓库没有分支，建 tag / 发行版会被直接拒
+          #    （2026-10-13 实测：v0.1.95 那次 releases 列表是空的，就是栽在这儿）。
+          #    用 contents API 写一个 README，第一次调用会把 master 建出来。
+          curl -sS -X POST "$API/contents/README.md" \
+            -d "access_token=$GITEE_TOKEN" \
+            -d "content=$(printf '# fantasyhub-releases\n\n国内镜像：安装包与 latest.json。' | base64)" \
+            -d "message=chore: init repository" -d "branch=master" > /dev/null || true
+          echo "分支自检：$(curl -sS "$API/branches?access_token=$GITEE_TOKEN" | head -c 120)"
+
           # ① 建发行版（已存在就复用）
           RID=$(curl -sS -X POST "$API/releases" \
             -d "access_token=$GITEE_TOKEN" -d "tag_name=$TAG" -d "name=$TAG" \
