@@ -129,9 +129,30 @@ jobs:
       #      `https://gitee.com/saber200/fantasyhub-releases/raw/master/latest.json`。
       # `continue-on-error: true`：**Gitee 这条线挂了不能拖垮发布**，GitHub 那份照样是好的。
       # 令牌走 secret `GITEE_TOKEN`（Gitee 私人令牌，权限只要 projects）。
+      # 归档产物只是「顺手拿个未安装的 exe」用：发布本身靠上面那步建 Release，跟这一步无关。
+      #
+      # 2026-10-10 v0.1.68 那次：编译、打包、建 Release 全都成功了，**整轮却判失败** ——
+      # 因为最后这一步撞上 GitHub 的 Actions 产物存储配额（日志原文
+      # `Failed to CreateArtifact: Artifact storage quota has been hit`），而当时的写法是
+      # 「上传失败 = 整个 job 失败」，于是发布看起来像挂了。
+      # 两条修法：① 保留期从仓库默认（90 天）缩到 7 天，少占配额；
+      # ② `continue-on-error`：配额满了也只是这一步黄一下，不许拖垮整轮发布。
+      # 另外配额本身要清：https://github.com/saber200/handheld-launcher/actions/artifacts
+      # （过期/旧的产物可以全删，Release 里的安装包不受影响）。
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: handheld-launcher-windows
+          path: |
+            target/release/FantasyHub.exe
+            target/release/bundle/nsis/*.exe
+          retention-days: 7
+
       - name: Publish to Gitee (国内镜像)
         if: github.ref_type == 'tag'
         continue-on-error: true
+        timeout-minutes: 20
         shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
@@ -158,47 +179,28 @@ jobs:
 
           python3 -c "import datetime,json,sys; sig=open(sys.argv[1],encoding='utf-8').read().strip(); e={'signature':sig,'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':e,'windows-x86_64-nsis':e}}; open('gitee-latest.json','w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False)); print('gitee-latest.json',sys.argv[3])" "$SIG" "$URL" "$VERSION"
 
-          mkrel() { curl -sS -X POST "$API/releases" -d "access_token=$GITEE_TOKEN" -d "tag_name=$1" -d "name=$1" -d "target_commitish=master" -d "body=Windows 安装包（国内镜像）。" | python3 -c "$ID_OF"; }
-          getrel() { curl -sS "$API/releases/tags/$1?access_token=$GITEE_TOKEN" | python3 -c "$ID_OF"; }
+          mkrel() { curl -sS --max-time 60 -X POST "$API/releases" -d "access_token=$GITEE_TOKEN" -d "tag_name=$1" -d "name=$1" -d "target_commitish=master" -d "body=Windows 安装包（国内镜像）。" | python3 -c "$ID_OF"; }
+          getrel() { curl -sS --max-time 60 "$API/releases/tags/$1?access_token=$GITEE_TOKEN" | python3 -c "$ID_OF"; }
           RID=$(mkrel "$TAG"); case "$RID" in ''|ERR*) RID=$(getrel "$TAG");; esac
           echo "版本发行版 id: $RID"
           LID=$(mkrel latest); case "$LID" in ''|ERR*) LID=$(getrel latest);; esac
           echo "latest 发行版 id: $LID"
 
-          upload() { echo "--- 上传 $(basename "$2") → $1"; curl -sS -X POST "$API/releases/$1/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$2" | head -c 400; echo; }
+          upload() { echo "--- 上传 $(basename "$2") → $1"; curl -sS --max-time 900 -X POST "$API/releases/$1/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$2" | head -c 400; echo; }
           case "$RID" in ''|ERR*) ;; *) upload "$RID" "$EXE"; upload "$RID" "$SIG"; upload "$RID" gitee-latest.json;; esac
           if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then
-            OLD=$(curl -sS "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json'))")
-            for id in $OLD; do echo "删旧 latest.json 附件 $id"; curl -sS -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" | head -c 200; echo; done
+            OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json'))")
+            for id in $OLD; do echo "删旧 latest.json 附件 $id"; curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" | head -c 200; echo; done
             upload "$LID" gitee-latest.json
           fi
 
           CHK="import json,sys; names=[a.get('name') for a in json.load(open('/tmp/rel.json')).get('assets',[])]; print('  名单:',names); miss=[w for w in sys.argv[1:] if w not in names]; print('::error::缺少附件 '+', '.join(miss)) if miss else print('  附件齐全'); sys.exit(1 if miss else 0)"
           ok=0
-          if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ]; then curl -sS "$API/releases/$RID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" "$NAME" "$(basename "$SIG")" gitee-latest.json || ok=1; else ok=1; fi
-          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then curl -sS "$API/releases/$LID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" gitee-latest.json || ok=1; else ok=1; fi
+          if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ]; then curl -sS --max-time 60 "$API/releases/$RID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" "$NAME" "$(basename "$SIG")" gitee-latest.json || ok=1; else ok=1; fi
+          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" gitee-latest.json || ok=1; else ok=1; fi
 
           echo '--- 指针自检:'
           curl -sSL --max-time 30 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json" | head -c 200; echo
           if [ "$ok" != "0" ]; then echo '::warning::Gitee 国内镜像没成（看上面的原始返回与名单）—— GitHub 那份不受影响'; exit 0; fi
           echo "国内镜像完成：https://gitee.com/$OWNER/$REPO/releases/tag/$TAG"
 
-      # 归档产物只是「顺手拿个未安装的 exe」用：发布本身靠上面那步建 Release，跟这一步无关。
-      #
-      # 2026-10-10 v0.1.68 那次：编译、打包、建 Release 全都成功了，**整轮却判失败** ——
-      # 因为最后这一步撞上 GitHub 的 Actions 产物存储配额（日志原文
-      # `Failed to CreateArtifact: Artifact storage quota has been hit`），而当时的写法是
-      # 「上传失败 = 整个 job 失败」，于是发布看起来像挂了。
-      # 两条修法：① 保留期从仓库默认（90 天）缩到 7 天，少占配额；
-      # ② `continue-on-error`：配额满了也只是这一步黄一下，不许拖垮整轮发布。
-      # 另外配额本身要清：https://github.com/saber200/handheld-launcher/actions/artifacts
-      # （过期/旧的产物可以全删，Release 里的安装包不受影响）。
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: handheld-launcher-windows
-          path: |
-            target/release/FantasyHub.exe
-            target/release/bundle/nsis/*.exe
-          retention-days: 7
