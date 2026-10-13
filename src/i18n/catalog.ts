@@ -103,7 +103,6 @@ export type Catalog = {
     /** K3 抽屉标题行右边那句「双击 Back 呼出 · Esc 关闭」。 */
     panelSub: string;
     /** K3 抽屉底部那行按键提示。 */
-    panelKeys: string;
     /** 「关于」那一行。 */
     aboutTitle: string;
     aboutStack: string;
@@ -899,7 +898,6 @@ export const zh: Catalog = {
     title: "设置",
     close: "关闭设置",
     panelSub: "双击 Back 呼出 · Esc 关闭",
-    panelKeys: "A 确认 · B 关闭抽屉 · ↑↓ 移动焦点 · ←→ 调整数值",
     aboutTitle: "关于",
     aboutStack: "Tauri 2 · Rust + React",
     language: "语言",
@@ -1641,7 +1639,6 @@ export const en: Catalog = {
     title: "Settings",
     close: "Close settings",
     panelSub: "Double-press Back · Esc to close",
-    panelKeys: "A confirm · B close · ↑↓ focus · ←→ adjust",
     aboutTitle: "About",
     aboutStack: "Tauri 2 · Rust + React",
     language: "Language",

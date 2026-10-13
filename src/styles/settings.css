@@ -258,13 +258,6 @@
   font-size: calc(26 * var(--dp));
 }
 
-.k3-keys {
-  margin: 0;
-  color: var(--ink-4);
-  font-size: calc(10 * var(--dp));
-  line-height: 1.4;
-}
-
 /* 电源那三颗仍然是弹层（既有能力），位置跟着 k3 的页脚走 */
 .k3-power {
   position: relative;

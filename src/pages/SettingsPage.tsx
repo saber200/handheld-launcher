@@ -416,8 +416,12 @@ export function SettingsPage({ active, onClose }: Props) {
       {message && <p className="status-msg">{message}</p>}
 
       <div className="k3-foot">
+        {/*
+          用户 2026-10-12：「专为掌机而生下面那一行小操作提示也都去掉没必要，只保留标语即可」——
+          这里原来还有一行 `A 确认 · B 关闭抽屉 · ↑↓ 移动焦点 · ←→ 调整数值`。
+          它是"教学"，而这套按键在引导里已经讲过一遍；常驻界面每一帧都在为它付面积。
+        */}
         <p className="about-line">{text().about}</p>
-        <p className="k3-keys">{m.panelKeys}</p>
         <div className="k3-power">
           {powerOpen && (
             <div className="power-options" role="menu" aria-label={text().power.menu}>

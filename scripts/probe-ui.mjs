@@ -522,6 +522,20 @@ const run = async (width, height) => {
         hasRegister: text.some((t) => /登记|Register/i.test(t)),
       };
     `);
+    /*
+     * 设置抽屉底部：**只留标语**，那句按键提示（`A 确认 · B 关闭抽屉 · …`）也去掉了
+     * （用户 2026-10-12：「专为掌机而生下面那一行小操作提示也都去掉没必要，只保留标语即可」）。
+     */
+    const foot = await page.eval(`
+      const line = document.querySelector('.k3-foot .about-line');
+      const keys = document.querySelector('.k3-foot .k3-keys');
+      return { tagline: (line?.textContent || '').trim(), hasKeys: !!keys };
+    `);
+    note(
+      foot.tagline.length > 0 && !foot.hasKeys,
+      `设置抽屉底部只有标语「${foot.tagline}」，按键提示块已去掉（还在=${foot.hasKeys}）`,
+    );
+
     note(
       !fseRows.hasOpenSettings && fseRows.hasRegister,
       `设置抽屉：「打开系统全屏体验设置」已去掉（还在=${fseRows.hasOpenSettings}），「登记」保留=${fseRows.hasRegister}`,
