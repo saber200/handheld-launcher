@@ -293,8 +293,16 @@ export function SettingsPage({ active, onClose }: Props) {
           </span>
         </button>
 
-        {/* 开机自启的搭档：自启时顺手把 Steam 静默拉到后台（默认关）。
-            放在「开机自启」正下方，因为这一项**只**在那条路径上生效 —— 提示里也这么写。 */}
+        {/*
+          开机自启的搭档：自启时顺手把 Steam 静默拉到后台（默认关）。
+          放在「开机自启」正下方，因为这一项**只**在那条路径上生效。
+
+          用户 2026-10-12：「把开机时拉起 steam 下面的那些提示去掉，只留：开机时静默启动 steam」——
+          那一行下面原来有两句小字（怎么用 + 没开自启时的提醒），全去掉：开关本身的状态由
+          右边的滑块表达，说明塞在设置行里只是噪音。（`steamSilentHint` /
+          `steamSilentNeedsAutostart` / `steamSilentOn` / `steamSilentOff` 仍留着 ——
+          后两条是点击后的结果提示，走的是底部状态行，不在这一行里。）
+        */}
         <button
           type="button"
           className="k3-row"
@@ -305,10 +313,6 @@ export function SettingsPage({ active, onClose }: Props) {
         >
           <span className="k3-text">
             <strong>{m.steamSilent}</strong>
-            <small>
-              {m.steamSilentHint}
-              {autostart ? "" : ` · ${m.steamSilentNeedsAutostart}`}
-            </small>
           </span>
           <span className="k3-control">
             <span className={steamSilent ? "k3-switch on" : "k3-switch"} aria-hidden>

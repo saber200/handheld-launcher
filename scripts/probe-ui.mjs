@@ -484,6 +484,28 @@ const run = async (width, height) => {
         focusable: btn?.hasAttribute('data-focusable') ?? false,
       };
     `);
+    /*
+     * 「开机时静默启动 Steam」那一行（用户 2026-10-12：「把开机时拉起 steam 下面的那些提示去掉，
+     * 只留：开机时静默启动 steam」）：**标题就是这一行全部的字**，不许再有 `<small>` 提示。
+     */
+    const steamRow = await page.eval(`
+      const row = [...document.querySelectorAll('.k3-list .k3-row')].find((r) =>
+        /静默启动 Steam|Start Steam silently/.test(r.textContent || ''),
+      );
+      if (!row) return null;
+      return {
+        strong: (row.querySelector('strong')?.textContent || '').trim(),
+        small: (row.querySelector('small')?.textContent || '').trim(),
+        hasSwitch: !!row.querySelector('.k3-switch'),
+      };
+    `);
+    note(
+      !!steamRow && steamRow.small === "" && /静默启动 Steam/.test(steamRow.strong) && steamRow.hasSwitch,
+      steamRow
+        ? `设置抽屉：「${steamRow.strong}」这一行没有提示小字（small=「${steamRow.small}」，开关在=${steamRow.hasSwitch}）`
+        : "设置抽屉：找不到「开机时静默启动 Steam」那一行",
+    );
+
     note(
       !!ota && ota.focusable && /检查更新|Check for updates/.test(ota.label),
       ota

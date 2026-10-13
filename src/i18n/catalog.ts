@@ -113,9 +113,7 @@ export type Catalog = {
     autostartHint: string;
     /** 「登录自启时顺手把 Steam 静默拉到后台」那一行（默认关）。 */
     steamSilent: string;
-    steamSilentHint: string;
     /** 开机自启关着时跟在提示后面的那句「这一项靠它才生效」。 */
-    steamSilentNeedsAutostart: string;
     steamSilentOn: string;
     steamSilentOff: string;
     steamSilentReadFailed: string;
@@ -915,10 +913,7 @@ export const zh: Catalog = {
     languageHint: "中文显示幻想枢纽，英文显示 FantasyHub",
     autostart: "开机自启",
     autostartHint: "登录后打开启动器",
-    steamSilent: "开机时拉起 Steam",
-    steamSilentHint:
-      "自启时静默拉起 Steam；Steam 里要勾「记住密码」，否则拉起来的只是登录框",
-    steamSilentNeedsAutostart: "先打开上面的「开机自启」才生效",
+    steamSilent: "开机时静默启动 Steam",
     steamSilentOn:
       "已开启。下次登录时启动器会把 Steam 拉到后台，之后点游戏直接进，不再弹 Steam 窗口。",
     steamSilentOff: "已关闭。点游戏时才启动 Steam（可能先弹出 Steam 窗口）。",
@@ -1668,10 +1663,7 @@ export const en: Catalog = {
     languageHint: "Chinese shows 幻想枢纽. English shows FantasyHub",
     autostart: "Start with Windows",
     autostartHint: "Open the launcher after sign-in",
-    steamSilent: "Start Steam at sign-in",
-    steamSilentHint:
-      "Steam comes up in the background at sign-in. Tick \"Remember my password\" in Steam, or it only opens the sign-in box",
-    steamSilentNeedsAutostart: "needs \"Start with Windows\" above",
+    steamSilent: "Start Steam silently at sign-in",
     steamSilentOn:
       "On. At the next sign-in the launcher brings Steam up in the background; opening a game then skips the Steam window.",
     steamSilentOff: "Off. Steam starts when you open a game (its window may appear first).",
