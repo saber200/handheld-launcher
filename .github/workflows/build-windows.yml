@@ -223,6 +223,39 @@ jobs:
 
           echo '--- 指针自检:'
           curl -sSL --max-time 30 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json" | head -c 200; echo
-          if [ "$ok" != "0" ]; then echo '::warning::Gitee 国内镜像没成（看上面的原始返回与名单）—— GitHub 那份不受影响'; exit 0; fi
+          {
+            echo "安装包是否已在 Gitee：$([ "$ok" = "0" ] && echo 是 || echo 否)"
+            echo "版本发行版 id：$RID"
+            echo "latest 发行版 id：$LID"
+            echo "指针里的下载地址：$URL"
+            echo "发行版附件名单（版本 tag）：$(python3 -c "import json;print([a.get('name') for a in json.load(open('/tmp/rel.json')).get('assets',[])])" 2>/dev/null)"
+          } > /tmp/gitee-diag.txt 2>&1 || true
+          cat /tmp/gitee-diag.txt
+
+          if [ "$ok" != "0" ]; then echo '::warning::Gitee 国内镜像没成（诊断见下面那步贴到发行版说明里的内容）'; exit 0; fi
           echo "国内镜像完成：https://gitee.com/$OWNER/$REPO/releases/tag/$TAG"
+
+
+      # 国内镜像的"体检报告"：贴到 GitHub 发行版的说明文字里。
+      #
+      # 为什么绕这么一圈：Gitee 那一步失败时，原因只在**它自己的日志**里，而 GitHub 的日志接口
+      # 必须登录才能读 —— 我（匿名）看不到，用户也不想天天替我截图。发行版说明是公开可读的，
+      # 于是把结果写在那儿：我下次自己就能看到"为什么没传上去"，直接修。
+      - name: Report mirror diagnostics
+        if: github.ref_type == 'tag'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -uo pipefail
+          TAG="${{ github.ref_name }}"
+          DIAG=$(cat /tmp/gitee-diag.txt 2>/dev/null || echo '（Gitee 那一步没有产出诊断文件）')
+          BODY=$(printf 'Windows 安装包（国内镜像见下）。\n\n---\n### 国内镜像体检（%s）\n\n```\n%s\n```\n' "$TAG" "$DIAG")
+          curl -sS --max-time 60 -X PATCH \
+            -H "Authorization: Bearer ${GH_TOKEN:-}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/saber200/fantasyhub-releases/releases/tags/$TAG" \
+            -d "$(python3 -c "import json,sys; print(json.dumps({'body': sys.argv[1]}))" "$BODY")" \
+            | head -c 200; echo
 
