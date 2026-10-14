@@ -10,6 +10,7 @@ import { ToolboxPage } from "./pages/ToolboxPage";
 import { SettingsPage, closePowerMenu } from "./pages/SettingsPage";
 import { BootSplash } from "./components/BootSplash";
 import { GamepadKeyboard } from "./components/GamepadKeyboard";
+import { GameScreensaver } from "./components/GameScreensaver";
 import {
   closeGamepadKeyboard,
   focusContentLanding,
@@ -20,6 +21,9 @@ import {
   useGamepadNav,
 } from "./hooks/useGamepadNav";
 import { fileActions } from "./files/actions";
+import { screensaverSuppressing, useScreensaverAllowed, useScreensaverOverlay } from "./idle/overlay";
+import { idle, markActivity } from "./idle/activity";
+import { useScreensaverCovers } from "./library/shelf";
 import {
   cancelComposition,
   gamepadKeyActions,
@@ -89,6 +93,28 @@ function TabProgress() {
 function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
+
+/**
+ * 屏保的调试入口，**只在浏览器预览里认**（`inTauri()` 为真时整段返回 false），
+ * 所以正式安装包里这两个参数根本不存在 —— 用户不可能靠它把屏保按出来。
+ *
+ *   `?screensaver=1`  直接进屏保（调样式用；这条路下"按任意键返回"是关不掉的，
+ *                     因为它每帧都在被强制打开 —— 要测唤醒请用下面那个）
+ *   `?idle=5`         把空闲阈值改成 5 秒（真机验证一次要坐着等一分钟，没法迭代）
+ */
+function screensaverDebugForce(): boolean {
+  if (inTauri() || typeof location === "undefined") return false;
+  return new URLSearchParams(location.search).get("screensaver") === "1";
+}
+
+function screensaverDebugIdleMs(): number {
+  if (inTauri() || typeof location === "undefined") return 0;
+  const seconds = Number(new URLSearchParams(location.search).get("idle") ?? "");
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+}
+
+const screensaverForce = screensaverDebugForce();
+const screensaverIdleMs = screensaverDebugIdleMs();
 
 /**
  * 逐盘那一格的写法：「356 / 476 GB」——**单位只写一次**。
@@ -281,6 +307,15 @@ export default function App() {
   useEffect(() => {
     if (intro !== "done") return;
     const onKey = (e: KeyboardEvent) => {
+      /*
+       * 闸一：屏保开着（含正在淡出的那 320ms）时，**整条键盘处理都不许跑**。
+       *
+       * 少了这道闸，"按任意键返回"会顺手把那个键的**正常功能**也执行一遍 ——
+       * 按 Esc 关屏保的同时把设置抽屉拉开、按 B 关屏保的同时弹出卡片菜单。
+       * 唤醒这个动作只该唤醒，不该有副作用。
+       * （唤醒本身由 App 里那个捕获阶段的 markActivity 监听完成，比这里更早。）
+       */
+      if (screensaverSuppressing()) return;
       if (gamepadKeyboardOpen()) {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -537,6 +572,61 @@ export default function App() {
   const storageDrives = countedDrives(drives);
   const showDriveBreakdown = storage !== null && storageDrives.length > 1;
 
+  /*
+   * ── 屏保（用户 2026-10-14）───────────────────────────────────────────────
+   *
+   * 一分钟没操作就整屏轮播已安装游戏的封面。三件事在这里对齐：
+   *
+   * ① **什么时候算「操作」**：手柄上报在 `useGamepadNav` 的 rAF 循环里（那边每帧都在读按键），
+   *    键鼠在这里挂三个捕获阶段的监听。故意**不监听 pointermove** —— 掌机放在桌上时
+   *    触摸板/鼠标的轻微抖动会让空闲计时永远归零，屏保就再也弹不出来了；
+   *    真要唤醒，点一下、滚一下、按一下都算，都是明确的动作。
+   * ② **没有封面就不进**：`useScreensaverCovers()` 是游戏库页登记上来的快照
+   *    （见 library/shelf.ts 里为什么不让这里直接扫库）。一条封面都没有时进去只会是黑屏。
+   * ③ **窗口看不见就不进**：这条判据在 `idle/activity.ts` 里（`isIdle` 自己会返回 false），
+   *    这里只负责在窗口重新可见时把计时器清零，免得回来立刻弹屏保。
+   */
+  const covers = useScreensaverCovers();
+  // 顺序要紧：三个 hook 都**无条件**调用（条件判断在 hook 里面做，见 idle/overlay.ts 的说明）。
+  const mayScreensaver = useScreensaverAllowed(intro === "done" && covers.length > 0);
+  const screensaverPhase = useScreensaverOverlay(mayScreensaver, screensaverForce, screensaverIdleMs);
+  useEffect(() => {
+    // 事件名当来源标签留着：屏保"弹不出来"时靠它一眼看出是哪个输入在刷计时器。
+    const onKey = () => markActivity("key");
+    const onPointer = () => markActivity("pointer");
+    const onWheel = () => markActivity("wheel");
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("wheel", onWheel, true);
+    const onVisibility = () => idle.visibilityChanged();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("wheel", onWheel, true);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  /*
+   * 排查入口，**只在浏览器预览里挂**：`window.__idle` 能读出
+   * "最近 24 次上报是哪个输入、什么时候"、当前是否空闲、还有多久到点。
+   *
+   * 为什么值得留这么一段：屏保有两个坑都是"怎么等都不弹"或"闪一下就没了"，
+   * 靠肉眼完全看不出是哪个输入在刷计时器 —— 开发这个功能时两次定位（假手柄那次
+   * "屏保刚弹就被自己顶掉"、以及手柄指纹被重采那次）都是靠它直接读出时间线的。
+   * 六行代码换一个能自证的时间线，值。
+   */
+  useEffect(() => {
+    if (inTauri()) return;
+    (window as unknown as { __idle?: unknown }).__idle = {
+      recent: () => idle.recentActivity.slice(),
+      isIdle: () => idle.isIdle,
+      timeout: () => idle.timeout,
+      remaining: () => idle.remainingMs,
+    };
+  }, []);
+
   return (
     <>
     <div className="app-shell" inert={mainLocked || undefined}>
@@ -688,6 +778,14 @@ export default function App() {
       </aside>
     </div>
     {intro !== "done" && <BootSplash playing={intro === "play"} onDone={finishIntro} />}
+    {/*
+     * 屏保盖在最上面（样式里 z-index 60，比抽屉 5~7 / 手柄键盘 30 / 电源菜单 50 都高）。
+     * 唤醒的三条路：物理键盘（下面那个 keydown 的闸一）、鼠标点一下（组件自己的
+     * onPointerDown）、手柄任意键（useGamepadNav 的 tick）。三条最后都汇到 markActivity()。
+     */}
+    {screensaverPhase !== "hidden" && covers.length > 0 && (
+      <GameScreensaver covers={covers} closing={screensaverPhase === "closing"} />
+    )}
     </>
   );
 }

@@ -1129,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "fh-core"
-version = "0.1.108"
+version = "0.1.109"
 dependencies = [
  "serde",
  "serde_json",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "handheld-launcher"
-version = "0.1.108"
+version = "0.1.109"
 dependencies = [
  "fh-core",
  "image",

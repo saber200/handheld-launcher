@@ -607,12 +607,28 @@ function remoteCoverFor(row: RawGame): string | undefined {
   return undefined;
 }
 
+/**
+ * Steam 数字 id —— 屏保靠它取**高清图源**（宽幅 1920×620 / 竖版 2x 600×900）。
+ *
+ * 库里缓存的那张封面是给**卡片**用的，CDN 实际只下发 300×450；铺到整屏要放大 6.5 倍，
+ * 卡片上看不出来、屏保上一眼就糊（用户 2026-10-14 反馈的正是这个）。
+ * 非 Steam 的东西（Epic / 本地添加）没有这个 id，屏保就只好用缓存那张。
+ */
+export function steamAppId(id: string, coverRemote?: string): string | undefined {
+  const direct = id.match(/^steam:(\d+)$/);
+  if (direct) return direct[1];
+  const fromCover = coverRemote?.match(/\/steam\/apps\/(\d+)\//);
+  return fromCover?.[1];
+}
+
 function mapGame(row: RawGame): GameEntry {
+  const coverRemote = remoteCoverFor(row);
   return {
     id: row.id,
     name: row.name,
     cover: displayCover(row),
-    coverRemote: remoteCoverFor(row),
+    coverRemote,
+    appId: steamAppId(row.id, coverRemote),
     installPath: row.installPath,
     launchPath: row.launchPath,
     // 老缓存里没有这两项（更新前扫的库）→ undefined = 不知道，界面不画那一格。

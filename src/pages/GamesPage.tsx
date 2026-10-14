@@ -8,6 +8,7 @@ import { MenuIcon, ModIcon, PlayIcon } from "../components/NavIcons";
 import { libraryActions } from "../library/actions";
 import { formatPlaytime, formatPlaytimeAndSize, formatSize } from "../library/format";
 import { type GameEntry } from "../data/previewGames";
+import { publishScreensaverCovers } from "../library/shelf";
 import { gameHasMod, subscribeModFlags } from "../library/useLocalLibrary";
 import {
   cancelLibraryGameMods,
@@ -25,6 +26,17 @@ export function GamesPage() {
   const library = useLocalGames();
   const running = useRunningGameIds(library.items);
   const [status, setStatus] = useState("");
+
+  /*
+   * 把当前库里的封面登记给屏保（见 library/shelf.ts：为什么不让屏保自己去扫库）。
+   *
+   * 依赖写 `library.items` 而不是 `library`：后者每次渲染都是新对象，
+   * 等于每渲染跑一次。`items` 也是新数组，但登记处那边会**逐项比内容**才决定要不要
+   * 通知订阅者，所以这里每渲染跑一次是安全的，代价只是一次数组遍历。
+   */
+  useEffect(() => {
+    publishScreensaverCovers(library.items);
+  }, [library.items]);
 
   /** 卡片条上按 A / 点「开始游戏」走的就是这一条 —— 和旧网格卡片的启动路径完全一样。 */
   const launch = (game: GameEntry, name: string) => {

@@ -1,0 +1,171 @@
+/*
+ * 屏保（`components/GameScreensaver.tsx`）的样式。
+ *
+ * 几何一律 `calc(N * var(--dp))`，颜色一律取 tokens.css 的令牌 ——
+ * 审计脚本（scripts/audit-ui.mjs）会逐项比对，写死 px / 十六进制色值会被拦。
+ *
+ * 布局两层，谁压谁写在各自的 z-index 上：
+ *   .gs-root   整屏遮罩（60：在抽屉 5~7 / 手柄键盘 30 / 电源菜单 50 之上）+ 整屏那张大图
+ *   .gs-hint   底部一句「按任意键返回」
+ *
+ * ⚠️ 2026-10-14：这里原来是一套「中间一大张 + 两侧渐隐渐糊的卡片墙」（.gs-wall / .gs-slot /
+ * .gs-card / .gs-backdrop 那些）。用户要的是**一整张大图铺满整屏、然后切换这张大图**，
+ * 卡片墙是理解错了需求，已经删掉。别再往这个文件里加"配角卡片"。
+ */
+
+.gs-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  background: var(--bg-deep);
+  /* 点一下也算唤醒（见组件里的 onPointerDown）；但屏保自己不该被框选 / 拖拽。 */
+  user-select: none;
+}
+
+/*
+ * 整屏那张封面。
+ *
+ * `object-fit: cover` = 等比放大到**铺满**、多的部分居中裁掉，所以**永远不会变形**
+ * （拉伸要用 `fill`，这里没用）。600×900 的竖版封面铺到 16:9 上，上下各裁掉一大截 ——
+ * 这是用户明确要的取舍（"居中对齐 四边裁切"），要改只改 `object-position`，别动 cover。
+ *
+ * 两层动画叠在一起（都在 transform 上，不触发布局）：
+ *   · 慢速推近 + 轻微平移（40 秒一个来回）—— **防 OLED 烧屏的主力**：
+ *     整屏最亮的那些像素一直在缓慢移动，没有任何一块会长时间停在同一个亮度。
+ *   · 换图时的淡入（320ms）—— 新图在旧图上面淡进来，看不见"啪"的一下。
+ * 两件事都写在 transform/opacity 上，所以可以同一条 animation 里跑。
+ */
+.gs-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 竖版封面裁到 16:9 时，默认取正中间。想多留一点顶部的游戏名就改成 `center 30%`。 */
+  object-position: center;
+  animation:
+    gs-drift 40s ease-in-out infinite alternate,
+    gs-photo-in var(--dur-page) var(--ease-soft) both;
+  will-change: transform, opacity;
+}
+
+/* 两层地址都挂了：留一块深色底，轮播照常往下走（下一张马上就来）。 */
+.gs-photo-empty {
+  background: linear-gradient(160deg, var(--panel) 0%, var(--bg-deep) 100%);
+}
+
+/* ── 底部那行提示 ── */
+.gs-hint {
+  position: absolute;
+  right: 0;
+  bottom: calc(40 * var(--dp));
+  left: 0;
+  z-index: 3;
+  display: flex;
+  gap: var(--stack);
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--font-caption);
+  letter-spacing: 0.04em;
+  /* 整屏大图可能很亮，这行字得有一层自己的底才读得清。 */
+  text-shadow: 0 calc(1 * var(--dp)) calc(6 * var(--dp)) rgba(10, 16, 27, 0.9);
+  animation: gs-hint-in var(--dur-page) var(--ease-out) 600ms both;
+}
+
+.gs-count {
+  padding: 0 var(--stack);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  color: var(--ink-4);
+  font-size: var(--font-micro);
+  background: rgba(11, 18, 32, 0.6);
+}
+
+/* ── 退场 ──
+ * 只演 320ms（要和 components/GameScreensaver.tsx 那边的 SCREENSAVER_FADE_MS 对齐），
+ * 淡出的同时微微放大 —— 像"散开"，比单纯变透明更有收尾感。 */
+.gs-root.leaving {
+  animation: gs-out 320ms var(--ease-soft) both;
+  pointer-events: none;
+}
+
+@keyframes gs-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+}
+
+/*
+ * 防烧屏的漂移：40 秒里从 1.06 缓慢推到 1.16，同时轻微平移。
+ *
+ * 为什么是"推近"而不是"横移"：`object-fit: cover` 已经把图放大到正好铺满，元素本身
+ * 没有多余的边可以横移（移出去就露底色）。所以横移只有几 dp 的余量，主要靠缩放 ——
+ * 放大之后画面内容整体在往外挪，边界处的像素一直在变，这就够了。
+ *
+ * 1.06 的起始放大是给平移留余量用的（`inset: 0` 撑满 + scale 1.0 时一平移就会露边）。
+ */
+@keyframes gs-drift {
+  from {
+    transform: scale(1.06) translate3d(calc(-8 * var(--dp)), calc(-5 * var(--dp)), 0);
+  }
+  to {
+    transform: scale(1.16) translate3d(calc(8 * var(--dp)), calc(5 * var(--dp)), 0);
+  }
+}
+
+/* 换图那一下的淡入（每换一张重跑一次，见组件里的 `key={src}`）。 */
+@keyframes gs-photo-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gs-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(6 * var(--dp)));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * 系统开了「减少动态效果」：页面的过渡动画该关就关，但**漂移只压慢、不关掉**。
+ *
+ * 这里是有意偏离常规做法的，理由写在组件头部第 ④ 条：漂移不是为了好看，是为了不烧屏。
+ * 关掉它等于把"减少动态"翻译成"让这块屏早点留下烙印"。所以周期从 40 秒拉到 120 秒、
+ * 幅度也压小 —— 视觉上几乎静止，像素上仍然一直在动。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .gs-photo {
+    animation:
+      gs-drift-soft 120s ease-in-out infinite alternate,
+      gs-photo-in var(--dur-page) var(--ease-soft) both;
+  }
+
+  .gs-hint {
+    animation: none;
+  }
+}
+
+@keyframes gs-drift-soft {
+  from {
+    transform: scale(1.04) translate3d(calc(-3 * var(--dp)), calc(-2 * var(--dp)), 0);
+  }
+  to {
+    transform: scale(1.09) translate3d(calc(3 * var(--dp)), calc(2 * var(--dp)), 0);
+  }
+}

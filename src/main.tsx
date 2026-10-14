@@ -29,6 +29,9 @@ import "./styles/emulators.css";
 import "./styles/settings.css";
 // 画板 K5（首页）+ K6（下载）：这一版起两页都是真数据，不再是「排期中」占位。
 import "./styles/home.css";
+// 屏保（一分钟没操作自动进的封面轮播）。它是盖在所有东西之上的独立一层，
+// 所以排在最后：同样是同优先级的覆盖，写在这里才不会被别的文件改掉。
+import "./styles/screensaver.css";
 import { watchUiScale } from "./styles/scale";
 
 // 设计画布是 1280×720，--dp 决定 1dp 等于几个物理 px（1080p→1.5、1440p→2.0）。

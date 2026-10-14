@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { playSfx } from "../audio/sfx";
+import { markActivity } from "../idle/activity";
+import { overlay, screensaverSuppressing } from "../idle/overlay";
 import { prefs } from "../settings/prefs";
 
 type Options = {
@@ -652,6 +654,30 @@ export function visibleFocusables(): HTMLElement[] {
 }
 
 /**
+ * 手柄的「输入指纹」—— 屏保靠它判断用户是不是动手了。
+ *
+ * `buttons` 是一个位掩码，只收**动作键与扳机**这 8 颗（A/B/X/Y、LB/RB、LT/RT，
+ * 标准映射的 0..7）。方向键与摇杆不进来：它们由 `ax` / `ay` 单独表达，
+ * 而且方向键压在包里比动作键更容易一直按着。
+ *
+ * 用掩码而不是"有没有键按着"的布尔：屏保要的是**上升沿**（"这一刻多按下去了一颗"），
+ * 一直按着同一个键不该反复续命，否则掌机压着某个键放一晚上，屏保永远不弹。
+ */
+function inputSignature(pad: Gamepad): { buttons: number; ax: number; ay: number } {
+  let buttons = 0;
+  for (let index = 0; index < 8; index += 1) {
+    if (pad.buttons[index]?.pressed) buttons |= 1 << index;
+  }
+  return { buttons, ax: pad.axes[0] ?? 0, ay: pad.axes[1] ?? 0 };
+}
+
+/** 当前接上的那只手柄的指纹；一只都没有就是全零。 */
+function seedSignature(): { buttons: number; ax: number; ay: number } {
+  const pad = (navigator.getGamepads?.() ?? []).find(Boolean);
+  return pad ? inputSignature(pad) : { buttons: 0, ax: 0, ay: 0 };
+}
+
+/**
  * Lightweight gamepad polling for D-pad / stick navigation.
  * Moves document focus among [data-focusable] elements.
  */
@@ -682,14 +708,29 @@ export function useGamepadNav({
   const stickLeftHeld = useRef(false);
   const confirmHeld = useRef(false);
   const backHeld = useRef(false);
+  /** 上一帧的手柄输入指纹（屏保的「用户动手了」判据，见 `inputSignature`）。 */
+  const lastInput = useRef({ buttons: 0, ax: 0, ay: 0 });
+  /** 首次采样做过没有 —— effect 会重跑，但采样只能做一次（见下面那段说明）。 */
+  const seeded = useRef(false);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      // 导航关掉（开场动画那一段）：下次打开时重新采一遍，别拿着过期的按键状态。
+      seeded.current = false;
+      return;
+    }
 
-    // When navigation turns on mid-hold (the intro finishes while a button is
-    // still down), treat current presses as already held so one physical press
-    // never fires twice.
-    const seedHeld = () => {
+    /**
+     * 把「哪些键正按着」重新采一遍。
+     *
+     * 两个时机都要用：
+     *   ① 导航刚打开（开场动画放完）时某个键还按着：这一下算「已经按着」，
+     *      否则一次物理按压会被派发两次。
+     *   ② 屏保刚关掉（`resync = true`）：用户手上往往**还按着**刚才唤醒用的那个键，
+     *      不对一遍的话，等他松手时会被读成"新按下"，于是"按 A 关屏保"直接变成
+     *      "启动游戏"。多对一遍摇杆的回中点，免得唤醒后立刻又走一格焦点。
+     */
+    const seedHeld = (resync = false) => {
       const pads = navigator.getGamepads?.() ?? [];
       const pad = pads.find(Boolean);
       if (!pad) {
@@ -699,8 +740,10 @@ export function useGamepadNav({
         startHeld.current = false;
         faceTopHeld.current = false;
         faceLeftHeld.current = false;
+        stickLeftHeld.current = false;
         confirmHeld.current = false;
         backHeld.current = false;
+        if (resync) lastAxis.current = { x: 0, y: 0 };
         return;
       }
       bumpers.current = { l: !!pad.buttons[4]?.pressed, r: !!pad.buttons[5]?.pressed };
@@ -709,10 +752,33 @@ export function useGamepadNav({
       startHeld.current = !!pad.buttons[9]?.pressed;
       faceTopHeld.current = !!pad.buttons[3]?.pressed;
       faceLeftHeld.current = !!pad.buttons[2]?.pressed;
+      stickLeftHeld.current = !!pad.buttons[10]?.pressed;
       confirmHeld.current = !!pad.buttons[0]?.pressed;
       backHeld.current = !!pad.buttons[1]?.pressed;
+      if (resync) {
+        const dead = prefs().deadzone;
+        const ax = pad.axes[0] ?? 0;
+        const ay = pad.axes[1] ?? 0;
+        lastAxis.current = {
+          x: Math.abs(ax) > dead ? (ax > 0 ? 1 : -1) : 0,
+          y: Math.abs(ay) > dead ? (ay > 0 ? 1 : -1) : 0,
+        };
+      }
     };
-    seedHeld();
+    /*
+     * 首次采样只做一次。
+     *
+     * 这个 effect **会因为 App 传下来的内联回调而频繁重跑**（`onBack` 这些箭头函数
+     * 每次渲染都是新引用）。重跑时再采一遍指纹，等于伪造一条"手柄刚有新输入" ——
+     * 于是屏保刚弹出来就被顶回去。本机实测的表现是「插上手柄之后屏保每 4 秒闪一下、
+     * 永远停不住」，在无头 Chrome 里塞一个假手柄才复现出来。
+     * 按键状态那几份（`seedHeld`）重采是无害的，指纹不行。
+     */
+    if (!seeded.current) {
+      seeded.current = true;
+      seedHeld();
+      lastInput.current = seedSignature();
+    }
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -767,7 +833,55 @@ export function useGamepadNav({
 
       const now = performance.now();
 
-      // LB / RB switch tabs on the rising edge, independent of D-pad focus.
+      /*
+       * 屏保刚关掉：用户手上多半还按着唤醒用的那个键，先把按键状态重新对一遍。
+       * 对完（`resynced`）就不再每帧问 —— 只在"刚关掉"这一个窗口里有意义。
+       */
+      if (overlay.pendingResync()) {
+        seedHeld(true);
+        overlay.resynced();
+      }
+
+      /*
+       * ── 用户动手了没有 ──
+       *
+       * 只在**真的发生输入**的那一帧算数，不按"有按键按着"算：掌机塞在包里、
+       * 压在沙发上，某个键一直按着是常事，那样屏保就永远弹不出来。
+       * 判据取八个动作键与扳机的**上升沿**、以及摇杆偏离回中点的**上升沿**。
+       * 摇杆这里量的是离回中点的距离（不是死区）：死区是"该不该挪焦点"的阈值（可调），
+       * 而"手碰到摇杆了"是"该不该算用户在场"，两者不是一回事 —— 老摇杆有点飘的时候
+       * 前者会放行、后者会认为用户在场，正好是我们要的保守方向。
+       *
+       * 这一段**必须在屏保那一段之前跑**，而且屏保那段不能自己上报活动：
+       * 曾经在下面那个 early return 里无条件调了一次 `markActivity`，结果屏保弹出来的
+       * **下一帧**就把自己的空闲状态顶掉、自己把自己关掉 —— 真机上就是"闪一下没了"。
+       * 本机靠无头 Chrome 里塞一个假手柄才复现（4000ms 一次，看起来像"每 4 秒闪一下"）。
+       */
+      const act = inputSignature(pad);
+      const grew =
+        (act.buttons & ~lastInput.current.buttons) !== 0 ||
+        Math.hypot(act.ax, act.ay) > Math.hypot(lastInput.current.ax, lastInput.current.ay) + 0.02;
+      lastInput.current = act;
+
+      /*
+       * 屏保开着（含正在淡出的那 320ms）：一个动作都不派发。
+       *
+       * 屏保是"看一眼封面"的功能，在上面按 A 不该启动游戏、按 B 不该弹卡片菜单、
+       * 推摇杆不该挪焦点。这也顺手解决了"按 A 关屏保直接把游戏启动"这个最危险的误触：
+       * 上升沿在屏保期间被吃掉，而下一帧 `pendingResync` 会把按键状态重新采一遍，
+       * 用户手上那颗键就算"一直按着"，松手也不会被读成一次新按下。
+       *
+       * 为什么任意按键都算唤醒：掌机上没有"哪个键是唤醒键"的约定，
+       * 用户在屏保上凭直觉按的那一颗就该管用。唤醒本身走上报那条路（`grew` → markActivity），
+       * 这里只管"吞掉动作"。
+       */
+      if (screensaverSuppressing()) {
+        if (grew) markActivity("pad");
+        return;
+      }
+
+      if (grew) markActivity("pad");
+
       const lb = !!pad.buttons[4]?.pressed;
       const rb = !!pad.buttons[5]?.pressed;
       if (lb && !bumpers.current.l) onBumperLeft?.();

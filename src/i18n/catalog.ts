@@ -818,6 +818,16 @@ export type Catalog = {
     unsupported: string;
     empty: string;
   };
+  /**
+   * 屏保（`components/GameScreensaver.tsx`）。
+   *
+   * 这一层刻意只说两件事：**怎么出去**、**一共几张**。游戏名不在这里写 ——
+   * 封面图上本来就印着名字，再加一行字幕是重复的噪音。
+   */
+  screensaver: {
+    exitHint: string;
+    count: (total: number) => string;
+  };
 };
 
 export const zh: Catalog = {
@@ -1573,6 +1583,11 @@ export const zh: Catalog = {
     unsupported: "安装模拟器只能在 Windows 掌机上做；这里只显示这张表。",
     empty: "这张表是空的 —— 要么是版本太旧，要么是构建时漏了目录。",
   },
+  screensaver: {
+    // 手柄上"任意键"就是任意一颗按键，键鼠用户也读得懂，所以不写两遍。
+    exitHint: "按任意键返回",
+    count: (total) => `共 ${total} 个游戏`,
+  },
 };
 
 export const en: Catalog = {
@@ -2325,5 +2340,9 @@ export const en: Catalog = {
     failed: (detail) => `Action failed: ${detail}`,
     unsupported: "Installing emulators only works on a Windows handheld; this is a preview of the list.",
     empty: "This list is empty — either the build is stale or the catalog didn't ship.",
+  },
+  screensaver: {
+    exitHint: "Press any button to go back",
+    count: (total) => `${total} games`,
   },
 };
