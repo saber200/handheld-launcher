@@ -265,29 +265,26 @@ jobs:
 
           # ── 指针 ──
           #
-          # 两条**踩过的硬规矩**，改这里之前先读完：
+          # 三条**踩过的硬规矩**，改这里之前先读完：
           #
-          # ① 删旧附件走的是 `releases/{tag}/attach_files/{id}`，**不是** `releases/{id}/...`。
-          #    2026-10-15 就是这里写错：用发行版 id 去删，Gitee 不认，删不掉却也不报错，
-          #    于是 `latest` 里堆了 4 份同名 latest.json —— 而 Gitee 的下载地址在**同名附件里
-          #    挑最老的那份**发给用户，结果指针永远停在 0.1.108（包是新的、指针是旧的）。
-          #    所以：删除必须用 tag，而且**删完要复核**（下面 DEL_LEFT）。
-          # ② 复核"用户实际读到什么"必须**轮询**：Gitee 的下载地址有缓存，上传成功之后
-          #    公开地址可能还要几十秒才翻新。一次就断言会误报（上一版就是这么红的）。
+          # ① 删旧附件必须用**附件 id**（`releases/{发行版id}/attach_files/{附件id}`）——
+          #    写 tag 那套（`releases/latest/attach_files/{id}`）Gitee 不认，而且**不报错**。
+          # ② ⚠️ **Gitee 的公开 API 根本不返回附件的 id**（`assets[]` 里只有 `name` 与
+          #    `browser_download_url`，没有 id —— 2026-10-15 实测确认）。所以 "自动删掉同名旧指针"
+          #    这件事**在 API 层面做不到**，别再写一个看起来能删、实际删不掉的循环：
+          #    0.1.103–0.1.109 就是这么堆出 5 份同名 `latest.json` 的，而
+          #    **Gitee 的下载地址在同名附件里挑最老的那份**发给用户 → 指针永远停在旧版本。
+          #    现在的规矩是：**发现同名份数 > 1 就明确失败**，并让摘要里写清"要人工去 Gitee 删"，
+          #    而不是继续往堆里加。
+          # ③ 复核"用户实际读到什么"必须**轮询**：Gitee 的下载地址有缓存，上传成功后
+          #    公开地址可能还要几十秒才翻新，一次就断言会误报。
           POINTER=latest.json
-          echo "--- 清掉 latest 里所有旧指针（同名会互相遮蔽）"
-          for round in 1 2 3; do
-            IDS=$(curl -sS --max-time 60 "$API/releases/latest?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json') and str(a.get('id','')).isdigit()))")
-            [ -z "$IDS" ] && { echo "  第 $round 轮：已无旧指针"; break; }
-            for id in $IDS; do
-              CODE=$(curl -sS --max-time 60 -X DELETE "$API/releases/latest/attach_files/$id?access_token=$GITEE_TOKEN" -o /tmp/del.json -w "%{http_code}")
-              echo "  删 id=$id → HTTP $CODE"
-            done
-            sleep 3
-          done
-          DEL_LEFT=$(curl -sS --max-time 60 "$API/releases/latest?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(len([a for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')]))")
-          echo "  复核：latest 里还剩 $DEL_LEFT 份旧指针"
-          [ "$DEL_LEFT" = "0" ] || { echo "::error::旧指针没删干净（还剩 $DEL_LEFT 份），同名会遮蔽新指针"; exit 1; }
+          POINTERS=$(curl -sS --max-time 60 "$API/releases/latest?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(len([a for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')]))")
+          echo "latest 里现有的指针附件份数：$POINTERS（必须 ≤ 1；>1 说明历史遗留的同名附件还没清）"
+          if [ "$POINTERS" -gt 1 ]; then
+            echo "::error::Gitee 的 latest 发行版里有 $POINTERS 份同名指针（历史遗留）。Gitee 的公开 API 不返回附件 id、删不掉，需要人工到 https://gitee.com/$OWNER/$REPO/releases/tag/latest 把多余的 latest.json 删到只剩 0 份（脚本随后会补上新的）"
+            exit 1
+          fi
 
           SIG=$(cat "$SIGNAME")
           python3 -c "import datetime,json,sys; e={'signature':sys.argv[1].strip(),'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':dict(e),'windows-x86_64-nsis':dict(e)}}; open(sys.argv[4],'w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False))" "$SIG" "$GITEE_URL" "$VERSION" "$POINTER"
@@ -298,7 +295,7 @@ jobs:
             sleep 10
           done
           AFTER=$(curl -sS --max-time 60 "$API/releases/latest?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(len([a for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json']))")
-          echo "  上传后 latest 里 latest.json 的份数：$AFTER（必须是 1）"
+          echo "  上传后 latest.json 的份数：$AFTER（必须是 1）"
           [ "$AFTER" = "1" ] || { echo "::error::latest.json 的份数不是 1（是 $AFTER），用户可能读到旧的那份"; exit 1; }
 
           # ── 自检：真去拉一次公开地址，确认版本号对了、附件真的能下 ──
