@@ -2,6 +2,13 @@ name: Build Windows
 
 on:
   workflow_dispatch:
+    inputs:
+      # 只跑「国内镜像」那个作业：用来修一次镜像，而不用重编 15 分钟的 Windows。
+      # 留空 = 走正常流程（构建 + 发布 + 镜像），和 push tag 一样。
+      version:
+        description: "只重跑国内镜像：填版本号（如 v0.1.109）；留空 = 正常构建发布"
+        required: false
+        default: ""
   push:
     tags:
       - "v*"
@@ -11,6 +18,8 @@ permissions:
 
 jobs:
   windows:
+    # 手动只重跑国内镜像时（dispatch 填了 version），构建这一套整个跳过。
+    if: github.ref_type == 'tag' || inputs.version == ''
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,21 +127,10 @@ jobs:
           releaseDraft: false
           prerelease: ${{ github.ref_type != 'tag' }}
 
-      # ── 国内镜像：Gitee 发行版 + 一份「指向 Gitee 的 latest.json」 ────────────────
-      #
-      # 用户 2026-10-13：「github 上不翻墙下载实在是太费劲了」。
-      # 做法：GitHub 那一步照旧（它已经产出了安装包 + .sig + latest.json），这里再往
-      # Gitee 公开仓 `saber200/fantasyhub-releases` 推一份**国内可直连**的副本：
-      #   ① 建发行版（tag = vX.Y.Z），把 安装包 / .sig 传成附件；
-      #   ② 自己拼一份 `latest.json`（下载地址指向 Gitee 的附件、签名取 .sig 的内容），
-      #      既作为附件、也写到 Gitee 仓库默认分支 —— 应用读的固定地址就是
-      #      `https://gitee.com/saber200/fantasyhub-releases/raw/master/latest.json`。
-      # `continue-on-error: true`：**Gitee 这条线挂了不能拖垮发布**，GitHub 那份照样是好的。
-      # 令牌走 secret `GITEE_TOKEN`（Gitee 私人令牌，权限只要 projects）。
-      # 归档产物只是「顺手拿个未安装的 exe」用：发布本身靠上面那步建 Release，跟这一步无关。
+      # ── 归档产物只是「顺手拿个未安装的 exe」用：发布本身靠上面那步建 Release，跟它无关。
       #
       # 2026-10-10 v0.1.68 那次：编译、打包、建 Release 全都成功了，**整轮却判失败** ——
-      # 因为最后这一步撞上 GitHub 的 Actions 产物存储配额（日志原文
+      # 因为那一步撞上 GitHub 的 Actions 产物存储配额（日志原文
       # `Failed to CreateArtifact: Artifact storage quota has been hit`），而当时的写法是
       # 「上传失败 = 整个 job 失败」，于是发布看起来像挂了。
       # 两条修法：① 保留期从仓库默认（90 天）缩到 7 天，少占配额；
@@ -149,129 +147,146 @@ jobs:
             target/release/bundle/nsis/*.exe
           retention-days: 7
 
+  # ── 国内镜像：Gitee 发行版 + 一份「指向 Gitee 的 latest.json」 ──────────────────
+  #
+  # 用户 2026-10-13：「github 上不翻墙下载实在是太费劲了」。所以每个 tag 都往 Gitee 公开仓
+  # `saber200/fantasyhub-releases` 推一份国内直连的副本：安装包 + .sig 作为 vX.Y.Z 的附件，
+  # 再加一份 `latest.json` 挂在固定 tag `latest` 上（应用读的就是这个固定地址）。
+  #
+  # 为什么从 `windows` 作业里**拆出来单独一个作业**（2026-10-14 拆的）：
+  # 原来它挂在 windows 作业的最后一步、还带 `continue-on-error: true`，于是
+  # **0.1.103–0.1.109 连续 7 个版本、Gitee 上的指针一直停在 0.1.102**，而 CI 一路显示绿色 ——
+  # 用户 2026-10-15 问「国内源你没上传啊？」我才发现。拆出来的三个好处：
+  #   ① 它在**独立的日志**里，失败一眼能看见（而且这一版开始它**真的会让作业变红**，
+  #      不再靠"体检报告"这种绕道）；
+  #   ② 能用 `workflow_dispatch` **单独重跑**（不用为了修一个 72 MB 的上传重编 15 分钟 Windows）；
+  #   ③ 跑在 ubuntu 上、只做上传与校验，和构建互不拖累。
+  #
+  # 顺序也改了：**大文件先传，指针最后写**。原来先把指针指到 GitHub 传上去、最后才尝试改写，
+  # 一旦大型上传失败，指针就永远停在「指向 GitHub 的旧版本」上 —— 那正是这次的症状。
+  # 现在：安装包（已存在就跳过）→ 删掉旧的 latest.json → 写新的 → **真去拉一次确认版本号**。
+  mirror:
+    # 故意**不写 `needs: windows`**：加一个被跳过的依赖会不会连带跳过本作业，是个容易
+    # 踩的坑（GitHub 对 skipped 依赖的语义随版本变过）。这里让镜像作业独立起跑，
+    # 自己去等 GitHub 发行版上的安装包出现（下面那个探测循环），从根上绕开这件事。
+    if: github.ref_type == 'tag' || inputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Resolve version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then TAG="$INPUT_VERSION"; else TAG="${{ github.ref_name }}"; fi
+          case "$TAG" in v*) ;; *) TAG="v$TAG" ;; esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "镜像目标：$TAG"
+
       - name: Publish to Gitee (国内镜像)
-        if: github.ref_type == 'tag'
-        continue-on-error: true
-        timeout-minutes: 45
-        shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        # 这一整段里不许出现 heredoc（<<EOF）：YAML 块标量要求每行都有缩进，而 heredoc 的
-        # 结束标记必须在行首，两者天然打架。第一次的写法结束标记带了 10 个空格，于是 heredoc
-        # 永不结束——它后面的命令全成了文本、一条都没执行；再叠加 continue-on-error，
-        # 表现就是「每次都成功、Gitee 上一个附件都没有」。所以这里所有 python 一律单行 -c。
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
-          set +e -u
-          set -o pipefail
+          set -uo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::warning::没有 GITEE_TOKEN，跳过国内镜像（GitHub 那份照常发布）"
-            exit 0
+            echo "::error::没有 GITEE_TOKEN，国内镜像做不了（GitHub 那份照常发布）"
+            exit 1
           fi
-          TAG="${{ github.ref_name }}"
           OWNER=saber200
           REPO=fantasyhub-releases
           API="https://gitee.com/api/v5/repos/$OWNER/$REPO"
-          EXE=$(ls target/release/bundle/nsis/*setup.exe | head -1)
-          SIG="$EXE.sig"
-          NAME=$(basename "$EXE")
           VERSION="${TAG#v}"
-          # ⚠️ 暂时指向 GitHub：Gitee 的 72MB 附件还没传成功过（小文件能传、大文件挂），
-          # 若这里写 Gitee 的地址，应用会拿到一个 404 的安装包地址 —— 那比慢更糟。
-          # 等大文件上传解决（或改用对象存储），把下面这行换回 gitee.com 即可。
+          NAME="FantasyHub_${VERSION}_x64-setup.exe"
+          SIGNAME="${NAME}.sig"
           GH_URL="https://github.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
           GITEE_URL="https://gitee.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
-          URL="$GH_URL"   # 先按 GitHub 写；下面确认安装包真的在 Gitee 上之后再改写成 Gitee
-          ID_OF="import json,sys; d=json.load(sys.stdin); print(d.get('id') or ('ERR '+str(d)[:180]))"
+          ID_OF="import json,sys; d=json.load(sys.stdin); print(d.get('id') or ('ERR '+str(d)[:200]))"
 
+          # 从 GitHub 发行版取安装包与签名（它已经发布好了，不用重新构建）。
+          # 手动重跑镜像时 Release 可能还在发布中，所以先等它出现（最多 20 分钟）。
+          echo "--- 等 GitHub 发行版上的 $NAME 出现"
+          for i in $(seq 1 40); do
+            if curl -sSL --fail --max-time 120 -r 0-1 -o /dev/null "$GH_URL" 2>/dev/null; then echo "  第 $i 次探测：已就绪"; break; fi
+            echo "  第 $i 次探测：还没有，等 30 秒"
+            sleep 30
+          done
+          echo "--- 从 GitHub 发行版下载 $NAME"
+          curl -sSL --fail --retry 3 --retry-delay 5 --max-time 1800 -o "$NAME" "$GH_URL" -w "  安装包 %{size_download} 字节 / %{time_total}s\n"
+          curl -sSL --fail --retry 3 --retry-delay 5 --max-time 300 -o "$SIGNAME" "$GH_URL.sig" -w "  签名 %{size_download} 字节\n"
+          ls -l "$NAME" "$SIGNAME"
 
           mkrel() { curl -sS --max-time 60 -X POST "$API/releases" -d "access_token=$GITEE_TOKEN" -d "tag_name=$1" -d "name=$1" -d "target_commitish=master" -d "body=Windows 安装包（国内镜像）。" | python3 -c "$ID_OF"; }
           getrel() { curl -sS --max-time 60 "$API/releases/tags/$1?access_token=$GITEE_TOKEN" | python3 -c "$ID_OF"; }
           RID=$(mkrel "$TAG"); case "$RID" in ''|ERR*) RID=$(getrel "$TAG");; esac
-          echo "版本发行版 id: $RID"
           LID=$(mkrel latest); case "$LID" in ''|ERR*) LID=$(getrel latest);; esac
-          echo "latest 发行版 id: $LID"
+          echo "版本发行版 id: $RID / latest 发行版 id: $LID"
+          case "$RID" in ''|ERR*) echo "::error::Gitee 上建版本发行版失败：$RID"; exit 1;; esac
+          case "$LID" in ''|ERR*) echo "::error::Gitee 上建 latest 发行版失败：$LID"; exit 1;; esac
 
-          python3 -c "import datetime,json,sys; sig=open(sys.argv[1],encoding='utf-8').read().strip(); e={'signature':sig,'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':e,'windows-x86_64-nsis':e}}; open('latest.json','w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False)); print('latest.json',sys.argv[3])" "$SIG" "$URL" "$VERSION"
+          # 安装包：已经在 Gitee 上就跳过（重跑本作业时不用再传 72 MB）。
+          asset_names() { curl -sS --max-time 60 "$API/releases/$1?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(a.get('name','') for a in json.load(sys.stdin).get('assets',[])))"; }
+          HAVE=$(asset_names "$RID")
+          echo "Gitee 上已有的附件：$HAVE"
+          for f in "$NAME" "$SIGNAME"; do
+            case " $HAVE " in
+              *" $f "*) echo "  已存在，跳过 $f" ;;
+              *) for try in 1 2 3; do
+                   echo "=== 第 $try 次上传 $f"
+                   curl -sS --max-time 1800 -X POST "$API/releases/$RID/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$f" -o /tmp/up.json -w "  HTTP %{http_code} / %{size_upload} 字节 / %{time_total}s\n"
+                   grep -q '"name"' /tmp/up.json 2>/dev/null && break
+                   sleep 20
+                 done ;;
+            esac
+          done
 
-          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then
-            OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')))")
-            for id in $OLD; do echo "删旧 latest.json 附件 $id"; curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" | head -c 200; echo; done
-            upload "$LID" latest.json
-          fi
+          # 指针：先删掉 latest 里所有旧的 latest.json（历史重复的也一起清），再写新的。
+          OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')))")
+          for id in $OLD; do
+            case "$id" in ''|*[!0-9]*) continue;; esac
+            echo "删旧指针附件 $id"
+            curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" -o /dev/null -w "  HTTP %{http_code}\n"
+          done
 
+          SIG=$(cat "$SIGNAME")
+          python3 -c "import datetime,json,sys; e={'signature':sys.argv[1].strip(),'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':dict(e),'windows-x86_64-nsis':dict(e)}}; open('latest.json','w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False))" "$SIG" "$GITEE_URL" "$VERSION"
+          echo "--- 上传指针 $(cat latest.json | head -c 120)…"
+          for try in 1 2 3; do
+            curl -sS --max-time 300 -X POST "$API/releases/$LID/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@latest.json" -o /tmp/up2.json -w "  HTTP %{http_code} / %{time_total}s\n"
+            grep -q '"name"' /tmp/up2.json 2>/dev/null && break
+            sleep 10
+          done
 
-          upload() { echo "--- 上传 $(basename "$2") → $1"; curl -sS --max-time 900 -X POST "$API/releases/$1/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$2" | head -c 400; echo; }
-          # 72MB 跨洋上传不稳（0.1.107 实测：15 分钟零字节 → curl 28 超时）。重试 3 次，
-          # 每次 30 分钟；全失败也只警告 —— 因为**指针已经先传上去了**，应用照样能更新
-          # （只是安装包暂时从 GitHub 下）。
-          if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ]; then
-            for f in "$EXE" "$SIG"; do
-              for try in 1 2 3; do
-                echo "=== 第 $try 次上传 $(basename "$f")"
-                curl -sS --max-time 1800 -X POST "$API/releases/$RID/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$f" -o /tmp/up.json -w "  HTTP %{http_code} / %{size_upload} 字节 / %{time_total}s\n"
-                grep -q '"id"' /tmp/up.json 2>/dev/null && break
-                sleep 20
-              done
-            done
-          fi
+          # ── 自检：真去拉一次公开地址，确认版本号对了、附件真的能下 ──
+          # 这一条是这次的教训：以前只"发出去"就算完，没人回头确认用户读到的还是不是旧版本。
+          echo "=== 自检 1/2：拉公开指针"
+          curl -sSL --max-time 60 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json" -o /tmp/ptr.json -w "  HTTP %{http_code}\n"
+          cat /tmp/ptr.json; echo
+          python3 -c "import json,sys; v=json.load(open('/tmp/ptr.json')).get('version'); print('  指针版本:',v); sys.exit(0 if v==sys.argv[1] else 1)" "$VERSION" || { echo "::error::Gitee 上的指针还是旧版本（应到 $VERSION）"; exit 1; }
 
-          CHK="import json,sys; names=[a.get('name') for a in json.load(open('/tmp/rel.json')).get('assets',[])]; print('  名单:',names); miss=[w for w in sys.argv[1:] if w not in names]; print('::error::缺少附件 '+', '.join(miss)) if miss else print('  附件齐全'); sys.exit(1 if miss else 0)"
-          ok=0
-          if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ]; then curl -sS --max-time 60 "$API/releases/$RID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" "$NAME" "$(basename "$SIG")" latest.json || ok=1; else ok=1; fi
-          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" -o /tmp/rel.json; python3 -c "$CHK" latest.json || ok=1; else ok=1; fi
+          echo "=== 自检 2/2：下载地址是不是真的安装包（只取前 2 字节，认 MZ 头）"
+          curl -sSL --max-time 300 -r 0-1 "https://gitee.com/$OWNER/$REPO/releases/download/$TAG/$NAME" -o /tmp/mz.bin -w "  HTTP %{http_code}\n" || true
+          python3 -c "import sys; d=open('/tmp/mz.bin','rb').read(2); print('  前两字节:',d); sys.exit(0 if d==b'MZ' else 1)" || { echo "::error::Gitee 上的安装包地址拿不到真文件（不是 PE 头）"; exit 1; }
 
-          # ── 指针重写：安装包在 Gitee 上就指向 Gitee（国内直连），否则指 GitHub ──────────
-          # 用户 2026-10-13 的要求就一句：编译好之后，在启动器里直接 OTA 下载最新版、走国内源、不用梯子。
-          # 所以这里必须**自动**选一个真的能下到的地址 —— 绝不写 404（那比慢更糟）。
-          if [ -n "$RID" ] && [ "${RID#ERR}" = "$RID" ] && curl -sS --max-time 60 "$API/releases/$RID?access_token=$GITEE_TOKEN" -o /tmp/rel.json && grep -q "$NAME" /tmp/rel.json; then
-            echo '安装包已在 Gitee 上 → 指针指向 Gitee（国内直连）'
-            URL="$GITEE_URL"
-          else
-            echo '安装包不在 Gitee 上 → 指针指向 GitHub（慢，但一定装得上）'
-            URL="$GH_URL"
-          fi
-
-          if [ -n "$LID" ] && [ "${LID#ERR}" = "$LID" ]; then
-            OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')))")
-            for id in $OLD; do echo "清旧指针附件 $id"; curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" >/dev/null; done
-            upload "$LID" latest.json
-          fi
-
-          echo '--- 指针自检:'
-          curl -sSL --max-time 30 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json" | head -c 200; echo
           {
-            echo "安装包是否已在 Gitee：$([ "$ok" = "0" ] && echo 是 || echo 否)"
-            echo "版本发行版 id：$RID"
-            echo "latest 发行版 id：$LID"
-            echo "指针里的下载地址：$URL"
-            echo "发行版附件名单（版本 tag）：$(python3 -c "import json;print([a.get('name') for a in json.load(open('/tmp/rel.json')).get('assets',[])])" 2>/dev/null)"
-          } > /tmp/gitee-diag.txt 2>&1 || true
-          cat /tmp/gitee-diag.txt
-
-          if [ "$ok" != "0" ]; then echo '::warning::Gitee 国内镜像没成（诊断见下面那步贴到发行版说明里的内容）'; exit 0; fi
+            echo "## 国内镜像 OK（$TAG）"
+            echo ""
+            echo "- 安装包：$GITEE_URL"
+            echo "- 指针：https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json → $VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "国内镜像完成：https://gitee.com/$OWNER/$REPO/releases/tag/$TAG"
 
-
-      # 国内镜像的"体检报告"：贴到 GitHub 发行版的说明文字里。
-      #
-      # 为什么绕这么一圈：Gitee 那一步失败时，原因只在**它自己的日志**里，而 GitHub 的日志接口
-      # 必须登录才能读 —— 我（匿名）看不到，用户也不想天天替我截图。发行版说明是公开可读的，
-      # 于是把结果写在那儿：我下次自己就能看到"为什么没传上去"，直接修。
-      - name: Report mirror diagnostics
-        if: github.ref_type == 'tag'
-        continue-on-error: true
-        shell: bash
+      - name: Mirror diagnostics (always)
+        if: always()
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
-          set -uo pipefail
-          TAG="${{ github.ref_name }}"
-          DIAG=$(cat /tmp/gitee-diag.txt 2>/dev/null || echo '（Gitee 那一步没有产出诊断文件）')
-          BODY=$(printf 'Windows 安装包（国内镜像见下）。\n\n---\n### 国内镜像体检（%s）\n\n```\n%s\n```\n' "$TAG" "$DIAG")
-          curl -sS --max-time 60 -X PATCH \
-            -H "Authorization: Bearer ${GH_TOKEN:-}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/saber200/fantasyhub-releases/releases/tags/$TAG" \
-            -d "$(python3 -c "import json,sys; print(json.dumps({'body': sys.argv[1]}))" "$BODY")" \
-            | head -c 200; echo
-
+          {
+            echo "## 国内镜像诊断（$TAG）"
+            echo ""
+            echo '```'
+            echo "指针现在指向：$(curl -sSL --max-time 30 "https://gitee.com/saber200/fantasyhub-releases/releases/download/latest/latest.json" | head -c 200 || echo 读不到)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
