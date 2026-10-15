@@ -263,29 +263,58 @@ jobs:
             esac
           done
 
-          # 指针：先删掉 latest 里所有旧的 latest.json（历史重复的也一起清），再写新的。
-          OLD=$(curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')))")
-          for id in $OLD; do
-            case "$id" in ''|*[!0-9]*) continue;; esac
-            echo "删旧指针附件 $id"
-            curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" -o /dev/null -w "  HTTP %{http_code}\n"
+          # ── 指针 ──
+          #
+          # 两条**踩过的硬规矩**，改这里之前先读完：
+          #
+          # ① 删旧附件走的是 `releases/{tag}/attach_files/{id}`，**不是** `releases/{id}/...`。
+          #    2026-10-15 就是这里写错：用发行版 id 去删，Gitee 不认，删不掉却也不报错，
+          #    于是 `latest` 里堆了 4 份同名 latest.json —— 而 Gitee 的下载地址在**同名附件里
+          #    挑最老的那份**发给用户，结果指针永远停在 0.1.108（包是新的、指针是旧的）。
+          #    所以：删除必须用 tag，而且**删完要复核**（下面 DEL_LEFT）。
+          # ② 复核"用户实际读到什么"必须**轮询**：Gitee 的下载地址有缓存，上传成功之后
+          #    公开地址可能还要几十秒才翻新。一次就断言会误报（上一版就是这么红的）。
+          POINTER=latest.json
+          echo "--- 清掉 latest 里所有旧指针（同名会互相遮蔽）"
+          for round in 1 2 3; do
+            IDS=$(curl -sS --max-time 60 "$API/releases/latest?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json') and str(a.get('id','')).isdigit()))")
+            [ -z "$IDS" ] && { echo "  第 $round 轮：已无旧指针"; break; }
+            for id in $IDS; do
+              CODE=$(curl -sS --max-time 60 -X DELETE "$API/releases/latest/attach_files/$id?access_token=$GITEE_TOKEN" -o /tmp/del.json -w "%{http_code}")
+              echo "  删 id=$id → HTTP $CODE"
+            done
+            sleep 3
           done
+          DEL_LEFT=$(curl -sS --max-time 60 "$API/releases/latest?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(len([a for a in json.load(sys.stdin).get('assets',[]) if a.get('name') in ('latest.json','gitee-latest.json')]))")
+          echo "  复核：latest 里还剩 $DEL_LEFT 份旧指针"
+          [ "$DEL_LEFT" = "0" ] || { echo "::error::旧指针没删干净（还剩 $DEL_LEFT 份），同名会遮蔽新指针"; exit 1; }
 
           SIG=$(cat "$SIGNAME")
-          python3 -c "import datetime,json,sys; e={'signature':sys.argv[1].strip(),'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':dict(e),'windows-x86_64-nsis':dict(e)}}; open('latest.json','w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False))" "$SIG" "$GITEE_URL" "$VERSION"
-          echo "--- 上传指针 $(cat latest.json | head -c 120)…"
+          python3 -c "import datetime,json,sys; e={'signature':sys.argv[1].strip(),'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':dict(e),'windows-x86_64-nsis':dict(e)}}; open(sys.argv[4],'w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False))" "$SIG" "$GITEE_URL" "$VERSION" "$POINTER"
+          echo "--- 上传指针：$(head -c 120 "$POINTER")…"
           for try in 1 2 3; do
-            curl -sS --max-time 300 -X POST "$API/releases/$LID/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@latest.json" -o /tmp/up2.json -w "  HTTP %{http_code} / %{time_total}s\n"
+            curl -sS --max-time 300 -X POST "$API/releases/latest/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$POINTER" -o /tmp/up2.json -w "  HTTP %{http_code} / %{time_total}s\n"
             grep -q '"name"' /tmp/up2.json 2>/dev/null && break
             sleep 10
           done
+          AFTER=$(curl -sS --max-time 60 "$API/releases/latest?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(len([a for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json']))")
+          echo "  上传后 latest 里 latest.json 的份数：$AFTER（必须是 1）"
+          [ "$AFTER" = "1" ] || { echo "::error::latest.json 的份数不是 1（是 $AFTER），用户可能读到旧的那份"; exit 1; }
 
           # ── 自检：真去拉一次公开地址，确认版本号对了、附件真的能下 ──
           # 这一条是这次的教训：以前只"发出去"就算完，没人回头确认用户读到的还是不是旧版本。
-          echo "=== 自检 1/2：拉公开指针"
-          curl -sSL --max-time 60 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json" -o /tmp/ptr.json -w "  HTTP %{http_code}\n"
+          # 轮询是因为 Gitee 的下载地址有缓存，上传成功后公开地址可能还要几十秒才翻新。
+          echo "=== 自检 1/2：轮询公开指针（最长 5 分钟）"
+          ok_ptr=0
+          for i in $(seq 1 20); do
+            curl -sSL --max-time 60 "https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json?t=$(date +%s)-$i" -o /tmp/ptr.json -w "  第 $i 次：HTTP %{http_code}\n"
+            GOT=$(python3 -c "import json;print(json.load(open('/tmp/ptr.json')).get('version','?'))" 2>/dev/null || echo '?')
+            echo "  第 $i 次读到的版本：$GOT"
+            [ "$GOT" = "$VERSION" ] && { ok_ptr=1; break; }
+            sleep 15
+          done
           cat /tmp/ptr.json; echo
-          python3 -c "import json,sys; v=json.load(open('/tmp/ptr.json')).get('version'); print('  指针版本:',v); sys.exit(0 if v==sys.argv[1] else 1)" "$VERSION" || { echo "::error::Gitee 上的指针还是旧版本（应到 $VERSION）"; exit 1; }
+          [ "$ok_ptr" = "1" ] || { echo "::error::Gitee 上的指针还是旧版本（应到 $VERSION）"; exit 1; }
 
           echo "=== 自检 2/2：下载地址是不是真的安装包（只取前 2 字节，认 MZ 头）"
           curl -sSL --max-time 300 -r 0-1 "https://gitee.com/$OWNER/$REPO/releases/download/$TAG/$NAME" -o /tmp/mz.bin -w "  HTTP %{http_code}\n" || true
