@@ -198,11 +198,13 @@ export type Catalog = {
     toolboxCacheRow: (size: string) => string;
     toolboxStartupRow: (count: number) => string;
     toolboxLogRow: (size: string) => string;
+    toolboxUpdateTempRow: (size: string, dirs: number) => string;
+    toolboxUpdateTempEmpty: string;
     toolboxCacheEmpty: string;
     toolboxStartupReadonly: string;
     toolboxClean: string;
     toolboxCleaning: string;
-    toolboxCleanDone: (freed: string, caches: number, logs: number) => string;
+    toolboxCleanDone: (freed: string, caches: number, logs: number, temps: number) => string;
     toolboxCleanNothing: string;
     /* ── 「查看列表」与驱动版本（功能 14 第 3、4 条） ── */
   };
@@ -1010,12 +1012,14 @@ export const zh: Catalog = {
     toolboxCacheRow: (size) => `着色器缓存 ${size}`,
     toolboxStartupRow: (count) => `启动项 ${count} 个`,
     toolboxLogRow: (size) => `日志 ${size}`,
+    toolboxUpdateTempRow: (size, dirs) => `更新残留安装包 ${size}（${dirs} 个目录）`,
+    toolboxUpdateTempEmpty: "没有更新残留安装包",
     toolboxCacheEmpty: "没有找到显卡着色器缓存（NVIDIA / AMD / Intel 都没有）",
     toolboxStartupReadonly: "只读：改别人的开机启动是另一回事，这里只报数",
     toolboxClean: "立即清理",
     toolboxCleaning: "正在清理…",
-    toolboxCleanDone: (freed, caches, logs) =>
-      `清出 ${freed}（${caches} 个缓存目录、${logs} 个日志文件）`,
+    toolboxCleanDone: (freed, caches, logs, temps) =>
+      `清出 ${freed}（${caches} 个缓存目录、${logs} 个日志文件、${temps} 个更新残留目录）`,
     toolboxCleanNothing: "没有可清的东西（缓存目录本来就空）",
   },
   keyboard: {
@@ -1770,12 +1774,14 @@ export const en: Catalog = {
     toolboxCacheRow: (size) => `Shader cache ${size}`,
     toolboxStartupRow: (count) => `${count} startup items`,
     toolboxLogRow: (size) => `Logs ${size}`,
+    toolboxUpdateTempRow: (size, dirs) => `Update installer leftovers ${size} (${dirs} folders)`,
+    toolboxUpdateTempEmpty: "No update installer leftovers",
     toolboxCacheEmpty: "No GPU shader cache found (neither NVIDIA, AMD nor Intel)",
     toolboxStartupReadonly: "Read-only: changing other apps' startup entries is a different matter",
     toolboxClean: "Clean now",
     toolboxCleaning: "Cleaning…",
-    toolboxCleanDone: (freed, caches, logs) =>
-      `Freed ${freed} (${caches} cache folders, ${logs} log files)`,
+    toolboxCleanDone: (freed, caches, logs, temps) =>
+      `Freed ${freed} (${caches} cache folders, ${logs} log files, ${temps} update leftover folders)`,
     toolboxCleanNothing: "Nothing to clean — the cache folders are already empty",
   },
   keyboard: {

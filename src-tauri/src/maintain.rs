@@ -30,6 +30,11 @@ pub struct MaintenanceScan {
     pub log_bytes: u64,
     /// 日志目录（界面把它显示出来，用户想自己看的时候知道去哪）。
     pub log_dir: String,
+    /// 更新器下载的安装包残留占的字节数：统计 `std::env::temp_dir()` 下名字以
+    /// `FantasyHub-` 开头且含 `-updater-` 的目录（tauri-plugin-updater 写下的临时产物）。
+    pub update_temp_bytes: u64,
+    /// 量到几个更新器残留目录（0 表示「本来就没有」，不是「读失败」）。
+    pub update_temp_dirs: u32,
     /// 这台机器上能不能读到上面这些数（macOS 为 false，界面直接写「—」）。
     pub supported: bool,
 }
@@ -43,6 +48,8 @@ pub struct MaintenanceClean {
     pub caches: u32,
     /// 删掉的日志文件数（正在写的那个删不掉，不计）。
     pub log_files: u32,
+    /// 删掉的更新残留目录数。
+    pub update_temps: u32,
 }
 
 #[tauri::command]
@@ -53,6 +60,8 @@ pub async fn toolbox_maintenance() -> MaintenanceScan {
         startup_items: 0,
         log_bytes: 0,
         log_dir: String::new(),
+        update_temp_bytes: 0,
+        update_temp_dirs: 0,
         supported: false,
     })
 }
@@ -62,6 +71,8 @@ pub async fn toolbox_maintenance() -> MaintenanceScan {
 /// 为什么敢直接删目录而不是往里挑文件：这些都是**缓存**（驱动与 Steam 会自己重建），
 /// 删掉不会丢用户数据；而日志只删我们自己的（`logutil::dir()`），不碰任何游戏日志。
 /// 正在写的那个日志文件在 Windows 上删不掉（被占用），那就跳过、如实计数 —— 不假装清干净了。
+/// 更新器残留目录（`updater_temp_dirs()`）也一并删：它们是更新器自己下载安装包时写进
+/// 临时目录的产物，删掉不影响已经装好的应用本体。
 #[tauri::command]
 pub async fn toolbox_maintenance_clean() -> Result<MaintenanceClean, FileError> {
     crate::off_main(clean_now).await.map_err(FileError::raw)?
@@ -79,6 +90,13 @@ fn scan_now() -> MaintenanceScan {
         shader_cache_bytes += bytes;
         shader_cache_dirs += 1;
     }
+    let update_temp_list = updater_temp_dirs();
+    let update_temp_dirs = update_temp_list.len() as u32;
+    let mut update_temp_bytes = 0u64;
+    for dir in update_temp_list {
+        let (bytes, _) = crate::files::dir_bytes_until(&dir, deadline);
+        update_temp_bytes += bytes;
+    }
     let (log_bytes, log_dir) = log_usage();
     MaintenanceScan {
         shader_cache_bytes,
@@ -86,6 +104,8 @@ fn scan_now() -> MaintenanceScan {
         startup_items: startup_item_count(),
         log_bytes,
         log_dir,
+        update_temp_bytes,
+        update_temp_dirs,
         supported: cfg!(windows),
     }
 }
@@ -117,7 +137,15 @@ fn clean_now() -> Result<MaintenanceClean, FileError> {
             log_files += 1;
         }
     }
-    Ok(MaintenanceClean { freed, caches, log_files })
+    let mut update_temps = 0u32;
+    for dir in updater_temp_dirs() {
+        let (bytes, _) = crate::files::dir_bytes_until(&dir, deadline);
+        if std::fs::remove_dir_all(&dir).is_ok() {
+            freed += bytes;
+            update_temps += 1;
+        }
+    }
+    Ok(MaintenanceClean { freed, caches, log_files, update_temps })
 }
 
 /// 要量的缓存目录。**只列已知的厂商缓存**（显卡驱动 + Steam），不遍历整块盘 ——
@@ -148,6 +176,29 @@ fn cache_roots() -> Vec<std::path::PathBuf> {
     }
     roots.retain(|path| path.is_dir());
     roots
+}
+
+/// 更新器写进临时目录的安装包残留：tauri-plugin-updater 下载更新时会以
+/// `FantasyHub-xxx-updater-xxx` 这样的目录名放进 `std::env::temp_dir()`，
+/// 装完后往往不会自己收拾。这里只读一层（不递归），按名字前缀与片段识别。
+fn updater_temp_dirs() -> Vec<std::path::PathBuf> {
+    let Ok(read) = std::fs::read_dir(std::env::temp_dir()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in read.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("FantasyHub-") && name.contains("-updater-") {
+            out.push(entry.path());
+        }
+    }
+    out
 }
 
 /// 日志目录与它的占用（`logutil::dir()` = `%APPDATA%\handheld-launcher`）。

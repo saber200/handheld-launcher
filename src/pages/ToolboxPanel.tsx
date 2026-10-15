@@ -18,6 +18,10 @@ type MaintenanceScan = {
   startupItems: number;
   logBytes: number;
   logDir: string;
+  /** 更新器写进 %TEMP% 的安装包残留字节数（Rust 字段 update_temp_bytes）。 */
+  updateTempBytes: number;
+  /** 上面那些残留安装包占用的目录数（Rust 字段 update_temp_dirs）。 */
+  updateTempDirs: number;
   /** 这台机器上能不能读到这些数（macOS = false）。 */
   supported: boolean;
 };
@@ -27,6 +31,8 @@ type MaintenanceClean = {
   freed: number;
   caches: number;
   logFiles: number;
+  /** 清掉的更新残留安装包目录数（Rust 字段 update_temps）。 */
+  updateTemps: number;
 };
 
 /**
@@ -116,9 +122,9 @@ export function ToolboxPanel() {
       const done = await invoke<MaintenanceClean>("toolbox_maintenance_clean");
       const freed = done.freed > 0 ? formatSize(done.freed) : "";
       setNote(
-        done.caches === 0 && done.logFiles === 0
+        done.caches === 0 && done.logFiles === 0 && done.updateTemps === 0
           ? m.toolboxCleanNothing
-          : m.toolboxCleanDone(freed || "0 B", done.caches, done.logFiles),
+          : m.toolboxCleanDone(freed || "0 B", done.caches, done.logFiles, done.updateTemps),
       );
       refreshMaintenance();
     } catch (err) {
@@ -225,6 +231,11 @@ export function ToolboxPanel() {
       : m.toolboxCacheEmpty;
   const startupRowText = maintenance ? m.toolboxStartupRow(maintenance.startupItems) : "";
   const logRowText = maintenance ? m.toolboxLogRow(bytesText(maintenance.logBytes)) : "";
+  const updateTempRowText = !maintenance
+    ? ""
+    : maintenance.updateTempBytes > 0
+      ? m.toolboxUpdateTempRow(bytesText(maintenance.updateTempBytes), maintenance.updateTempDirs)
+      : m.toolboxUpdateTempEmpty;
 
   return (
     <>
@@ -287,9 +298,10 @@ export function ToolboxPanel() {
           <section className="k4-card" aria-label={m.toolboxMaintenanceTitle}>
             <h3 className="k4-card-title">{m.toolboxMaintenanceTitle}</h3>
             <p className="k4-card-body">{m.toolboxMaintenanceSub}</p>
-            {/* 画板上这三行是实数（着色器缓存 3.2 GB / 启动项 4 个 / 日志 12 MB）。
-                数字全部来自 `toolbox_maintenance`；这台机器上读不到就不渲染这三行，
-                改说「这台机器上没有」—— 0 和「不知道」是两件事。 */}
+            {/* 画板上这四行是实数（着色器缓存 3.2 GB / 启动项 4 个 / 日志 12 MB / 更新残留安装包）。
+                数字全部来自 `toolbox_maintenance`；这台机器上读不到就不渲染这四行，
+                改说「这台机器上没有」—— 0 和「不知道」是两件事。
+                更新残留是更新器写进 %TEMP% 的安装包目录。 */}
             {maintenanceReady ? (
               <>
                 <div className="k4-rows">
@@ -313,6 +325,12 @@ export function ToolboxPanel() {
                     </span>
                     <strong>{logRowText}</strong>
                     {maintenance?.logDir ? <small>{maintenance.logDir}</small> : null}
+                  </div>
+                  <div className="k4-row-item">
+                    <span className="k4-tick is-on" aria-hidden>
+                      ✓
+                    </span>
+                    <strong>{updateTempRowText}</strong>
                   </div>
                 </div>
                 <div className="k4-actions">
