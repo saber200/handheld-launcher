@@ -359,7 +359,9 @@ jobs:
           #   · 公开地址有缓存，上传后可能还要几十秒才翻新 —— 必须轮询，一次就断言会误报。
           POINTER=latest.json
           ptr_count() { curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(len([a for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json']))"; }
-          ptr_ids() { curl -sS --max-time 60 "$API/releases/$LID?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id','')) for a in json.load(sys.stdin).get('assets',[]) if a.get('name')=='latest.json' and a.get('id')))"; }
+          # 附件 id 只有专用列表端点才给（2026-10-15 起普通 release 视图连带 token 都只回
+          # name/browser_download_url —— 从 release 视图取 id 的老写法会静默拿空，指针就删不动了）。
+          ptr_ids() { curl -sS --max-time 60 "$API/releases/$LID/attach_files?access_token=$GITEE_TOKEN" | python3 -c "import json,sys; print(' '.join(str(a.get('id','')) for a in json.load(sys.stdin) if a.get('name')=='latest.json' and a.get('id')))"; }
           echo "latest 里现有的指针附件份数：$(ptr_count)"
           for round in 1 2 3; do
             IDS=$(ptr_ids)
@@ -375,8 +377,11 @@ jobs:
           echo "  删完还剩 $LEFT 份同名指针（>0 = 没删掉，公开地址可能还读旧的那份）"
 
           if [ ! -s "$SIGNAME" ]; then echo "::error::$SIGNAME 不存在或为空（上一步下载多半失败）—— 没有签名绝不写指针"; exit 1; fi
-          if ! head -n 1 "$SIGNAME" | grep -q "untrusted comment:"; then echo "::error::$SIGNAME 第一行不是 untrusted comment，不像 minisign 签名"; exit 1; fi
-          if ! sed -n '3p' "$SIGNAME" | grep -q '^trusted comment: '; then echo "::error::$SIGNAME 第三行不是 trusted comment，不是完整的 minisign .sig"; exit 1; fi
+          # tauri-action 产出的 .sig 是**单行 base64**（解码后才是 minisign 四行文本），GitHub
+          # release 上挂的就是这种；原生四行形态也存在。两种都认：只要解码后/原文里能找到
+          # "untrusted comment:" 就是真签名 —— 这一步真正要防的是"下到的是 HTML 错误页"。
+          # （2026-10-15 踩过：只认四行形态会把一份验签通过的签名误杀。）
+          python3 -c "import base64,sys; t=open(sys.argv[1]).read().strip(); d=base64.b64decode(t+chr(61)*((-len(t))%4)).decode('utf-8','replace') if (t and chr(10) not in t) else t; sys.exit(0 if 'untrusted comment:' in d else 1)" "$SIGNAME" || { echo "::error::$SIGNAME 内容不像 minisign 签名（四行形态或单行 base64 都该能找到 untrusted comment）"; exit 1; }
           SIG=$(cat "$SIGNAME")
           python3 -c "import datetime,json,sys; e={'signature':sys.argv[1].strip(),'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':dict(e),'windows-x86_64-nsis':dict(e)}}; open(sys.argv[4],'w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False))" "$SIG" "$GITEE_URL" "$VERSION" "$POINTER"
           echo "--- 上传指针：$(head -c 120 "$POINTER")…"
