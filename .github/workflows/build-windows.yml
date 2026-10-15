@@ -171,7 +171,9 @@ jobs:
     # GitHub 的规矩是「被 needs 的作业一旦跳过，依赖它的作业默认也跟着跳过」。
     if: always() && (github.ref_type == 'tag' || inputs.version != '')
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 72 MB 跨洋上传最坏情形：5 次重试 × 30 分钟上限 ≈ 150 分钟。停顿自杀（--speed-time）
+    # 通常让每次远短于上限，但上限必须兜得住理论最坏值。
+    timeout-minutes: 170
     steps:
       # 这个作业要读两件仓库里的东西：`scripts/verify-update.mjs`（签名闸）与
       # `src-tauri/tauri.conf.json` 的 pubkey。`fetch-depth: 0` 是为了能 `git show $TAG:…`
@@ -204,6 +206,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -uo pipefail
+          # GitHub 会给每个 run 步骤注入 -e（日志里是 `bash -e {0}`），于是脚本里自己的
+          # `set -uo pipefail` 形同虚设：任何一处裸 curl 失败（比如跨洋上传 Gitee 超时），
+          # 整段脚本当场死、重试循环根本轮不到跑 —— 2026-10-15 12:52 那次 30 分半的失败
+          # （exit 28，上传 26.8MB 后超时）就是这么死的。这里关掉它，改回「自己管生死」：
+          # 该失败的闸门都在下面显式写着（下载失败即停、附件闸、.sig 三查、终验）。
+          set +e
           if [ -z "${GITEE_TOKEN:-}" ]; then
             echo "::error::没有 GITEE_TOKEN，国内镜像做不了（GitHub 那份照常发布）"
             exit 1
@@ -306,20 +314,30 @@ jobs:
           for f in "$GITEE_NAME" "$GITEE_NAME.sig"; do
             case " $HAVE " in
               *" $f "*) echo "  已存在，跳过 $f" ;;
-              *) for try in 1 2 3; do
+              *) for try in 1 2 3 4 5; do
                    echo "=== 第 $try 次上传 $f"
                    # 传的就是工作目录里那份**从 GitHub 下载、并且刚验过签名**的包：本地改个带指纹
                    # 的名字再传（不用 curl 的 multipart 改名，走 Gitee 最常见的那个上传口径）。
                    cp -f "$( [ "$f" = "$GITEE_NAME" ] && printf '%s' "$NAME" || printf '%s' "$SIGNAME" )" "$f"
-                   curl -sS --max-time 1800 -X POST "$API/releases/$RID/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$f" -o /tmp/up.json -w "  HTTP %{http_code} / %{size_upload} 字节 / %{time_total}s\n"
+                   # --speed-limit/--speed-time：连接假死（速率 20KB/s 持续 120 秒）就立刻掐掉重试，
+                   # 不要像 12:52 那次那样抱着一条死连接耗满 1800 秒（只推上去 26.8MB）。
+                   curl -sS --max-time 1800 --speed-limit 20480 --speed-time 120 -X POST "$API/releases/$RID/attach_files" -F "access_token=$GITEE_TOKEN" -F "file=@$f" -o /tmp/up.json -w "  HTTP %{http_code} / %{size_upload} 字节 / %{time_total}s\n"
                    grep -q '"name"' /tmp/up.json 2>/dev/null && break
-                   sleep 20
+                   echo "  这一次没传上去，30 秒后换一条新连接再试"
+                   sleep 30
                  done ;;
             esac
           done
 
-          # ── 附件闸：两个附件都真传上去了，才有资格写指针（重试 3 次全失败时上面的循环不会自己报错）
-          UPLOADED=$(asset_names "$RID")
+          # ── 附件闸：两个附件都真传上去了，才有资格写指针（重试全失败时上面的循环不会自己报错）。
+          # asset_names 探测本身也可能偶发失败，连试 3 次（探测挂了不该误判成"没传上去"）。
+          UPLOADED=""
+          for probe in 1 2 3; do
+            UPLOADED=$(asset_names "$RID")
+            [ -n "$UPLOADED" ] && break
+            echo "  附件列表第 $probe 次没读到，10 秒后再试"
+            sleep 10
+          done
           for f in "$GITEE_NAME" "$GITEE_NAME.sig"; do
             case " $UPLOADED " in
               *" $f "*) echo "  附件确认已在 Gitee 上：$f" ;;
