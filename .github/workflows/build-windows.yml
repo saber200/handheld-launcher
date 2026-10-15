@@ -166,10 +166,10 @@ jobs:
   # 一旦大型上传失败，指针就永远停在「指向 GitHub 的旧版本」上 —— 那正是这次的症状。
   # 现在：安装包（已存在就跳过）→ 删掉旧的 latest.json → 写新的 → **真去拉一次确认版本号**。
   mirror:
-    # 故意**不写 `needs: windows`**：加一个被跳过的依赖会不会连带跳过本作业，是个容易
-    # 踩的坑（GitHub 对 skipped 依赖的语义随版本变过）。这里让镜像作业独立起跑，
-    # 自己去等 GitHub 发行版上的安装包出现（下面那个探测循环），从根上绕开这件事。
-    if: github.ref_type == 'tag' || inputs.version != ''
+    needs: windows
+    # `always()`：手动只跑镜像时 `windows` 会被跳过，这一步照样要跑 ——
+    # GitHub 的规矩是「被 needs 的作业一旦跳过，依赖它的作业默认也跟着跳过」。
+    if: always() && (github.ref_type == 'tag' || inputs.version != '')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -188,6 +188,8 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           TAG: ${{ steps.v.outputs.tag }}
+          # 只用来做「安装包发布了没」的 API 探测（可选；没有也能靠内容探测跑）。
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -uo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
@@ -205,17 +207,37 @@ jobs:
           ID_OF="import json,sys; d=json.load(sys.stdin); print(d.get('id') or ('ERR '+str(d)[:200]))"
 
           # 从 GitHub 发行版取安装包与签名（它已经发布好了，不用重新构建）。
-          # 手动重跑镜像时 Release 可能还在发布中，所以先等它出现（最多 20 分钟）。
-          echo "--- 等 GitHub 发行版上的 $NAME 出现"
-          for i in $(seq 1 40); do
-            if curl -sSL --fail --max-time 120 -r 0-1 -o /dev/null "$GH_URL" 2>/dev/null; then echo "  第 $i 次探测：已就绪"; break; fi
-            echo "  第 $i 次探测：还没有，等 30 秒"
+          #
+          # ⚠️ 2026-10-15 踩过的坑，别再改回去：第一版这里是
+          # `curl --fail -r 0-1 "$GH_URL" && 认为就绪`。安装包还没发布时那个地址返回的是
+          # **HTTP 404 页面**，`--fail` 对它退出码是 0（curl 的 `--fail` 只管传输层），
+          # 于是循环立刻"就绪"、后面的下载拿到一页 HTML、上传自然失败 ——
+          # 表现是 mirror 作业 24 秒就红，而真正的原因（安装包还不存在）完全看不出来。
+          # 所以：探针必须**校验内容**（0-99 字节里的文件头），下载完还要再查一次大小与 MZ 头。
+          if [ -z "${GH_TOKEN:-}" ]; then echo "::warning::没有 GH_TOKEN，跳过 API 探测，直接下载"; fi
+          echo "--- 等 GitHub 发行版上的 $NAME 出现（最长约 25 分钟）"
+          ready=0
+          for i in $(seq 1 50); do
+            code=$(curl -sSL -o /tmp/probe.bin -w "%{http_code}" --max-time 120 -r 0-99 "$GH_URL" 2>/dev/null || echo 000)
+            if [ "$code" = "206" ] || [ "$code" = "200" ]; then
+              if head -c 2 /tmp/probe.bin | grep -q "MZ"; then ready=1; echo "  第 $i 次探测：已就绪（HTTP $code，文件头 MZ）"; break; fi
+              echo "  第 $i 次探测：HTTP $code 但内容不是安装包，等 30 秒"
+            else
+              echo "  第 $i 次探测：HTTP $code，等 30 秒"
+            fi
             sleep 30
           done
+          [ "$ready" = "1" ] || { echo "::error::GitHub 发行版上的 $NAME 一直没出现（或不是安装包）"; exit 1; }
+
           echo "--- 从 GitHub 发行版下载 $NAME"
           curl -sSL --fail --retry 3 --retry-delay 5 --max-time 1800 -o "$NAME" "$GH_URL" -w "  安装包 %{size_download} 字节 / %{time_total}s\n"
           curl -sSL --fail --retry 3 --retry-delay 5 --max-time 300 -o "$SIGNAME" "$GH_URL.sig" -w "  签名 %{size_download} 字节\n"
           ls -l "$NAME" "$SIGNAME"
+          # 下下来还必须真是个够大的 PE 文件 —— 上一步的教训就是"看起来成功、其实拿到的是 HTML"。
+          SIZE=$(stat -c%s "$NAME" 2>/dev/null || echo 0)
+          if [ "$SIZE" -lt 10000000 ]; then echo "::error::$NAME 只有 $SIZE 字节，不像是安装包（应该 >60 MB）"; exit 1; fi
+          if ! head -c 2 "$NAME" | grep -q "MZ"; then echo "::error::$NAME 的文件头不是 MZ，不是 Windows 可执行文件"; exit 1; fi
+          echo "  校验通过：$SIZE 字节，文件头 MZ"
 
           mkrel() { curl -sS --max-time 60 -X POST "$API/releases" -d "access_token=$GITEE_TOKEN" -d "tag_name=$1" -d "name=$1" -d "target_commitish=master" -d "body=Windows 安装包（国内镜像）。" | python3 -c "$ID_OF"; }
           getrel() { curl -sS --max-time 60 "$API/releases/tags/$1?access_token=$GITEE_TOKEN" | python3 -c "$ID_OF"; }
