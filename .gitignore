@@ -23,3 +23,4 @@ src-tauri/fse/cert.pfx
 # 跟着仓库走只会把 clone 撑大。脚本文档留在工作区里给下一版用，不进 git。
 /.fhvideo/
 /*.mp4
+.workflow/

@@ -242,8 +242,8 @@ jobs:
           [ "$ready" = "1" ] || { echo "::error::GitHub 发行版上的 $NAME 一直没出现（或不是安装包）"; exit 1; }
 
           echo "--- 从 GitHub 发行版下载 $NAME"
-          curl -sSL --fail --retry 3 --retry-delay 5 --max-time 1800 -o "$NAME" "$GH_URL" -w "  安装包 %{size_download} 字节 / %{time_total}s\n"
-          curl -sSL --fail --retry 3 --retry-delay 5 --max-time 300 -o "$SIGNAME" "$GH_URL.sig" -w "  签名 %{size_download} 字节\n"
+          curl -sSL --fail --retry 3 --retry-delay 5 --max-time 1800 -o "$NAME" "$GH_URL" -w "  安装包 %{size_download} 字节 / %{time_total}s\n" || { echo "::error::从 GitHub 下载 $NAME 失败"; exit 1; }
+          curl -sSL --fail --retry 3 --retry-delay 5 --max-time 300 -o "$SIGNAME" "$GH_URL.sig" -w "  签名 %{size_download} 字节\n" || { echo "::error::从 GitHub 下载 $SIGNAME 失败"; exit 1; }
           ls -l "$NAME" "$SIGNAME"
           # 下下来还必须真是个够大的 PE 文件 —— 上一步的教训就是"看起来成功、其实拿到的是 HTML"。
           SIZE=$(stat -c%s "$NAME" 2>/dev/null || echo 0)
@@ -318,6 +318,15 @@ jobs:
             esac
           done
 
+          # ── 附件闸：两个附件都真传上去了，才有资格写指针（重试 3 次全失败时上面的循环不会自己报错）
+          UPLOADED=$(asset_names "$RID")
+          for f in "$GITEE_NAME" "$GITEE_NAME.sig"; do
+            case " $UPLOADED " in
+              *" $f "*) echo "  附件确认已在 Gitee 上：$f" ;;
+              *) echo "::error::$f 重试后仍未出现在 Gitee 附件列表 —— 绝不写指向不存在附件的指针"; exit 1 ;;
+            esac
+          done
+
           # ── 指针 ──
           #
           # 指针这个附件**必须**叫 `latest.json`（掌机读的就是这个固定地址），所以它天生躲不开
@@ -347,6 +356,9 @@ jobs:
           LEFT=$(ptr_count)
           echo "  删完还剩 $LEFT 份同名指针（>0 = 没删掉，公开地址可能还读旧的那份）"
 
+          if [ ! -s "$SIGNAME" ]; then echo "::error::$SIGNAME 不存在或为空（上一步下载多半失败）—— 没有签名绝不写指针"; exit 1; fi
+          if ! head -n 1 "$SIGNAME" | grep -q "untrusted comment:"; then echo "::error::$SIGNAME 第一行不是 untrusted comment，不像 minisign 签名"; exit 1; fi
+          if ! sed -n '3p' "$SIGNAME" | grep -q '^trusted comment: '; then echo "::error::$SIGNAME 第三行不是 trusted comment，不是完整的 minisign .sig"; exit 1; fi
           SIG=$(cat "$SIGNAME")
           python3 -c "import datetime,json,sys; e={'signature':sys.argv[1].strip(),'url':sys.argv[2]}; d={'version':sys.argv[3],'notes':'国内镜像（Gitee）。','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'windows-x86_64':dict(e),'windows-x86_64-nsis':dict(e)}}; open(sys.argv[4],'w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False))" "$SIG" "$GITEE_URL" "$VERSION" "$POINTER"
           echo "--- 上传指针：$(head -c 120 "$POINTER")…"
@@ -360,6 +372,7 @@ jobs:
             grep -q '"name"' /tmp/up2.json 2>/dev/null && break
             sleep 10
           done
+          grep -q '"name"' /tmp/up2.json 2>/dev/null || { echo "::error::指针 latest.json 三次尝试都没传上去（tag 形态与发行版 id 形态都失败）"; exit 1; }
           AFTER=$(ptr_count)
           echo "  上传后 latest.json 的份数：$AFTER（>1 = 还有旧指针没清掉，公开地址可能还读旧的）"
 
@@ -402,7 +415,7 @@ jobs:
           done
           [ "$ok_served" = "1" ] || { echo "::error::Gitee 上那份包下不下来、或指纹和本次发布的对不上 —— 用户下到的不是我们验过的那份字节"; exit 1; }
           # 用**用户实际读到的那份指针**（/tmp/ptr.json）里的签名验**用户实际会下到的那份包**。
-          node scripts/verify-update.mjs /tmp/served.exe /tmp/ptr.json --pubkey /tmp/tag-conf.json
+          node scripts/verify-update.mjs /tmp/served.exe /tmp/ptr.json --pubkey /tmp/tag-conf.json || { echo "::error::自检 2/2 用应用公钥验 Gitee 实际提供的包与指针失败 —— 绝不能算发布成功"; exit 1; }
 
           {
             echo "## 国内镜像 OK（$TAG）"
