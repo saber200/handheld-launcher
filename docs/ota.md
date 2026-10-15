@@ -76,6 +76,30 @@ curl -sIL https://github.com/saber200/fantasyhub-releases/releases/latest/downlo
 - ⚠️ 两个**未在本机验证过**的假设（第一次发版后会知道）：Gitee 发行版附件的下载地址形如
   `https://gitee.com/<owner>/<repo>/releases/download/<tag>/<file>`；默认分支是 `master`。
   哪个不对，改 CI 里那两处字符串即可 —— 而**即使两个都不对，更新也只是回落到 GitHub**（不会坏）。
+  2026-10-13 起两个假设都已被真实下载验证过（地址形状对、`master` 对）。
+
+### 四点六、Gitee 附件名带内容指纹（2026-10-15，掌机报 `The signature verification failed` 之后）
+
+事故经过：重推 tag → GitHub 重新构建、附件被换掉 → 镜像那一步的口径是「**同名附件已存在就跳过
+上传**」→ Gitee 上留着的还是上一次构建的包，而指针里的签名已经换成新的 → **包和签名分属两次
+构建**，掌机下完包在最后一步拒装。两份文件同名、只差 376 字节，从外面完全看不出来；当时 CI 全绿，
+因为它只确认了「传上去了、下载地址返回 MZ 头」。
+
+现在两条硬规矩（改 CI 时别把它们拆掉）：
+
+1. **附件名里写进 sha256 前 12 位**（`FantasyHub_<版本>_<指纹>_x64-setup.exe`）：同名 = 同一份
+   字节（重跑作业就跳过、不用再传 72 MB），换了字节就自动换新名字，**永远不会被同名旧附件顶替**。
+   指针的 `url` 就指这个名字。老式不带指纹的旧附件不再被引用，脚本会 warning 提醒去 Gitee 页面上删。
+2. **发布后真下一个包、用应用里的公钥验签名**：`node scripts/verify-update.mjs <包> <latest.json>`
+   （零依赖，用 Node 内置 crypto 复刻 `minisign_verify` 的口径：blake2b-512 预哈希 + ed25519，
+   含全局签名与 key id 比对）。CI 里验两次：先从 GitHub 下载的那份、再**从 Gitee 公开地址整份下回来**
+   的那份（比 sha256 + 验签名）。这一步才是「掌机真的会装吗」的判据 —— 只看 MZ 头是不够的。
+
+本机也能随时验（不用装应用、不用编译）：
+
+```bash
+node scripts/verify-update.mjs /path/FantasyHub_0.1.109_x64-setup.exe /path/latest.json
+```
 
 ## 五、排错对照表
 
@@ -84,6 +108,7 @@ curl -sIL https://github.com/saber200/fantasyhub-releases/releases/latest/downlo
 | 抽屉里一直「检查更新失败：…」 | 网络到不了 GitHub / 公开仓还没有 Release | 先按第四节手工 curl 一次；404 = 还没有发布物 |
 | 一直显示「已是最新」但明明发了新版 | `latest.json` 没产出（CI 输入名写错）或版本号没升 | 看公开仓 Release 里有没有 `latest.json`；跑 `npm run audit:ota` |
 | 提示有新版本，点了却报"签名不符" | 应用里的公钥与 CI 私钥不是同一对 | `npm run audit:ota` 报出 key id；对不上就重新生成一对、发一版手动装一次 |
+| 掌机报 `The signature verification failed`（换源/镜像之后才出现） | **镜像站上的包与指针里的签名不是同一次构建**（重推 tag、同名旧附件顶替 —— 0.1.109 的真因） | 一条命令定死：`node scripts/verify-update.mjs <下载到的包> <latest.json>`；修法是重跑镜像作业（附件名现在带指纹，不会再撞名） |
 | tag 构建在发布那一步 403 | `RELEASE_TOKEN` 过期或权限不对 | 重新生成 fine-grained token（只勾发布物仓库 + Contents: Read and write），更新 secret |
 | 更新装完版本没变 | 安装包没升级（`tauri.conf.json` 的 version 没改） | 版本号三处要一起改 |
 

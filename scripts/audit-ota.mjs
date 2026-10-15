@@ -8,6 +8,11 @@
  *      GitHub 对未知输入只给一句警告、步骤照样成功，于是 `latest.json` 永远不产出；
  *   ② 公钥和 CI 私钥不是同一对：应用能把 `latest.json` 读回来、能下载、然后**在最后一步
  *      以"签名不符"拒绝安装**，报错还只有一句英文。
+ *   ③（2026-10-15 掌机报 `The signature verification failed` 的真因）**镜像站上的安装包与
+ *      指针里的签名不是同一次构建的**：重推 tag → GitHub 重新构建、附件被换掉，而"Gitee 上
+ *      同名附件已存在就跳过上传"把上一次构建的包留在了那儿 —— 名字一样、只差 376 字节，
+ *      从外面完全看不出来。现在附件名里带 sha256 前 12 位，且发布后**真下一个包、用应用里的
+ *      公钥验签名**（`scripts/verify-update.mjs`）；下面 CI 那两条就是钉这件事的。
  * 这两件事本机都能查出来，就不该等发版才发现。
  *
  * 查什么（每条都是"错了也不会红"的地方）：
@@ -136,6 +141,16 @@ for (const key of [
 check(
   /GITHUB_TOKEN:\s*\$\{\{[^}]*\bref_type\b/.test(wf),
   "CI：GITHUB_TOKEN 按构建类型切（tag → RELEASE_TOKEN，开发构建 → github.token）",
+);
+// 2026-10-15：掌机报 `The signature verification failed` —— 指针是新的、Gitee 上的包还是上一次
+// 构建的（同名就跳过上传）。两条防线：附件名带内容指纹；发布后真下一个包、用应用公钥验签名。
+check(
+  wf.includes("scripts/verify-update.mjs"),
+  "CI：镜像发布后用应用里的公钥**真验一遍签名**（只确认“传上去了 / 有 MZ 头”会漏掉包与签名不是一份）",
+);
+check(
+  /GITEE_NAME=.*SHORT/.test(wf) && /sha256/i.test(wf),
+  "CI：Gitee 附件名里带 sha256 前 12 位（否则同名旧附件会顶替新包，而掌机一定拒装）",
 );
 
 /* ── ④ 最坏的一种事故：签名私钥被提交进仓库 ───────────────────────────── */

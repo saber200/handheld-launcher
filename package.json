@@ -17,6 +17,7 @@
     "audit:acl": "node scripts/audit-acl.mjs",
     "hooks": "git config core.hooksPath .githooks",
     "audit:ota": "node scripts/audit-ota.mjs",
+    "verify:update": "node scripts/verify-update.mjs",
     "test": "node scripts/test-web.mjs",
     "gen:pinyin": "node scripts/gen-pinyin-data.mjs"
   },
