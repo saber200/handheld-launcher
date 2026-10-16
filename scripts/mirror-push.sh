@@ -39,7 +39,7 @@ fi
 TAG=${1:-v$VERSION}
 NAME="FantasyHub_${VERSION}_x64-setup.exe"
 GH_URL="https://github.com/$OWNER/$REPO/releases/download/$TAG/$NAME"
-echo "=== 目标：$TAG（$NAME）"
+echo "=== 目标：${TAG}（${NAME}）"
 
 WORK=$(mktemp -d /tmp/mirror-push.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
@@ -47,8 +47,8 @@ trap 'rm -rf "$WORK"' EXIT
 # ── 从 GitHub 拿发布物（公开仓，匿名 API 就够） ──────────────────────────────
 echo "--- 探测 GitHub 发行版上的 $NAME"
 code=$(curl -sSL --max-time 120 -r 0-1 -o /dev/null -w '%{http_code}' "$GH_URL" || echo 000)
-case "$code" in 200|206) echo "  已就绪（HTTP $code）" ;;
-  *) echo "✗ GitHub 发行版上还没有 $NAME（HTTP $code）—— 先等构建作业发布完"; exit 1 ;;
+case "$code" in 200|206) echo "  已就绪（HTTP ${code}）" ;;
+  *) echo "✗ GitHub 发行版上还没有 ${NAME}（HTTP ${code}）—— 先等构建作业发布完"; exit 1 ;;
 esac
 
 echo "--- 下载安装包与签名"
@@ -84,7 +84,7 @@ asset_names() { curl -sS --max-time 60 "$API/releases/$1?access_token=$GITEE_TOK
 HAVE=$(asset_names "$RID")
 echo "Gitee 上已有的附件：$HAVE"
 case " $HAVE " in
-  *" $NAME "*) echo "::warning::Gitee 这个发行版里还留着不带指纹的旧附件 $NAME（占约 72 MB）。指针不会用它，但建议到 https://gitee.com/$OWNER/$REPO/releases/tag/$TAG 手动删掉" ;;
+  *" $NAME "*) echo "::warning::Gitee 这个发行版里还留着不带指纹的旧附件 ${NAME}（占约 72 MB）。指针不会用它，但建议到 https://gitee.com/$OWNER/$REPO/releases/tag/$TAG 手动删掉" ;;
 esac
 
 for f in "$GITEE_NAME" "$GITEE_NAME.sig"; do
@@ -126,8 +126,8 @@ for round in 1 2 3; do
   IDS=$(ptr_ids)
   [ -z "$IDS" ] && { echo "  第 $round 轮：没有可删的旧指针（或接口没给附件 id）"; break; }
   for id in $IDS; do
-    curl -sS --max-time 60 -X DELETE "$API/releases/latest/attach_files/$id?access_token=$GITEE_TOKEN" -o /dev/null -w "  删旧指针 id=$id（tag 形态）HTTP %{http_code}\n"
-    curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" -o /dev/null -w "  删旧指针 id=$id（发行版 id 形态）HTTP %{http_code}\n"
+    curl -sS --max-time 60 -X DELETE "$API/releases/latest/attach_files/$id?access_token=$GITEE_TOKEN" -o /dev/null -w "  删旧指针 id=${id}（tag 形态）HTTP %{http_code}\n"
+    curl -sS --max-time 60 -X DELETE "$API/releases/$LID/attach_files/$id?access_token=$GITEE_TOKEN" -o /dev/null -w "  删旧指针 id=${id}（发行版 id 形态）HTTP %{http_code}\n"
   done
   sleep 3
 done
@@ -150,7 +150,7 @@ for try in 1 2 3; do
 done
 grep -q '"name"' "$WORK/up2.json" 2>/dev/null || { echo "✗ 指针 latest.json 三次尝试都没传上去"; exit 1; }
 AFTER=$(ptr_count)
-echo "  上传后 latest.json 的份数：$AFTER（>1 = 还有旧指针没清掉）"
+echo "  上传后 latest.json 的份数：${AFTER}（>1 = 还有旧指针没清掉）"
 
 # ── 自检：站到掌机的角度，把它要读的指针、要下的包整个走一遍 ────────────────
 echo "=== 自检 1/2：轮询公开指针（版本号 + 附件名都要是本次这一份，最长 5 分钟）"
@@ -160,11 +160,11 @@ for i in $(seq 1 20); do
   LINE=$(python3 -c "import json;d=json.load(open('$WORK/ptr.json'));p=d.get('platforms',{}).get('windows-x86_64-nsis',{});print(d.get('version','?'),p.get('url','?'))" 2>/dev/null || echo '? ?')
   read -r GOT GOT_URL <<< "$LINE"
   ok_url=0; case "$GOT_URL" in *"/$GITEE_NAME") ok_url=1 ;; esac
-  echo "  第 $i 次读到：版本 $GOT，附件 $(basename "$GOT_URL")"
+  echo "  第 $i 次读到：版本 ${GOT}，附件 $(basename "$GOT_URL")"
   [ "$GOT" = "$VERSION" ] && [ "$ok_url" = "1" ] && { ok_ptr=1; break; }
   sleep 15
 done
-[ "$ok_ptr" = "1" ] || { echo "✗ Gitee 上的指针还不是本次这份（应到 $VERSION 且附件名 $GITEE_NAME）"; exit 1; }
+[ "$ok_ptr" = "1" ] || { echo "✗ Gitee 上的指针还不是本次这份（应到 $VERSION 且附件名 ${GITEE_NAME}）"; exit 1; }
 
 echo "=== 自检 2/2：把用户会下到的那份包真下回来验一遍（最长 20 分钟）"
 ok_served=0
@@ -175,10 +175,10 @@ for i in 1 2 3 4 5; do
 done
 [ -s "$WORK/served.exe" ] || { echo "✗ Gitee 上那份包下不下来"; exit 1; }
 SERVED_SHA=$( (sha256sum "$WORK/served.exe" 2>/dev/null || shasum -a 256 "$WORK/served.exe") | cut -d' ' -f1)
-if [ "$SERVED_SHA" != "$SHA256" ]; then echo "✗ 用户下到的字节（$SERVED_SHA）和验过的字节（$SHA256）不一致"; exit 1; fi
+if [ "$SERVED_SHA" != "$SHA256" ]; then echo "✗ 用户下到的字节（${SERVED_SHA}）和验过的字节（${SHA256}）不一致"; exit 1; fi
 node scripts/verify-update.mjs "$WORK/served.exe" "$WORK/ptr.json" || { echo "✗ 用应用公钥验 Gitee 实际提供的包与指针失败"; exit 1; }
 
 echo ""
-echo "✅ 国内镜像 OK（$TAG）"
+echo "✅ 国内镜像 OK（${TAG}）"
 echo "   安装包：$GITEE_URL"
 echo "   指针：https://gitee.com/$OWNER/$REPO/releases/download/latest/latest.json → $VERSION"
