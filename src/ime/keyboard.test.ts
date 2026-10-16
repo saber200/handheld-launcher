@@ -8,8 +8,11 @@
  * 这里不测组件（那要跑 DOM），只测**纯逻辑**：`transformKey` 与那几个状态函数。
  * 它们不依赖 DOM，所以能在 Node 里直接跑。
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { loadPinyinTable } from "./pinyinTable.ts";
 
 /** 每个用例都从干净状态开始：模块是单例，状态会跨用例残留。 */
 async function fresh() {
@@ -17,6 +20,44 @@ async function fresh() {
   mod.resetKeyboardInput();
   mod.setKeyboardMode("en");
   return mod;
+}
+
+/**
+ * 候选分页（用户 2026-10-16）的用例需要**真的有候选** —— 没有字表时引擎一个候选都
+ * 切不出来。所以像 `pinyin.test.ts` 那样拦 `fetch` 读仓库里那份真表，走真链路。
+ */
+async function withTable<T>(run: () => T): Promise<T> {
+  const body = readFileSync(join(process.cwd(), "public", "pinyin-syllables.txt"), "utf8");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    ({ ok: true, status: 200, text: async () => body }) as unknown as Response) as typeof fetch;
+  try {
+    await loadPinyinTable();
+    return run();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+/** 中文模式下敲一串拼音并绑好一个单行输入框，返回（模块、插进框里的字、候选总数）。 */
+async function composing(pinyin: string) {
+  // 上一个用例 commit 候选时会往**内存里**的学习词表记词（Node 没有 localStorage，
+  // 记忆仍在进程里活着），而学过的词会顶到候选条最前面 —— 不清掉，候选的总数与
+  // 顺序就随用例顺序漂移。
+  const learned = await import("./learned.ts");
+  learned.forgetLearnedWords();
+  const k = await fresh();
+  const inserted: string[] = [];
+  k.bindKeyboardField({
+    insert: (text) => inserted.push(text),
+    backspace: () => {},
+    multiline: () => false,
+  });
+  k.setKeyboardMode("zh");
+  for (const ch of pinyin) k.pressKey(ch);
+  const total = k.keyboardState().candidates.length;
+  assert.ok(total > 9, `前提：${pinyin} 的候选得超过一页（实际 ${total}）`);
+  return { k, inserted, total };
 }
 
 test("默认状态下原样输出", async () => {
@@ -171,4 +212,81 @@ test("按住的 Shift 与锁定的 Shift 是两件独立的事", async () => {
   assert.equal(k.transformKey("a"), "A", "松开 LT 之后锁定仍应生效");
   k.toggleShiftLock(); // 解除锁定
   assert.equal(k.transformKey("a"), "a", "两次都松开后应回小写");
+});
+
+/* ── 候选分页（用户 2026-10-16：每页最多 9 颗，LB/RB 翻页，数字键选当前页） ── */
+
+test("没在组字时翻页不消费、也不动状态", async () => {
+  const k = await fresh();
+  assert.equal(k.pageCandidate(1), false);
+  assert.equal(k.pageCandidate(-1), false);
+  assert.equal(k.keyboardState().selected, 0);
+});
+
+test("翻页：高亮整页地跳；首尾环绕", async () => {
+  await withTable(async () => {
+    const { k, total } = await composing("ni");
+    const pages = Math.ceil(total / 9);
+
+    // RB 一下 = 下一页同一位置：offset 0 → 第 10 颗（下标 9）
+    assert.equal(k.pageCandidate(1), true);
+    assert.equal(k.keyboardState().selected, 9);
+
+    // 一路往后翻到最后一页（上面那次 RB 已到第 2 页，从第 3 页起继续），高亮落在页首；
+    // 再翻一步环绕回第 0 页
+    for (let page = 2; page < pages; page += 1) k.pageCandidate(1);
+    assert.equal(k.keyboardState().selected, (pages - 1) * 9, "最后一页落在页首");
+    k.pageCandidate(1);
+    assert.equal(k.keyboardState().selected, 0, "最后一页再往后翻应环绕回第一页");
+
+    // 第一页按 LB 直达最后一页（和逐颗移动的循环手感一致）
+    k.pageCandidate(-1);
+    assert.equal(k.keyboardState().selected, (pages - 1) * 9);
+  });
+});
+
+test("翻页：满页之间页内位置保持；落进不满一页的最后一页时收在页内", async () => {
+  await withTable(async () => {
+    // 双音节 `niha` 的组合候选比单音节多得多（单音节被 HEAD_LIMIT=12 卡住，
+    // 凑不满三页），这里专门拿它测「超过两页」的翻页。
+    const { k, total } = await composing("niha");
+    assert.ok(total >= 19, `前提：niha 的候选得超过两页（实际 ${total}）`);
+    const pages = Math.ceil(total / 9);
+    const lastHead = (pages - 1) * 9;
+    const lastSize = total - lastHead;
+
+    // 高亮挪到页内第 9 颗（下标 8）再翻一页：第 2 页是满页，offset 原样保持
+    for (let i = 0; i < 8; i += 1) k.moveCandidate(1);
+    k.pageCandidate(1);
+    assert.equal(k.keyboardState().selected, 17, "满页之间页内位置应保持");
+
+    // 一路翻到最后一页：offset 8 若超出最后一页的实际颗数，收成页内最后一颗
+    for (let page = 2; page < pages; page += 1) k.pageCandidate(1);
+    assert.equal(k.keyboardState().selected, lastHead + Math.min(8, lastSize - 1));
+  });
+});
+
+test("翻页后按数字键 1 选的是**当前页**第 1 颗", async () => {
+  await withTable(async () => {
+    const { k, inserted } = await composing("ni");
+    const candidates = k.keyboardState().candidates;
+    k.pageCandidate(1);
+    // 组件把「当前页第 1 颗」换算成 pageStart + 1 - 1 = 9（数字键选当前页的契约）
+    k.commitCandidate(9);
+    assert.equal(inserted.at(-1), candidates[9].text, "上屏的应是下一页的第 1 颗");
+    assert.equal(k.keyboardState().composing, "", "上屏之后组字清空");
+  });
+});
+
+test("页从 `selected` 推出来：逐颗移动跨过页边界时页跟着走", async () => {
+  await withTable(async () => {
+    const { k } = await composing("ni");
+    // 连按 9 下右方向键 = moveCandidate(1)×9：高亮从 0 走到 9，页就从第 1 页走到第 2 页。
+    // 状态机里没有独立的「页」字段，selected 就是唯一真相 —— 这里钉住这个不变量。
+    for (let i = 0; i < 9; i += 1) assert.equal(k.moveCandidate(1), true);
+    assert.equal(k.keyboardState().selected, 9);
+    // 翻页函数看到的当前页也必须是第 2 页：往前翻一步落回第 1 页页首
+    k.pageCandidate(-1);
+    assert.equal(k.keyboardState().selected, 0);
+  });
 });

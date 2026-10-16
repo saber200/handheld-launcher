@@ -172,6 +172,15 @@ function currentMarked(nodes: HTMLElement[]): HTMLElement | null {
 let keyboardOpenFlag = false;
 let keyboardTarget: HTMLInputElement | HTMLTextAreaElement | null = null;
 let keyboardCaret = 0;
+/**
+ * 这次打开的键盘用哪套布局。
+ *
+ * 默认全尺寸（含拼音中文）。**只有**「添加ID获取封面」那个编号框走数字小键盘 ——
+ * 元素上标了 `data-numeric-keyboard`（用户 2026-10-16：「只有这一个地方需要用数字键盘
+ * 其它的都用现在的全尺寸键盘」）。不能拿 `inputMode === "numeric"` 当判据：文件页批量
+ * 改名的起始序号也是 numeric，但那儿要用全键盘。
+ */
+let keyboardLayout: "full" | "numeric" = "full";
 const keyboardListeners = new Set<() => void>();
 
 function emitKeyboard() {
@@ -182,14 +191,21 @@ export function gamepadKeyboardOpen() {
   return keyboardOpenFlag;
 }
 
-export function subscribeGamepadKeyboard(listener: () => void) {
+export function gamepadKeyboardLayout(): "full" | "numeric" {
+  return keyboardLayout;
+}
+
+export function subscribeGamepadKeyboard(listener: () => void): () => void {
   keyboardListeners.add(listener);
-  return () => keyboardListeners.delete(listener);
+  return () => {
+    keyboardListeners.delete(listener);
+  };
 }
 
 export function openGamepadKeyboard(el: HTMLInputElement | HTMLTextAreaElement) {
   keyboardTarget = el;
   keyboardCaret = el.selectionStart ?? el.value.length;
+  keyboardLayout = el.hasAttribute("data-numeric-keyboard") ? "numeric" : "full";
   keyboardOpenFlag = true;
   textEditing = false;
   suspendCaret = true;
@@ -323,7 +339,9 @@ export function confirmFocused() {
     return;
   }
   // 输入框上按 A = 叫出手柄键盘。**以前这里卡了 `inputMode === "numeric"`**，因为那时候
-  // 键盘只有数字键，给文字框打开也没用；现在是全键盘（含拼音中文），所有输入框都能开。
+  // 键盘只有数字键，给文字框打开也没用；现在是全键盘（含拼音中文），所有输入框都能开
+  // —— 封面 ID 那种要数字小键盘的例外靠元素上的 `data-numeric-keyboard` 标记，
+  // 在 `openGamepadKeyboard` 里选布局，不再在这里拦。
   if (field && visibleFocusables().includes(field)) {
     openGamepadKeyboard(field);
     return;
@@ -796,7 +814,8 @@ export function useGamepadNav({
      * 这个键盘」。原来只有「焦点在输入框上按 A」这一条路（`confirmFocused`），真机上显然不灵
      * （按了没反应，用户看到的就是"压根儿没法用"）。改成焦点一到就弹：鼠标点、手柄移进去、
      * 程序 focus() 都算，**没有任何一条路会漏**。
-     * 只读/禁用/数字以外的框不弹（`inputMode` 不再过滤 —— 现在是全键盘，谁都能用）。
+     * 只读/禁用的框不弹（`inputMode` 不再过滤 —— 现在默认全键盘，谁都能用；
+     * 数字小键盘只给标了 `data-numeric-keyboard` 的框，见 `openGamepadKeyboard`）。
      */
     const onFocusIn = (event: FocusEvent) => {
       const el = event.target;

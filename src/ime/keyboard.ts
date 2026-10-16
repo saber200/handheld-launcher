@@ -420,13 +420,44 @@ export const gamepadKeyActions = {
   toggleCaps,
 } as const;
 
-/** 光标在候选条上左右移动。返回是否消费了这次按键。 */
+/** 光标在候选条上左右移动（物理键盘的左右方向键）。返回是否消费了这次按键。 */
 export function moveCandidate(delta: number): boolean {
   const total = snapshot.candidates.length;
   if (!snapshot.composing || total === 0) return false;
   const next = (snapshot.selected + delta + total) % total;
   if (next === snapshot.selected) return false;
   snapshot = { ...snapshot, selected: next };
+  emit();
+  return true;
+}
+
+/**
+ * 候选条一页最多几颗（用户 2026-10-16：「联想词每次最多显示9个 然后通过lb和rb键进行翻页显示」）。
+ *
+ * 为什么是 9：候选的序号就是数字键 1–9（按哪颗选哪个），一页超过 9 颗，第 10 颗起
+ * 就没有键能选它了 —— 旧版把整条候选从头到尾编成 1、2、3…无限，超出 9 的序号是死的。
+ */
+export const CANDIDATES_PER_PAGE = 9;
+
+/**
+ * LB/RB：候选条**整页**翻。返回是否消费了这次按键（没在组字时是 false）。
+ *
+ * 页没有自己的状态，从 `selected` 推出来（`Math.floor(selected / 9)`）——「翻页」就是
+ * 把高亮挪到目标页**同一个位置**。这样做的好处：空格 / RT 确认的永远是眼前这一页里
+ * 高亮的那颗，显示与确认永远不会错位；而物理左右方向键（`moveCandidate`）逐颗挪动
+ * 跨过页边界时，页也会自然跟着走，两条路共用一个真相。
+ */
+export function pageCandidate(delta: number): boolean {
+  const total = snapshot.candidates.length;
+  if (!snapshot.composing || total === 0) return false;
+  const pages = Math.ceil(total / CANDIDATES_PER_PAGE);
+  const page = Math.floor(snapshot.selected / CANDIDATES_PER_PAGE);
+  // 首尾环绕：第一页按 LB 直达最后一页（和 moveCandidate 的循环手感一致）
+  const target = (page + delta + pages) % pages;
+  const offset = snapshot.selected - page * CANDIDATES_PER_PAGE;
+  // 最后一页往往不满 9 颗：落点取「原来的位置」与「目标页实际颗数」的小者
+  const targetSize = Math.min(CANDIDATES_PER_PAGE, total - target * CANDIDATES_PER_PAGE);
+  snapshot = { ...snapshot, selected: target * CANDIDATES_PER_PAGE + Math.min(offset, targetSize - 1) };
   emit();
   return true;
 }

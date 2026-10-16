@@ -6,6 +6,7 @@ import {
   bindKeyboardClosedHook,
   closeGamepadKeyboard,
   fieldIsMultiline,
+  gamepadKeyboardLayout,
   gamepadKeyboardOpen,
   insertIntoField,
   moveDirectionalFocus,
@@ -14,6 +15,7 @@ import {
 import {
   bindKeyboardCloseRequest,
   bindKeyboardField,
+  CANDIDATES_PER_PAGE,
   cancelComposition,
   commitCandidate,
   displayComposing,
@@ -63,8 +65,23 @@ function Badge({ badge }: { badge: GamepadBadge }) {
   return <span className="hint-key-badge">{badge}</span>;
 }
 
+/**
+ * 数字小键盘（0.1.10 那把的老布局）：三行 1–9，底行「退格 / 0 / 完成」。
+ *
+ * **只有一个输入框用它**：软件库「添加ID获取封面」那个编号框（元素上标了
+ * `data-numeric-keyboard`，`openGamepadKeyboard` 靠它认出）。用户 2026-10-16 点名：
+ * 「只有这一个地方需要用数字键盘 其它的都用现在的全尺寸键盘」—— 所以不能拿
+ * `inputMode === "numeric"` 当判据（文件页批量改名的起始序号也是 numeric，但那儿要用全键盘）。
+ */
+const NUMPAD_ROWS: string[][] = [
+  ["1", "2", "3"],
+  ["4", "5", "6"],
+  ["7", "8", "9"],
+];
+
 export function GamepadKeyboard() {
   const open = useSyncExternalStore(subscribeGamepadKeyboard, gamepadKeyboardOpen);
+  const layout = useSyncExternalStore(subscribeGamepadKeyboard, gamepadKeyboardLayout);
   const { composing, candidates, selected, mode, shift, shiftLock, caps } = useKeyboardState();
   const tableState = usePinyinTable();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -106,11 +123,13 @@ export function GamepadKeyboard() {
     if (open) resetKeyboardInput();
   }, [open]);
 
-  // 面板刚出现：把焦点放进它自己的第一颗按键（否则摇杆还停在输入框上）
+  // 面板刚出现：把焦点放进它自己的第一颗按键（否则摇杆还停在输入框上）。
+  // 布局切换（全尺寸 ⇄ 数字小键盘，键盘不关直接换输入框）会整棵换掉键面，
+  // 焦点一样会掉出去 —— 所以布局也进依赖，重落一次。
   useLayoutEffect(() => {
     if (!open) return;
     rootRef.current?.querySelector<HTMLElement>("[data-focusable]")?.focus();
-  }, [open]);
+  }, [open, layout]);
 
   /*
    * 这里原来有一段：候选一变就把焦点**抢到第一颗候选**上（理由曾是「接着按 A 就是选第一个」）。
@@ -127,6 +146,54 @@ export function GamepadKeyboard() {
   const label = text().keyboard;
   const composingShown = displayComposing(composing);
   const layer: KeyboardLayer = shifted ? "upper" : "lower";
+
+  /*
+   * 候选分页（用户 2026-10-16）：每页最多 9 颗、序号固定 1–9，LB/RB 整页翻。
+   * 页从 `selected` 推出来（`pageCandidate` 翻页时挪的就是 `selected`），所以高亮永远
+   * 落在当前这一页里 —— 空格 / RT 确认的就是眼前这颗，显示与确认不会错位。
+   */
+  const pageCount = Math.max(1, Math.ceil(candidates.length / CANDIDATES_PER_PAGE));
+  const page = Math.min(Math.floor(selected / CANDIDATES_PER_PAGE), pageCount - 1);
+  const pageStart = page * CANDIDATES_PER_PAGE;
+  const visibleCandidates = candidates.slice(pageStart, pageStart + CANDIDATES_PER_PAGE);
+
+  /*
+   * 数字小键盘布局：只有封面 ID 那一个输入框用（见 `NUMPAD_ROWS`）。
+   * 数字照走 `pressKey` 这同一条路 —— 中文模式下数字本来就不进组字、直接上屏，
+   * 所以小键盘不需要自己的输入逻辑，也没有组字行 / 中英切换那几样。
+   */
+  if (layout === "numeric") {
+    return (
+      <div ref={rootRef} className="gamepad-keyboard" data-gamepad-keyboard role="group" aria-label={label.label}>
+        {NUMPAD_ROWS.map((row) => (
+          <div key={row[0]} className="gamepad-keyboard-row">
+            {row.map((digit) => (
+              <button
+                key={digit}
+                type="button"
+                className="gamepad-key"
+                data-focusable
+                onClick={() => pressKey(digit)}
+              >
+                {digit}
+              </button>
+            ))}
+          </div>
+        ))}
+        <div className="gamepad-keyboard-row">
+          <button type="button" className="gamepad-key" data-focusable onClick={() => pressBackspace()}>
+            {label.backspace}
+          </button>
+          <button type="button" className="gamepad-key" data-focusable onClick={() => pressKey("0")}>
+            0
+          </button>
+          <button type="button" className="gamepad-key" data-focusable onClick={() => closeGamepadKeyboard()}>
+            {label.done}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   /** 功能键按下时干什么。照片里带角标的那几颗都在这里接上。 */
   const pressWide = (id: Extract<Key, { kind: "wide" }>["id"]) => {
@@ -186,16 +253,20 @@ export function GamepadKeyboard() {
           <>
             <span className="gamepad-kb-pinyin">{composingShown}</span>
             <div className="gamepad-kb-candidates" role="listbox" aria-label={composingShown}>
-              {candidates.map((candidate, index) => (
+              {/*
+                只渲染**当前页**（最多 9 颗）：序号 1–9 对应数字键，超出的翻页再看。
+                旧版把整条候选从头到尾渲染成 1…无限，第 10 颗起没有数字键能选它。
+              */}
+              {visibleCandidates.map((candidate, index) => (
                 <button
                   key={candidate.text}
                   type="button"
                   role="option"
-                  aria-selected={index === selected}
+                  aria-selected={index + pageStart === selected}
                   data-focusable
                   data-candidate
-                  className={`gamepad-kb-candidate${index === selected ? " is-selected" : ""}`}
-                  onClick={() => commitCandidate(index)}
+                  className={`gamepad-kb-candidate${index + pageStart === selected ? " is-selected" : ""}`}
+                  onClick={() => commitCandidate(pageStart + index)}
                 >
                   <span className="gamepad-kb-cand-num" aria-hidden="true">
                     {index + 1}
@@ -205,6 +276,15 @@ export function GamepadKeyboard() {
                 </button>
               ))}
             </div>
+            {/*
+              页码指示只在真有多页时出现：用户得知道 LB/RB 有东西可翻。
+              一页就装下的（绝大多数短拼音）不给 —— 那是纯噪音。
+            */}
+            {pageCount > 1 ? (
+              <span className="gamepad-kb-page" aria-hidden="true">
+                {page + 1}/{pageCount}
+              </span>
+            ) : null}
           </>
         ) : (
           <span className="gamepad-kb-hint">
@@ -275,12 +355,12 @@ export function GamepadKeyboard() {
                 data-focusable
                 onClick={() => {
                   /*
-                   * 组字中按 `1`–`9` = 选第几颗候选（用户 2026-10-13：「联想词前面出现 1、2、
-                   * 3…一直到第九个，我移动到对应的数字键按下后，它就选第几个」）。
+                   * 组字中按 `1`–`9` = 选**当前页**里第几颗候选（用户 2026-10-13 点名数字键选词；
+                   * 2026-10-16 改成翻页制 —— 序号只到 9，更后面的用 LB/RB 翻页找）。
                    * 只在**组字中**这么解释；没组字时数字键还是打数字。
                    */
                   const bare = key.code ?? "";
-                  const pick = /^[1-9]$/.test(bare) ? Number(bare) - 1 : -1;
+                  const pick = /^[1-9]$/.test(bare) ? pageStart + Number(bare) - 1 : -1;
                   if (composing && pick >= 0 && pick < candidates.length) {
                     commitCandidate(pick);
                     return;

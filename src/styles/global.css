@@ -1237,6 +1237,18 @@ img.app-icon {
   color: var(--ink-4);
 }
 
+/*
+ * 候选条页码（「2/3」）：只在候选多于一页时出现 —— 用户得知道 LB/RB 有东西可翻。
+ * 一页装下的不给，那只是噪音。
+ */
+.gamepad-kb-page {
+  flex: 0 0 auto;
+  font-size: calc(12 * var(--dp));
+  color: var(--ink-4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* ── 修饰键状态指示灯（Shift / Caps）── */
 .gamepad-kb-mods {
   display: flex;

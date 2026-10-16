@@ -28,6 +28,7 @@ import {
   cancelComposition,
   gamepadKeyActions,
   moveCandidate,
+  pageCandidate,
   pressBackspace,
   pressKey,
   pressSpace,
@@ -432,13 +433,25 @@ export default function App() {
     // （为什么不用「押后判定」，见 useGamepadNav.ts 的 `viewGesture`）。
     viewGesture: "double",
     onBumperLeft: () => {
-      // 键盘开着时 LB/RB 是「翻候选」而不是「换页签」：候选条可能连着十几颗，
-      // 摇杆要从按键区挪过去得按好几下，翻页键一步到位（中文输入时的主路径）。
-      if (moveCandidate(-1)) return;
+      /*
+       * 键盘开着时 LB/RB 是「候选**翻页**」（用户 2026-10-16：「联想词每次最多显示9个
+       * 然后通过lb和rb键进行翻页显示」）—— 候选每页 9 颗、序号 1–9 对应数字键，
+       * 翻页键整页整页地翻；逐颗挪高亮那套退给物理键盘的左右方向键。
+       *
+       * 没在组字时**也不落回「换页签」**：键盘开着换页签会把正在编辑的输入框整个卸掉，
+       * 键盘就成了对着一个已经不存在的输入框打字。要换页签先按 B / 「完成」关键盘。
+       */
+      if (gamepadKeyboardOpen()) {
+        pageCandidate(-1);
+        return;
+      }
       shiftTab(-1);
     },
     onBumperRight: () => {
-      if (moveCandidate(1)) return;
+      if (gamepadKeyboardOpen()) {
+        pageCandidate(1);
+        return;
+      }
       shiftTab(1);
     },
     onView: () => {

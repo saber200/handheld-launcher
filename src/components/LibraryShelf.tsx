@@ -1148,6 +1148,9 @@ export function LibraryShelf<T extends Item>({
               value={coverDraft}
               placeholder={text().library.steamPlaceholder}
               inputMode="numeric"
+              // 全仓库唯一用数字小键盘的输入框（用户 2026-10-16：「只有这一个地方需要用
+              // 数字键盘」）：`openGamepadKeyboard` 靠这个标记选布局，别的地方照用全键盘。
+              data-numeric-keyboard
               maxLength={10}
               onChange={(event) => setCoverDraft(event.target.value.replace(/\D/g, ""))}
             />
